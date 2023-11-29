@@ -12,7 +12,7 @@ from scipy.stats import shapiro
 
 def gpkg_conn():
     print('gpkg_conn')
-    conn = sqlite3.connect(gpkg_path)  # , isolation_level=None)
+    conn = sqlite3.connect(gpkg_test)  # , isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.enable_load_extension(True)
     conn.load_extension('mod_spatialite')
@@ -69,7 +69,10 @@ dic_name_layer = {
     'Gdem': {'Cumi_Gdem_Z': 'Cumi_Ref_Z', 'Hid_Num_Gdem_Z': 'Hid_Num_Ref_Z'}}
 # rubberBand = QgsRubberBand(iface.QgsMapCanvas() ,QgsWkbTypes.LineGeometry)
 base_dir = r'C:\Users\adria\OneDrive\Materiais\Mestrado\UVF\CIV972_Materiais\Artigo\MG-Viçosa-20231107T232412Z-001\MG-Viçosa\Scripts'
-gpkg_path = os.path.join(base_dir, 'Test_CIV972.gpkg')
+gpkg_test = os.path.join(base_dir, 'Test_CIV972.gpkg')
+gpkg_ref = os.path.join(base_dir, 'Ref_CIV972.gpkg')
+root = QgsProject.instance().layerTreeRoot()
+layer_group = root.insertGroup(0, '__CIV972__')
 
 prefix_1 = "__Buffer_Test__"
 prj_crs = QgsProject.instance().crs()
@@ -100,46 +103,56 @@ options_.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteFile
 options_.layerName = prefix_1
 writer_ = QgsVectorFileWriter.writeAsVectorFormat(
     layer=layer_1,
-    fileName=gpkg_path,
+    fileName=gpkg_test,
     options=options_
 )
 # # conn = gpkg_conn()
-uri_ = f'{gpkg_path}|layername={prefix_1}'
+uri_ = f'{gpkg_test}|layername={prefix_1}'
 layer_bt = QgsVectorLayer(uri_, prefix_1, 'ogr')
+# concat( "Test_name" , ' - ',  "scale", 'K-',  "class" , '-',  "OUT_H" or  "OUT_V"  )
+style_path = os.path.join(os.path.dirname(gpkg_test), '__Buffer_Test__.qml')
+layer_bt.loadNamedStyle(style_path)
 # # conn.commit()
 # # conn.close()
 layer_bt.triggerRepaint()
-QgsProject.instance().addMapLayer(layer_bt, True)
+QgsProject.instance().addMapLayer(layer_bt, False)
+layer_group.addLayer(layer_bt)
 
 
-# prefix_2 = "__Buffer_Ref__"
-# layer_2 = QgsVectorLayer(f'polygon?crs={prj_crs.authid()}&index=yes', prefix_2, "memory")
-# schema_ = QgsFields()
-# schema_.append(QgsField('id_ref', QVariant.Int))
-# schema_.append(QgsField('Test_name', QVariant.String))
-# schema_.append(QgsField('Area_Ref', QVariant.Double))
-# pr_ = layer_2.dataProvider()
-# pr_.addAttributes(schema_)
-# layer_2.updateFields()
-#
-# options_ = QgsVectorFileWriter.SaveVectorOptions()
-# options_.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteFile
-# # options_.driverName = "GPKG"
-# options_.layerName = prefix_2
-# writer_ = QgsVectorFileWriter.writeAsVectorFormat(
-#     layer=layer_2,
-#     fileName=gpkg_path,
-#     options=options_
-# )
-# uri_ = f'{gpkg_path}|layername={prefix_2}'
-# layer_br = QgsVectorLayer(uri_, prefix_2, 'ogr')
-# # conn.commit()
-# layer_br.triggerRepaint()
-# QgsProject.instance().addMapLayer(layer_br, True)
+prefix_2 = "__Buffer_Ref__"
+layer_2 = QgsVectorLayer(f'polygon?crs={prj_crs.authid()}&index=yes', prefix_2, "memory")
+schema_ = QgsFields()
+schema_.append(QgsField('id_ref', QVariant.Int))
+schema_.append(QgsField('Test_name', QVariant.String))
+schema_.append(QgsField('scale', QVariant.Int))
+schema_.append(QgsField('class', QVariant.String))
+schema_.append(QgsField('Area_Ref', QVariant.Double))
+pr_ = layer_2.dataProvider()
+pr_.addAttributes(schema_)
+layer_2.updateFields()
+
+options_ = QgsVectorFileWriter.SaveVectorOptions()
+options_.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteFile
+# options_.driverName = "GPKG"
+options_.layerName = prefix_2
+writer_ = QgsVectorFileWriter.writeAsVectorFormat(
+    layer=layer_2,
+    fileName=gpkg_ref,
+    options=options_
+)
+uri_ = f'{gpkg_ref}|layername={prefix_2}'
+layer_br = QgsVectorLayer(uri_, prefix_2, 'ogr')
+# conn.commit()
+
+style_path = os.path.join(os.path.dirname(gpkg_ref), '__Buffer_Ref__.qml')
+layer_br.loadNamedStyle(style_path)
+layer_br.triggerRepaint()
+QgsProject.instance().addMapLayer(layer_br, False)
+layer_group.addLayer(layer_br)
 
 def gpkg_conn():
     print('gpkg_conn')
-    conn = sqlite3.connect(gpkg_path)  # , isolation_level=None)
+    conn = sqlite3.connect(gpkg_test)  # , isolation_level=None)
     conn.row_factory = sqlite3.Row
     conn.enable_load_extension(True)
     conn.load_extension('mod_spatialite')
@@ -235,20 +248,20 @@ for test_ in dic_name_layer:
                         geom_br = geom_r.buffer(pec_h, 20)
                         geom_bt = geom_t.buffer(pec_h, 20)
                         geom_i = geom_bt.intersection(geom_br)
-                        feat_bt = QgsFeature()
-                        feat_bt.setGeometry(geom_bt)
+                        # feat_bt = QgsFeature()
+                        # feat_bt.setGeometry(geom_bt)
                         dm_ = math.pi * pec_h * (geom_br.area() - geom_i.area()) / geom_bt.area()
-                        feat_bt.setAttributes([
-                            len(layer_bt) + 1,
-                            feat_r.id(),
-                            l_ref_name,
-                            test_,
-                            geom_bt.area(),
-                            geom_br.area(),
-                            geom_i.area(),
-                            dm_
-                        ])
-                        layer_bt.addFeature(feat_bt)
+                        # feat_bt.setAttributes([
+                        #     len(layer_bt) + 1,
+                        #     feat_r.id(),
+                        #     l_ref_name,
+                        #     test_,
+                        #     geom_bt.area(),
+                        #     geom_br.area(),
+                        #     geom_i.area(),
+                        #     dm_
+                        # ])
+                        # layer_bt.addFeature(feat_bt)
 
                         len_r = geom_r.length()
                         # print(feat_r.id(), geom_r.wkbType())
@@ -306,6 +319,18 @@ for test_ in dic_name_layer:
                         ])
                         layer_bt.addFeature(feat_bt)
 
+                        feat_br = QgsFeature()
+                        feat_br.setGeometry(geom_br)
+                        feat_br.setAttributes([
+                            len(layer_br) + 1,
+                            feat_r.id(),
+                            test_,
+                            scale_,
+                            class_,
+                            geom_br.area(),
+                        ])
+                        layer_bt.addFeature(feat_bt)
+
                         # QgsGeometry().a
                         # print(feat_t.id(), feat_r.id())
                         # pass
@@ -319,10 +344,10 @@ dic_stats = update_dic()
 for test_dsm in dic_stats:
     test_, scale_, class_ = test_dsm.split('-')
     scale_ = int(scale_)
-    pec_h = scale_ * dic_pec_mm['H'][class_]['pec']
-    ep_h = scale_ * dic_pec_mm['H'][class_]['ep']
-    pec_v = scale_ * dic_pec_mm['V'][class_]['pec']
-    ep_v = scale_ * dic_pec_mm['V'][class_]['ep']
+    pec_h = round(scale_ * dic_pec_mm['H'][class_]['pec'])
+    ep_h = round(scale_ * dic_pec_mm['H'][class_]['ep'])
+    pec_v = round(scale_ * dic_pec_mm['V'][class_]['pec'])
+    ep_v = round(scale_ * dic_pec_mm['V'][class_]['ep'])
     for tag_ in dic_stats[test_dsm]:
         if tag_ == 'ids':
             continue
