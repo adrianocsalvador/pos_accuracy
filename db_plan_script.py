@@ -4,11 +4,10 @@ import sqlite3
 import statistics
 
 from PyQt5.QtCore import QVariant
-from qgis._core import QgsFields, QgsField, QgsVectorFileWriter, QgsCoordinateReferenceSystem, \
-    QgsCoordinateTransformContext, QgsVectorLayer, QgsGeometry, QgsFeature, QgsPointXY
-from qgis.gui import QgsRubberBand, QgsMapCanvas
-from qgis.core import QgsSpatialIndex, QgsWkbTypes, QgsProject
-from qgis.utils import iface
+from qgis.core import (QgsFields, QgsField, QgsVectorFileWriter, QgsVectorLayer, QgsGeometry, QgsFeature, QgsPointXY,
+                       QgsSpatialIndex, QgsWkbTypes, QgsProject)
+
+from scipy.stats import shapiro
 
 
 def gpkg_conn():
@@ -190,7 +189,8 @@ def check_out(dic_stats):
 
 
 def check_norm(vet_):
-    return True
+    result_ = shapiro(vet_)
+    return True if result_[0] >= result_[1] else False
 
 
 def rms(vet_):
@@ -336,11 +336,13 @@ for test_dsm in dic_stats:
         if check_norm(vet_=list_):
             perc_pec_ = perc_pec(vet_=list_, pec_=pec_)
             if perc_pec_ >= 0.90:
-                print(test_dsm, tag_, round(perc_pec_ * 100), '% < ', pec_, ' PEC - OK')
+                print(test_dsm, tag_, round(perc_pec_ * 100), '% < ', pec_, ' PEC - OK', len(list_))
             else:
-                print(test_dsm, tag_, round(perc_pec_ * 100), '% > ', pec_, ' PEC - FALHOU')
+                print(test_dsm, tag_, round(perc_pec_ * 100), '% < ', pec_, ' PEC - FALHOU', len(list_))
             rms_ = rms(list_)
             if rms_ <= ep_:
-                print(test_dsm, tag_, round(rms_, 2), ' < ', ep_, ' EP - OK')
+                print(test_dsm, tag_, round(rms_, 2), ' < ', ep_, ' EP - OK', len(list_))
             else:
-                print(test_dsm, tag_, round(rms_, 2), ' > ', ep_, ' EP - FALHOU')
+                print(test_dsm, tag_, round(rms_, 2), ' > ', ep_, ' EP - FALHOU', len(list_))
+        else:
+            print(test_dsm, tag_, ' NORMALIDADE - FALHOU')
