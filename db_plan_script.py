@@ -112,6 +112,50 @@ def perc_pec(vet_, pec_):
             count_ += 1
     return count_ / len(vet_)
 
+def create_layer():
+    prefix_1 = "__Buffer_Test__"
+    prj_crs = QgsProject.instance().crs()
+    layer_1 = QgsVectorLayer(f'polygon?crs={prj_crs.authid()}&index=yes', prefix_1, "memory")
+    schema_ = QgsFields()
+    schema_.append(QgsField('id_ref', QVariant.Int))
+    schema_.append(QgsField('scale', QVariant.Int))
+    schema_.append(QgsField('class', QVariant.String))
+    schema_.append(QgsField('layer_ref', QVariant.String))
+    schema_.append(QgsField('Test_name', QVariant.String))
+    schema_.append(QgsField('Area_Test', QVariant.Double))
+    schema_.append(QgsField('Area_Ref', QVariant.Double))
+    schema_.append(QgsField('Area_Inter', QVariant.Double))
+    schema_.append(QgsField('DM_H', QVariant.Double))
+    schema_.append(QgsField('OUT_H', QVariant.Bool))
+    schema_.append(QgsField('Area_Test_Prof', QVariant.Double))
+    schema_.append(QgsField('Area_Ref_Prof', QVariant.Double))
+    schema_.append(QgsField('Area_Inter_Prof', QVariant.Double))
+    schema_.append(QgsField('DM_V', QVariant.Double))
+    schema_.append(QgsField('OUT_V', QVariant.Bool))
+    pr_ = layer_1.dataProvider()
+    pr_.addAttributes(schema_)
+    layer_1.updateFields()
+
+    options_ = QgsVectorFileWriter.SaveVectorOptions()
+    options_.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteFile
+    # options_.driverName = "GPKG"
+    options_.layerName = prefix_1
+    writer_ = QgsVectorFileWriter.writeAsVectorFormat(
+        layer=layer_1,
+        fileName=gpkg_test,
+        options=options_
+    )
+    # # conn = gpkg_conn()
+    uri_ = f'{gpkg_test}|layername={prefix_1}'
+    layer_bt = QgsVectorLayer(uri_, prefix_1, 'ogr')
+    # concat( "Test_name" , ' - ',  "scale", 'K-',  "class" , '-',  "OUT_H" or  "OUT_V"  )
+    style_path = os.path.join(os.path.dirname(gpkg_test), '__Buffer_Test__.qml')
+    layer_bt.loadNamedStyle(style_path)
+    # # conn.commit()
+    # # conn.close()
+    layer_bt.triggerRepaint()
+    QgsProject.instance().addMapLayer(layer_bt, False)
+    return layer_bt
 
 dic_pec_mm = {
     'H': {
@@ -119,95 +163,53 @@ dic_pec_mm = {
             'pec': 0.28,
             'ep': 0.17
         },
-        # 'B': {
-        #     'pec': 0.5,
-        #     'ep': 0.3
-        # },
-        # 'C': {
-        #     'pec': 0.8,
-        #     'ep': 0.5
-        # },
-        # 'D': {
-        #     'pec': 1.0,
-        #     'ep': 0.6
-        # },
+        'B': {
+            'pec': 0.5,
+            'ep': 0.3
+        },
+        'C': {
+            'pec': 0.8,
+            'ep': 0.5
+        },
+        'D': {
+            'pec': 1.0,
+            'ep': 0.6
+        },
     },
     'V': {
         'A': {
             'pec': 0.27,
             'ep': 0.17
         },
-        # 'B': {
-        #     'pec': 0.5,
-        #     'ep': 0.33
-        # },
-        # 'C': {
-        #     'pec': 0.6,
-        #     'ep': 0.4
-        # },
-        # 'D': {
-        #     'pec': 0.75,
-        #     'ep': 0.5
-        # },
+        'B': {
+            'pec': 0.5,
+            'ep': 0.33
+        },
+        'C': {
+            'pec': 0.6,
+            'ep': 0.4
+        },
+        'D': {
+            'pec': 0.75,
+            'ep': 0.5
+        },
     },
-
 }
-vet_scale = [100] # [100, 250]
+vet_scale = [50, 100, 250]
 
 dic_name_layer = {
-    # 'Topo': {'Cumi_Topo_Z': 'Cumi_Ref_Z', 'Hid_Num_Topo_Z': 'Hid_Num_Ref_Z'},
-    # 'SrtmX': {'Cumi_SRTMX_Z': 'Cumi_Ref_Z', 'Hid_Num_SRTMX_Z': 'Hid_Num_Ref_Z'},
-    'Gdem': {'Cumi_Gdem_Z': 'Cumi_Ref_Z'}} #, 'Hid_Num_Gdem_Z': 'Hid_Num_Ref_Z'}}
+    'Topo': {'Cumi_Topo_Z': 'Cumi_Ref_Z', 'Hid_Num_Topo_Z': 'Hid_Num_Ref_Z'},
+    'SrtmX': {'Cumi_Srtmx_Z': 'Cumi_Ref_Z', 'Hid_Num_Srtmx_Z': 'Hid_Num_Ref_Z'},
+    'Gdem': {'Cumi_Gdem_Z': 'Cumi_Ref_Z', 'Hid_Num_Gdem_Z': 'Hid_Num_Ref_Z'}}
 
 # rubberBand = QgsRubberBand(iface.QgsMapCanvas() ,QgsWkbTypes.LineGeometry)
 base_dir = r'C:\Users\adria\OneDrive\Materiais\Mestrado\UVF\CIV972_Materiais\Artigo\MG-Viçosa-20231107T232412Z-001\MG-Viçosa\Scripts'
 gpkg_test = os.path.join(base_dir, 'Test_CIV972.gpkg')
 gpkg_ref = os.path.join(base_dir, 'Ref_CIV972.gpkg')
+
 root = QgsProject.instance().layerTreeRoot()
 layer_group = root.insertGroup(0, '__CIV972__')
-
-prefix_1 = "__Buffer_Test__"
-prj_crs = QgsProject.instance().crs()
-layer_1 = QgsVectorLayer(f'polygon?crs={prj_crs.authid()}&index=yes', prefix_1, "memory")
-schema_ = QgsFields()
-schema_.append(QgsField('id_ref', QVariant.Int))
-schema_.append(QgsField('scale', QVariant.Int))
-schema_.append(QgsField('class', QVariant.String))
-schema_.append(QgsField('layer_ref', QVariant.String))
-schema_.append(QgsField('Test_name', QVariant.String))
-schema_.append(QgsField('Area_Test', QVariant.Double))
-schema_.append(QgsField('Area_Ref', QVariant.Double))
-schema_.append(QgsField('Area_Inter', QVariant.Double))
-schema_.append(QgsField('DM_H', QVariant.Double))
-schema_.append(QgsField('OUT_H', QVariant.Bool))
-schema_.append(QgsField('Area_Test_Prof', QVariant.Double))
-schema_.append(QgsField('Area_Ref_Prof', QVariant.Double))
-schema_.append(QgsField('Area_Inter_Prof', QVariant.Double))
-schema_.append(QgsField('DM_V', QVariant.Double))
-schema_.append(QgsField('OUT_V', QVariant.Bool))
-pr_ = layer_1.dataProvider()
-pr_.addAttributes(schema_)
-layer_1.updateFields()
-
-options_ = QgsVectorFileWriter.SaveVectorOptions()
-options_.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteFile
-# options_.driverName = "GPKG"
-options_.layerName = prefix_1
-writer_ = QgsVectorFileWriter.writeAsVectorFormat(
-    layer=layer_1,
-    fileName=gpkg_test,
-    options=options_
-)
-# # conn = gpkg_conn()
-uri_ = f'{gpkg_test}|layername={prefix_1}'
-layer_bt = QgsVectorLayer(uri_, prefix_1, 'ogr')
-# concat( "Test_name" , ' - ',  "scale", 'K-',  "class" , '-',  "OUT_H" or  "OUT_V"  )
-style_path = os.path.join(os.path.dirname(gpkg_test), '__Buffer_Test__.qml')
-layer_bt.loadNamedStyle(style_path)
-# # conn.commit()
-# # conn.close()
-layer_bt.triggerRepaint()
-QgsProject.instance().addMapLayer(layer_bt, False)
+layer_bt = create_layer()
 layer_group.addLayer(layer_bt)
 
 for test_ in dic_name_layer:
@@ -235,121 +237,138 @@ for test_ in dic_name_layer:
                     ep_h = scale_ * dic_pec_mm['H'][class_]['ep']
                     pec_v = scale_ * dic_pec_mm['V'][class_]['pec']
                     ep_v = scale_ * dic_pec_mm['V'][class_]['ep']
-                    if dist_ < 2 * pec_h:
+                    # if dist_ < 2 * pec_h:
 
-                        geom_bt = geom_t.buffer(pec_h, 20)
-                        feat_bt = QgsFeature()
-                        feat_bt.setGeometry(geom_bt)
+                    geom_bt = geom_t.buffer(pec_h, 20)
+                    feat_bt = QgsFeature()
+                    feat_bt.setGeometry(geom_bt)
 
-                        geom_br = geom_r.buffer(pec_h, 20)
-                        feat_br = QgsFeature()
-                        feat_br.setGeometry(geom_br)
+                    geom_br = geom_r.buffer(pec_h, 20)
+                    # feat_br = QgsFeature()
+                    # feat_br.setGeometry(geom_br)
 
-                        geom_i = geom_bt.intersection(geom_br)
+                    geom_i = geom_bt.intersection(geom_br)
 
-                        dm_ = math.pi * pec_h * (geom_br.area() - geom_i.area()) / geom_bt.area()
-                        if scale_ == vet_scale[0] and class_ == list(dic_pec_mm['H'])[0]:
-                            len_r = geom_r.length()
+                    dm_ = math.pi * pec_h * (geom_br.area() - geom_i.area()) / geom_bt.area()
+                    if scale_ == vet_scale[0] and class_ == list(dic_pec_mm['H'])[0]:
+                        len_r = geom_r.length()
+                        wkbt_ = geom_r.wkbType()
+                        if wkbt_ == QgsWkbTypes.LineString or wkbt_ == QgsWkbTypes.LineStringZ:
+                            ps_r = geom_r.constGet().points()
+                        else:
                             ps_r = geom_r.constGet()[0].points()
-                            list_prof_r = []
-                            list_prog_cota_r = []
-                            for p_ in ps_r:
-                                dist_ = geom_r.lineLocatePoint(QgsGeometry(p_))
-                                z_ = p_.z()
-                                list_prof_r.append(QgsPointXY(dist_, z_))
-                                list_prog_cota_r.append([dist_, z_])
-                            geom_prof_r = QgsGeometry().fromPolylineXY(list_prof_r)
+                        gpr0 = QgsGeometry().fromPointXY(QgsPointXY(ps_r[0]))
+                        gpr1 = QgsGeometry().fromPointXY(QgsPointXY(ps_r[-1]))
+                        list_prof_r = []
+                        list_prog_cota_r = []
+                        for p_ in ps_r:
+                            dist_ = round(geom_r.lineLocatePoint(QgsGeometry(p_)), 2)
+                            z_ = round(p_.z(), 2)
+                            list_prof_r.append(QgsPointXY(dist_ + 10000, z_))
+                            list_prog_cota_r.append([dist_ + 10000, z_])
+                        geom_prof_r = QgsGeometry().fromPolylineXY(list_prof_r)
 
-                            len_t = geom_t.length()
-                            # print(feat_t.id(), geom_t.wkbType(), QgsWkbTypes.LineString)
+                        len_t = geom_t.length()
 
-                            if geom_t.wkbType() == QgsWkbTypes.LineString or geom_t.wkbType() == QgsWkbTypes.LineStringZ:
-                                # print(geom_t)
-                                # continue
-                                ps_t = geom_t.constGet().points()
+                        if geom_t.wkbType() == QgsWkbTypes.LineString or geom_t.wkbType() == QgsWkbTypes.LineStringZ:
+                            ps_t = geom_t.constGet().points()
+                        else:
+                            ps_t = geom_t.constGet()[0].points()
+                        list_prof_t = []
+                        list_prog_cota_t = []
+                        k_t = len_r / len_t
+                        gpt0 = QgsGeometry().fromPointXY(QgsPointXY(ps_t[0]))
+                        if gpt0.distance(gpr0) > gpt0.distance(gpr1):
+                            ci = True
+                        else:
+                            ci = False
+                        for p_ in ps_t:
+                            if feat_r.id() == 8:
+                                print(p_)
+                            # print(p_)
+                            z_ = round(p_.z(), 2)
+                            dist_ = geom_t.lineLocatePoint(QgsGeometry(p_))
+                            if ci:
+                                dist_ = round((len_t - dist_) * k_t, 2)
                             else:
-                                # print(geom_t.constGet())
-                                ps_t = geom_t.constGet()[0].points()
-                            list_prof_t = []
-                            list_prog_cota_t = []
-                            k_t = len_r / len_t
-                            gpt0 = QgsGeometry(ps_t[0])
-                            gpr0 = QgsGeometry(ps_r[0])
-                            gpr1 = QgsGeometry(ps_r[-1])
-                            if gpt0.distance(gpr0) > gpt0.distance(gpr1):
-                                ci = True
-                            else:
-                                ci = False
-                            for p_ in ps_t:
-                                # print(p_)
-                                dist_ = geom_t.lineLocatePoint(QgsGeometry(p_))
-                                if ci:
-                                    dist_ = (len_t - dist_) * k_t
-                                else:
-                                    dist_ = dist_ * k_t
-                                z_ = p_.z()
-                                # list_prof_t.append(QgsPointXY(dist_, z_))
-                                list_prog_cota_t.append([dist_, z_])
-                            list_prog_cota_t.sort()
-                            list_prof_t = [QgsPointXY(vet_[0], vet_[1]) for vet_ in list_prog_cota_t]
-                            geom_prof_t = QgsGeometry().fromPolylineXY(list_prof_t)
-                            # print(list_prof_t)
-                            with open(path_txt_profile, 'a') as prof_file:
-                                prof_file.write(f'\n {l_ref_name} - {feat_r.id()}\n')
-                                for r_, t_ in zip_longest(list_prog_cota_r, list_prog_cota_t):
-                                    prof_file.write(
-                                        f'{round(r_[0], 2) if r_ else ""}; {round(r_[1], 2) if r_ else ""}; {round(t_[0], 2) if t_ else ""}; {round(t_[1], 2) if t_ else ""}; \n')
-                        geom_prof_br = geom_prof_r.buffer(pec_v, 20)
-                        geom_prof_bt = geom_prof_t.buffer(pec_v, 20)
+                                dist_ = round(dist_ * k_t, 2)
 
-                        geom_prof_i = geom_prof_bt.intersection(geom_prof_br)
-                        dm_prof = math.pi * pec_v * (geom_prof_br.area() - geom_prof_i.area()) / geom_prof_bt.area()
+                            # list_prof_t.append(QgsPointXY(dist_, z_))
+                            if not list_prog_cota_t:
+                                list_prog_cota_t.append([dist_ + 10000, z_])
+                            elif dist_ != list_prog_cota_t[-1][0]:
+                                list_prog_cota_t.append([dist_ + 10000, z_])
+                        list_prog_cota_t = sorted(list_prog_cota_t)
+                        list_prof_t = []
 
-                        feat_bt.setAttributes([
-                            len(layer_bt) + 1,
-                            feat_r.id(),
-                            scale_,
-                            class_,
-                            l_ref_name,
-                            test_,
-                            geom_bt.area(),
-                            geom_br.area(),
-                            geom_i.area(),
-                            dm_,
-                            False,
-                            geom_prof_bt.area(),
-                            geom_prof_br.area(),
-                            geom_prof_i.area(),
-                            dm_prof,
-                            False
-                        ])
-                        layer_bt.addFeature(feat_bt)
-                        layer_bt.commitChanges(stopEditing=False)
+                        for vet_ in list_prog_cota_t:
+                            if feat_r.id() == 8:
+                                print(vet_)
+                            list_prof_t.append(QgsPointXY(float(vet_[0]), float(vet_[1])))
+                        geom_prof_t = QgsGeometry().fromPolylineXY(list_prof_t)
+                        with open(path_txt_profile, 'a') as prof_file:
+                            prof_file.write(f'\n {l_ref_name} - {feat_r.id()} | len(r) = {len_r} | len(t) {len_t}\n')
+                            for r_, t_ in zip_longest(list_prog_cota_r, list_prog_cota_t):
+                                prof_file.write(
+                                    f'{round(r_[0], 2) if r_ else ""}; {round(r_[1], 2) if r_ else ""}; {round(t_[0], 2) if t_ else ""}; {round(t_[1], 2) if t_ else ""}; \n')
+                    geom_prof_br = geom_prof_r.buffer(pec_v, 20)
+                    geom_prof_bt = geom_prof_t.buffer(pec_v, 20)
+                    # print('geom_prof_bt=', geom_prof_bt)
 
-                                # list_att_br = [
-                                #     len(layer_br) + 1,
-                                #     feat_r.id(),
-                                #     test_,
-                                #     scale_,
-                                #     class_,
-                                #     geom_br.area()
-                                # ]
-                                # # print('list_att_br=', list_att_br)
-                                # # feat_br.setAttributes([len(layer_br) + 1, feat_r.id()])
-                                # layer_br.addFeature(feat_br)
-                                # layer_br.commitChanges(stopEditing=False)
+                    geom_prof_i = geom_prof_bt.intersection(geom_prof_br)
+                    # print('pec_v =', pec_v, geom_prof_br.area(), geom_prof_i.area(), geom_prof_bt.area())
+                    dm_prof = math.pi * pec_v * (geom_prof_br.area() - geom_prof_i.area()) / geom_prof_bt.area() if geom_prof_bt.area() else 1
 
-                                # QgsGeometry().a
-                                # print(feat_t.id(), feat_r.id())
-                                # pass
-                            # print(feat_r)
-                        # print(l_test_name, l_test_name)
+                    feat_bt.setAttributes([
+                        len(layer_bt) + 1,
+                        feat_r.id(),
+                        scale_,
+                        class_,
+                        l_ref_name,
+                        test_,
+                        geom_bt.area(),
+                        geom_br.area(),
+                        geom_i.area(),
+                        dm_,
+                        False,
+                        geom_prof_bt.area(),
+                        geom_prof_br.area(),
+                        geom_prof_i.area(),
+                        dm_prof,
+                        False
+                    ])
+                    layer_bt.addFeature(feat_bt)
+                    layer_bt.commitChanges(stopEditing=False)
+                    layer_bt.triggerRepaint()
+
+
+                            # list_att_br = [
+                            #     len(layer_br) + 1,
+                            #     feat_r.id(),
+                            #     test_,
+                            #     scale_,
+                            #     class_,
+                            #     geom_br.area()
+                            # ]
+                            # # print('list_att_br=', list_att_br)
+                            # # feat_br.setAttributes([len(layer_br) + 1, feat_r.id()])
+                            # layer_br.addFeature(feat_br)
+                            # layer_br.commitChanges(stopEditing=False)
+
+                            # QgsGeometry().a
+                            # print(feat_t.id(), feat_r.id())
+                            # pass
+                        # print(feat_r)
+                    # print(l_test_name, l_test_name)
         layer_bt.commitChanges()
         # layer_br.commitChanges()
 dic_stats = update_dic()
 check_out(dic_stats)
 dic_stats = update_dic()
 
+path_result = os.path.join(os.path.dirname(gpkg_test), 'Results.txt')
+with open(path_result, 'w') as file_result:
+    file_result.write('')
 for test_dsm in dic_stats:
     test_, scale_, class_ = test_dsm.split('-')
     scale_ = int(scale_)
@@ -357,6 +376,8 @@ for test_dsm in dic_stats:
     ep_h = round(scale_ * dic_pec_mm['H'][class_]['ep'])
     pec_v = round(scale_ * dic_pec_mm['V'][class_]['pec'])
     ep_v = round(scale_ * dic_pec_mm['V'][class_]['ep'])
+    with open(path_result, 'a') as file_result:
+        file_result.write(test_dsm)
     for tag_ in dic_stats[test_dsm]:
         if tag_ == 'ids':
             continue
@@ -370,13 +391,22 @@ for test_dsm in dic_stats:
         if check_norm(vet_=list_):
             perc_pec_ = perc_pec(vet_=list_, pec_=pec_)
             if perc_pec_ >= 0.90:
+                str_ = f"{test_dsm}, {tag_}, {round(perc_pec_ * 100)}, '% < ', {pec_}, ' PEC - OK', {len(list_)}\n"
                 print(test_dsm, tag_, round(perc_pec_ * 100), '% < ', pec_, ' PEC - OK', len(list_))
             else:
+                str_ = f"{test_dsm}, {tag_}, {round(perc_pec_ * 100)}, '% < ', {pec_}, ' PEC - FALHOU', {len(list_)}\n"
                 print(test_dsm, tag_, round(perc_pec_ * 100), '% < ', pec_, ' PEC - FALHOU', len(list_))
             rms_ = rms(list_)
             if rms_ <= ep_:
+                str_ += f'{test_dsm}, {tag_}, {round(rms_, 2)}, " < ", {ep_}, " EP - OK", {len(list_)}\n'
                 print(test_dsm, tag_, round(rms_, 2), ' < ', ep_, ' EP - OK', len(list_))
             else:
+                str_ += f'{test_dsm}, {tag_}, {round(rms_, 2)}, " > ", {ep_}, " EP - FALHOU", {len(list_)}\n'
                 print(test_dsm, tag_, round(rms_, 2), ' > ', ep_, ' EP - FALHOU', len(list_))
         else:
+            str_ = f"{test_dsm}, {tag_}, NORMALIDADE - FALHOU\n"
             print(test_dsm, tag_, ' NORMALIDADE - FALHOU')
+        with open(path_result, 'a') as file_result:
+            file_result.write(str_)
+with open(path_result, 'a') as file_result:
+    file_result.write('\n\n')
