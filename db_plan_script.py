@@ -59,10 +59,11 @@ def update_dic():
             continue
         test_dsm = f"{feat_['Test_name']}-{feat_['scale']}-{feat_['class']}"
         if test_dsm not in dic_stats:
-            dic_stats[test_dsm] = {'ids': [], 'dm_h': [], 'dm_v': []}
+            dic_stats[test_dsm] = {'ids': [], 'dm_h': [], 'dm_v': [], 'd_cota': []}
         dic_stats[test_dsm]['ids'].append(feat_.id())
         dic_stats[test_dsm]['dm_h'].append(feat_['DM_H'])
         dic_stats[test_dsm]['dm_v'].append(feat_['DM_V'])
+        dic_stats[test_dsm]['d_cota'].append(feat_['Cota_Media_t'] - feat_['Cota_Media_r'])
     return dic_stats
 
 
@@ -70,7 +71,7 @@ def check_out(dic_stats):
     for test_dsm in dic_stats:
         for tag_ in dic_stats[test_dsm]:
             list_out_l = []
-            if tag_ == 'ids':
+            if tag_ == 'ids' or tag_ == 'd_cota':
                 continue
             list_ = dic_stats[test_dsm][tag_]
             list_ids = dic_stats[test_dsm]['ids']
@@ -104,7 +105,6 @@ def rms(vet_):
     rms_ = (sun_ / (len(vet_) - 1)) ** 0.5
     return rms_
 
-
 def perc_pec(vet_, pec_):
     count_ = 0
     for v_ in vet_:
@@ -132,6 +132,8 @@ def create_layer():
     schema_.append(QgsField('Area_Inter_Prof', QVariant.Double))
     schema_.append(QgsField('DM_V', QVariant.Double))
     schema_.append(QgsField('OUT_V', QVariant.Bool))
+    schema_.append(QgsField('Cota_Media_r', QVariant.Double))
+    schema_.append(QgsField('Cota_Media_t', QVariant.Double))
     pr_ = layer_1.dataProvider()
     pr_.addAttributes(schema_)
     layer_1.updateFields()
@@ -261,12 +263,15 @@ for test_ in dic_name_layer:
                         gpr1 = QgsGeometry().fromPointXY(QgsPointXY(ps_r[-1]))
                         list_prof_r = []
                         list_prog_cota_r = []
+                        list_cota_r = []
                         for p_ in ps_r:
                             dist_ = round(geom_r.lineLocatePoint(QgsGeometry(p_)), 2)
                             z_ = round(p_.z(), 2)
                             list_prof_r.append(QgsPointXY(dist_ + 10000, z_))
                             list_prog_cota_r.append([dist_ + 10000, z_])
+                            list_cota_r.append(z_)
                         geom_prof_r = QgsGeometry().fromPolylineXY(list_prof_r)
+
 
                         len_t = geom_t.length()
 
@@ -276,6 +281,7 @@ for test_ in dic_name_layer:
                             ps_t = geom_t.constGet()[0].points()
                         list_prof_t = []
                         list_prog_cota_t = []
+                        list_cota_t = []
                         k_t = len_r / len_t
                         gpt0 = QgsGeometry().fromPointXY(QgsPointXY(ps_t[0]))
                         if gpt0.distance(gpr0) > gpt0.distance(gpr1):
@@ -296,8 +302,10 @@ for test_ in dic_name_layer:
                             # list_prof_t.append(QgsPointXY(dist_, z_))
                             if not list_prog_cota_t:
                                 list_prog_cota_t.append([dist_ + 10000, z_])
+                                list_cota_t.append(z_)
                             elif dist_ != list_prog_cota_t[-1][0]:
                                 list_prog_cota_t.append([dist_ + 10000, z_])
+                                list_cota_t.append(z_)
                         list_prog_cota_t = sorted(list_prog_cota_t)
                         list_prof_t = []
 
@@ -306,8 +314,11 @@ for test_ in dic_name_layer:
                                 print(vet_)
                             list_prof_t.append(QgsPointXY(float(vet_[0]), float(vet_[1])))
                         geom_prof_t = QgsGeometry().fromPolylineXY(list_prof_t)
+                        cm_r = statistics.mean(list_cota_r)
+                        cm_t = statistics.mean(list_cota_t)
                         with open(path_txt_profile, 'a') as prof_file:
-                            prof_file.write(f'\n {l_ref_name} - {feat_r.id()} | len(r) = {len_r} | len(t) {len_t}\n')
+                            prof_file.write(f'\n {l_ref_name} - {feat_r.id()} | len(r) = {len_r} | len(t) {len_t}\n'
+                                            f'Cota_Media_r {cm_r} | Cota_Media_t {cm_t}\n')
                             for r_, t_ in zip_longest(list_prog_cota_r, list_prog_cota_t):
                                 prof_file.write(
                                     f'{round(r_[0], 2) if r_ else ""}; {round(r_[1], 2) if r_ else ""}; {round(t_[0], 2) if t_ else ""}; {round(t_[1], 2) if t_ else ""}; \n')
@@ -335,7 +346,9 @@ for test_ in dic_name_layer:
                         geom_prof_br.area(),
                         geom_prof_i.area(),
                         dm_prof,
-                        False
+                        False,
+                        cm_r,
+                        cm_t
                     ])
                     layer_bt.addFeature(feat_bt)
                     layer_bt.commitChanges(stopEditing=False)
@@ -377,18 +390,20 @@ for test_dsm in dic_stats:
     pec_v = round(scale_ * dic_pec_mm['V'][class_]['pec'])
     ep_v = round(scale_ * dic_pec_mm['V'][class_]['ep'])
     with open(path_result, 'a') as file_result:
-        file_result.write(test_dsm)
+        file_result.write(f'\n{test_dsm}\n')
     for tag_ in dic_stats[test_dsm]:
-        if tag_ == 'ids':
-            continue
-        elif tag_ == 'dm_h':
+        if tag_ == 'dm_h':
             pec_ = pec_h
             ep_ = ep_h
-        else:
+        elif tag_ == 'dm_v':
             pec_ = pec_v
             ep_ = ep_v
+        elif tag_ == 'ids':
+            continue
         list_ = dic_stats[test_dsm][tag_]
-        if check_norm(vet_=list_):
+        if tag_ == 'd_cota':
+            str_ = f"{test_dsm}, {tag_}, d_cota_media = {round(statistics.mean(list_), 1)}\n"
+        elif check_norm(vet_=list_):
             perc_pec_ = perc_pec(vet_=list_, pec_=pec_)
             if perc_pec_ >= 0.90:
                 str_ = f"{test_dsm}, {tag_}, {round(perc_pec_ * 100)}, '% < ', {pec_}, ' PEC - OK', {len(list_)}\n"
