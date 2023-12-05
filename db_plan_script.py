@@ -1,3 +1,5 @@
+# script utilizado para classificação de MDEs (Aster GDEM, SRTM-X e TOPODATA) quanto ao padrão de extidão cartográfica,
+# PEC-PCD, planimético e altimétrico, utilizando feições lineares pelo método do buffer duplo
 import math
 import os
 import sqlite3
@@ -197,6 +199,65 @@ dic_pec_mm = {
         },
     },
 }
+dic_pec_v = {
+
+    50: {
+        'A': {
+            'pec': 5.0,
+            'ep': 3.33
+        },
+        'B': {
+            'pec': 10.0,
+            'ep': 6.66
+        },
+        'C': {
+            'pec': 12.0,
+            'ep': 8.0
+        },
+        'D': {
+            'pec': 15.0,
+            'ep': 10.0
+        },
+    },
+    100: {
+        'A': {
+            'pec': 13.7,
+            'ep': 8.33
+        },
+        'B': {
+            'pec': 25.00,
+            'ep': 16.66
+        },
+        'C': {
+            'pec': 30.0,
+            'ep': 20.0
+        },
+        'D': {
+            'pec': 37.5,
+            'ep': 25.0
+        },
+    },
+    250: {
+        'A': {
+            'pec': 27.0,
+            'ep': 16.67
+        },
+        'B': {
+            'pec': 50.0,
+            'ep': 33.33
+        },
+        'C': {
+            'pec': 60.0,
+            'ep': 40.0
+        },
+        'D': {
+            'pec': 75.0,
+            'ep': 50.0
+        },
+    },
+
+}
+
 vet_scale = [50, 100, 250]
 
 dic_name_layer = {
@@ -237,8 +298,8 @@ for test_ in dic_name_layer:
                 for class_ in dic_pec_mm['H']:
                     pec_h = scale_ * dic_pec_mm['H'][class_]['pec']
                     ep_h = scale_ * dic_pec_mm['H'][class_]['ep']
-                    pec_v = scale_ * dic_pec_mm['V'][class_]['pec']
-                    ep_v = scale_ * dic_pec_mm['V'][class_]['ep']
+                    pec_v = dic_pec_v[scale_][class_]['pec']
+                    ep_v = dic_pec_v[scale_][class_]['ep']
                     # if dist_ < 2 * pec_h:
 
                     geom_bt = geom_t.buffer(pec_h, 20)
@@ -385,10 +446,10 @@ with open(path_result, 'w') as file_result:
 for test_dsm in dic_stats:
     test_, scale_, class_ = test_dsm.split('-')
     scale_ = int(scale_)
-    pec_h = round(scale_ * dic_pec_mm['H'][class_]['pec'])
-    ep_h = round(scale_ * dic_pec_mm['H'][class_]['ep'])
-    pec_v = round(scale_ * dic_pec_mm['V'][class_]['pec'])
-    ep_v = round(scale_ * dic_pec_mm['V'][class_]['ep'])
+    pec_h = round(scale_ * dic_pec_mm['H'][class_]['pec'], 2)
+    ep_h = round(scale_ * dic_pec_mm['H'][class_]['ep'], 2)
+    pec_v = round(dic_pec_v[scale_][class_]['pec'], 2)
+    ep_v = round(dic_pec_v[scale_][class_]['ep'], 2)
     with open(path_result, 'a') as file_result:
         file_result.write(f'\n{test_dsm}\n')
     for tag_ in dic_stats[test_dsm]:
@@ -407,7 +468,7 @@ for test_dsm in dic_stats:
             perc_pec_ = perc_pec(vet_=list_, pec_=pec_)
             if perc_pec_ >= 0.90:
                 str_ = f"{test_dsm}, {tag_}, {round(perc_pec_ * 100)}, '% < ', {pec_}, ' PEC - OK', {len(list_)}\n"
-                print(test_dsm, tag_, round(perc_pec_ * 100), '% < ', pec_, ' PEC - OK', len(list_))
+                print(test_dsm, tag_, round(perc_pec_ * 100, 1), '% < ', pec_, ' PEC - OK', len(list_))
             else:
                 str_ = f"{test_dsm}, {tag_}, {round(perc_pec_ * 100)}, '% < ', {pec_}, ' PEC - FALHOU', {len(list_)}\n"
                 print(test_dsm, tag_, round(perc_pec_ * 100), '% < ', pec_, ' PEC - FALHOU', len(list_))
