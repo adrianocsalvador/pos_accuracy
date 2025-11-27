@@ -1,0 +1,170 @@
+
+ANADEM-50-A
+ANADEM-50-A, dm_h, 1, '% < ', 14.0, ' PEC - FALHOU', 73
+ANADEM-50-A, dm_h, 28.05, " > ", 8.5, " EP - FALHOU", 73
+ANADEM-50-A, dm_v, 25, '% < ', 5.0, ' PEC - FALHOU', 73
+ANADEM-50-A, dm_v, 9.4, " > ", 3.33, " EP - FALHOU", 73
+ANADEM-50-A, d_cota, d_cota_media = 1.8
+
+ANADEM-50-B
+ANADEM-50-B, dm_h, 23, '% < ', 25.0, ' PEC - FALHOU', 69
+ANADEM-50-B, dm_h, 34.48, " > ", 15.0, " EP - FALHOU", 69
+ANADEM-50-B, dm_v, 54, '% < ', 10.0, ' PEC - FALHOU', 69
+ANADEM-50-B, dm_v, 12.25, " > ", 6.66, " EP - FALHOU", 69
+ANADEM-50-B, d_cota, d_cota_media = 1.4
+
+ANADEM-50-C
+ANADEM-50-C, dm_h, 67, '% < ', 40.0, ' PEC - FALHOU', 69
+ANADEM-50-C, dm_h, 37.73, " > ", 25.0, " EP - FALHOU", 69
+ANADEM-50-C, dm_v, 62, '% < ', 12.0, ' PEC - FALHOU', 69
+ANADEM-50-C, dm_v, 13.29, " > ", 8.0, " EP - FALHOU", 69
+ANADEM-50-C, d_cota, d_cota_media = 1.4
+
+ANADEM-50-D
+ANADEM-50-D, dm_h, 85, '% < ', 50.0, ' PEC - FALHOU', 67
+ANADEM-50-D, dm_h, 38.78, " > ", 30.0, " EP - FALHOU", 67
+ANADEM-50-D, dm_v, 76, '% < ', 15.0, ' PEC - FALHOU', 67
+ANADEM-50-D, dm_v, 13.45, " > ", 10.0, " EP - FALHOU", 67
+ANADEM-50-D, d_cota, d_cota_media = 1.7
+
+ANADEM-100-A
+ANADEM-100-A, dm_h, 32, '% < ', 28.0, ' PEC - FALHOU', 69
+ANADEM-100-A, dm_h, 35.39, " > ", 17.0, " EP - FALHOU", 69
+ANADEM-100-A, dm_v, 71, '% < ', 13.7, ' PEC - FALHOU', 69
+ANADEM-100-A, dm_v, 14.08, " > ", 8.33, " EP - FALHOU", 69
+ANADEM-100-A, d_cota, d_cota_media = 1.4
+
+ANADEM-100-B
+ANADEM-100-B, dm_h, 85, '% < ', 50.0, ' PEC - FALHOU', 67
+ANADEM-100-B, dm_h, 38.78, " > ", 30.0, " EP - FALHOU", 67
+ANADEM-100-B, dm_v, 90, '% < ', 25.0, ' PEC - FALHOU', 67
+ANADEM-100-B, dm_v, 16.41, " < ", 16.66, " EP - OK", 67
+ANADEM-100-B, d_cota, d_cota_media = 1.7
+
+ANADEM-100-C
+ANADEM-100-C, dm_h, 99, '% < ', 80.0, ' PEC - OK', 67
+ANADEM-100-C, dm_h, 41.35, " < ", 50.0, " EP - OK", 67
+ANADEM-100-C, dm_v, 94, '% < ', 30.0, ' PEC - OK', 67
+ANADEM-100-C, dm_v, 17.82, " < ", 20.0, " EP - OK", 67
+ANADEM-100-C, d_cota, d_cota_media = 1.7
+
+ANADEM-100-D
+ANADEM-100-D, dm_h, 100, '% < ', 100.0, ' PEC - OK', 68
+ANADEM-100-D, dm_h, 42.66, " < ", 60.0, " EP - OK", 68
+ANADEM-100-D, dm_v, 96, '% < ', 37.5, ' PEC - OK', 68
+ANADEM-100-D, dm_v, 20.69, " < ", 25.0, " EP - OK", 68
+ANADEM-100-D, d_cota, d_cota_media = 1.6
+
+ANADEM-250-A
+ANADEM-250-A, dm_h, 96, '% < ', 70.0, ' PEC - OK', 67
+ANADEM-250-A, dm_h, 40.54, " < ", 42.5, " EP - OK", 67
+ANADEM-250-A, dm_v, 93, '% < ', 27.0, ' PEC - OK', 67
+ANADEM-250-A, dm_v, 16.97, " > ", 16.67, " EP - FALHOU", 67
+ANADEM-250-A, d_cota, d_cota_media = 1.7
+
+ANADEM-250-B
+ANADEM-250-B, dm_h, 100, '% < ', 125.0, ' PEC - OK', 68
+ANADEM-250-B, dm_h, 44.5, " < ", 75.0, " EP - OK", 68
+ANADEM-250-B, dm_v, 97, '% < ', 50.0, ' PEC - OK', 68
+ANADEM-250-B, dm_v, 24.19, " < ", 33.33, " EP - OK", 68
+ANADEM-250-B, d_cota, d_cota_media = 1.6
+
+ANADEM-250-C
+ANADEM-250-C, dm_h, 100, '% < ', 200.0, ' PEC - OK', 70
+ANADEM-250-C, dm_h, 51.92, " < ", 125.0, " EP - OK", 70
+ANADEM-250-C, dm_v, 96, '% < ', 60.0, ' PEC - OK', 70
+ANADEM-250-C, dm_v, 28.86, " < ", 40.0, " EP - OK", 70
+ANADEM-250-C, d_cota, d_cota_media = 2.1
+
+ANADEM-250-D
+ANADEM-250-D, dm_h, 100, '% < ', 250.0, ' PEC - OK', 70
+ANADEM-250-D, dm_h, 55.52, " < ", 150.0, " EP - OK", 70
+ANADEM-250-D, dm_v, 99, '% < ', 75.0, ' PEC - OK', 70
+ANADEM-250-D, dm_v, 33.22, " < ", 50.0, " EP - OK", 70
+ANADEM-250-D, d_cota, d_cota_media = 2.1
+
+NASADEM-50-A
+NASADEM-50-A, dm_h, 0, '% < ', 14.0, ' PEC - FALHOU', 73
+NASADEM-50-A, dm_h, 29.51, " > ", 8.5, " EP - FALHOU", 73
+NASADEM-50-A, dm_v, 16, '% < ', 5.0, ' PEC - FALHOU', 73
+NASADEM-50-A, dm_v, 10.1, " > ", 3.33, " EP - FALHOU", 73
+NASADEM-50-A, d_cota, d_cota_media = 2.0
+
+NASADEM-50-B
+NASADEM-50-B, dm_h, 19, '% < ', 25.0, ' PEC - FALHOU', 73
+NASADEM-50-B, dm_h, 37.35, " > ", 15.0, " EP - FALHOU", 73
+NASADEM-50-B, dm_v, 45, '% < ', 10.0, ' PEC - FALHOU', 73
+NASADEM-50-B, dm_v, 14.5, " > ", 6.66, " EP - FALHOU", 73
+NASADEM-50-B, d_cota, d_cota_media = 1.3
+
+NASADEM-50-C
+NASADEM-50-C, dm_h, 59, '% < ', 40.0, ' PEC - FALHOU', 73
+NASADEM-50-C, dm_h, 42.09, " > ", 25.0, " EP - FALHOU", 73
+NASADEM-50-C, dm_v, 53, '% < ', 12.0, ' PEC - FALHOU', 73
+NASADEM-50-C, dm_v, 15.92, " > ", 8.0, " EP - FALHOU", 73
+NASADEM-50-C, d_cota, d_cota_media = 1.3
+
+NASADEM-50-D
+NASADEM-50-D, dm_h, 71, '% < ', 50.0, ' PEC - FALHOU', 73
+NASADEM-50-D, dm_h, 43.8, " > ", 30.0, " EP - FALHOU", 73
+NASADEM-50-D, dm_v, 63, '% < ', 15.0, ' PEC - FALHOU', 73
+NASADEM-50-D, dm_v, 17.73, " > ", 10.0, " EP - FALHOU", 73
+NASADEM-50-D, d_cota, d_cota_media = 1.3
+
+NASADEM-100-A
+NASADEM-100-A, dm_h, 22, '% < ', 28.0, ' PEC - FALHOU', 73
+NASADEM-100-A, dm_h, 38.65, " > ", 17.0, " EP - FALHOU", 73
+NASADEM-100-A, dm_v, 58, '% < ', 13.7, ' PEC - FALHOU', 73
+NASADEM-100-A, dm_v, 16.98, " > ", 8.33, " EP - FALHOU", 73
+NASADEM-100-A, d_cota, d_cota_media = 1.3
+
+NASADEM-100-B
+NASADEM-100-B, dm_h, 73, '% < ', 50.0, ' PEC - FALHOU', 70
+NASADEM-100-B, dm_h, 43.65, " > ", 30.0, " EP - FALHOU", 70
+NASADEM-100-B, dm_v, 83, '% < ', 25.0, ' PEC - FALHOU', 70
+NASADEM-100-B, dm_v, 19.85, " > ", 16.66, " EP - FALHOU", 70
+NASADEM-100-B, d_cota, d_cota_media = 1.8
+
+NASADEM-100-C
+NASADEM-100-C, dm_h, 99, '% < ', 80.0, ' PEC - OK', 70
+NASADEM-100-C, dm_h, 46.57, " < ", 50.0, " EP - OK", 70
+NASADEM-100-C, dm_v, 84, '% < ', 30.0, ' PEC - FALHOU', 70
+NASADEM-100-C, dm_v, 21.51, " > ", 20.0, " EP - FALHOU", 70
+NASADEM-100-C, d_cota, d_cota_media = 1.8
+
+NASADEM-100-D
+NASADEM-100-D, dm_h, 100, '% < ', 100.0, ' PEC - OK', 70
+NASADEM-100-D, dm_h, 48.21, " < ", 60.0, " EP - OK", 70
+NASADEM-100-D, dm_v, 87, '% < ', 37.5, ' PEC - FALHOU', 70
+NASADEM-100-D, dm_v, 23.83, " < ", 25.0, " EP - OK", 70
+NASADEM-100-D, d_cota, d_cota_media = 1.8
+
+NASADEM-250-A
+NASADEM-250-A, dm_h, 91, '% < ', 70.0, ' PEC - OK', 70
+NASADEM-250-A, dm_h, 45.72, " > ", 42.5, " EP - FALHOU", 70
+NASADEM-250-A, dm_v, 83, '% < ', 27.0, ' PEC - FALHOU', 70
+NASADEM-250-A, dm_v, 20.53, " > ", 16.67, " EP - FALHOU", 70
+NASADEM-250-A, d_cota, d_cota_media = 1.8
+
+NASADEM-250-B
+NASADEM-250-B, dm_h, 100, '% < ', 125.0, ' PEC - OK', 71
+NASADEM-250-B, dm_h, 50.53, " < ", 75.0, " EP - OK", 71
+NASADEM-250-B, dm_v, 96, '% < ', 50.0, ' PEC - OK', 71
+NASADEM-250-B, dm_v, 28.4, " < ", 33.33, " EP - OK", 71
+NASADEM-250-B, d_cota, d_cota_media = 1.7
+
+NASADEM-250-C
+NASADEM-250-C, dm_h, 100, '% < ', 200.0, ' PEC - OK', 71
+NASADEM-250-C, dm_h, 56.48, " < ", 125.0, " EP - OK", 71
+NASADEM-250-C, dm_v, 96, '% < ', 60.0, ' PEC - OK', 71
+NASADEM-250-C, dm_v, 31.13, " < ", 40.0, " EP - OK", 71
+NASADEM-250-C, d_cota, d_cota_media = 1.7
+
+NASADEM-250-D
+NASADEM-250-D, dm_h, 100, '% < ', 250.0, ' PEC - OK', 71
+NASADEM-250-D, dm_h, 60.39, " < ", 150.0, " EP - OK", 71
+NASADEM-250-D, dm_v, 96, '% < ', 75.0, ' PEC - OK', 71
+NASADEM-250-D, dm_v, 35.24, " < ", 50.0, " EP - OK", 71
+NASADEM-250-D, d_cota, d_cota_media = 1.7
+
+
