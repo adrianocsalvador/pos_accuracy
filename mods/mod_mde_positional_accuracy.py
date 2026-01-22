@@ -2,31 +2,32 @@
 import datetime
 import json
 import os
+import sqlite3
 from queue import Queue
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+from sys import prefix
 
-from PyQt5.QtCore import QDate, QVariant, QSemaphore, QThreadPool
-from PyQt5.QtWidgets import QDateEdit
-from qgis.PyQt.QtCore import QSettings, Qt, QSize, QTranslator, QCoreApplication, QEvent
-from qgis.PyQt.QtGui import QPixmap, QIcon, QFont, QPalette, QColor
+from qgis.PyQt.QtCore import QSettings, Qt, QSize, QTranslator, QCoreApplication, QEvent, QThreadPool, QDateTime
+from qgis.PyQt.QtGui import QPixmap, QIcon, QFont, QPalette, QColor, QTextCharFormat, QBrush, QTextOption
 from qgis.PyQt.QtWidgets import (QAction, QScrollArea, QGridLayout, QPushButton, QLabel, QWidget, QSizePolicy,
                                  QSpacerItem, QDockWidget, QSplitter, QComboBox, QLineEdit, QDialog, QFrame, QCheckBox,
-                                 QHBoxLayout, QVBoxLayout, QFileDialog, QTableWidget, QTableWidgetItem,
-                                 QProgressBar)
-from qgis._core import QgsVectorLayer, QgsFields, QgsField, QgsProject
-
-from qgis.gui import QgsAdvancedDigitizingDockWidget
+                                 QHBoxLayout, QVBoxLayout, QFileDialog, QTableWidget,
+                                 QProgressBar, QDateEdit, QWidget, QVBoxLayout, QPushButton, QPlainTextEdit)
+from qgis._core import QgsVectorFileWriter, QgsWkbTypes, QgsCoordinateTransformContext, QgsCoordinateReferenceSystem, \
+    QgsFeature
+from qgis.core import QgsVectorLayer, QgsFields, QgsField, QgsProject, QgsMapLayerProxyModel
+from qgis.gui import QgsAdvancedDigitizingDockWidget, QgsMapLayerComboBox
 from .mod_aux_tools import AuxTools, Obs2, Logger
 from .mod_login import Database
-from .mod_metapoly_threads import PCThread, TIFThread, Worker
+from .mod_mde_pa_threads import Worker
 
 plugin_path = os.path.dirname(os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.join(plugin_path, 'libs')))
 
 
-class Metapoly:
+class MDEPositionalAccuracy:
     """QGIS Plugin Implementation."""
 
     def __init__(self, iface):
@@ -37,7 +38,7 @@ class Metapoly:
             application at run time.
         :type iface: QgsInterface
         """
-        self.name_ = 'Metapoly'
+        self.name_ = 'MDE-Positional Accuracy'
         # Save reference to the QGIS interface
         self.iface = iface
         # initialize locale
@@ -150,7 +151,7 @@ class Metapoly:
         # self.dock = QDockWidget('T - Inventário de Via.')
 
         self.dock1 = QgsAdvancedDigitizingDockWidget(self.iface.mapCanvas())
-        self.title1 = f'T - {self.name_}.'
+        self.title1 = f'{self.name_}.'
         self.dock1.setWindowTitle(self.title1)
 
         self.wd1 = Wd1(self.iface, parent=self.dock1, main=self)
@@ -208,6 +209,35 @@ class Wd1(QWidget):
 
         super(Wd1, self).__init__(parent)
 
+        self.dic_prj = {'path': '',
+                        'dems': {
+                            0 : {
+                                'type': 'Referencia',
+                                'obj_cbx':None,
+                                'obj_pb':None,
+                                'obj_prog_bar' : None,
+                                'geom_status' : False},
+                            1 : {
+                                'type': 'Teste',
+                                'obj_cbx':None,
+                                'obj_pb':None,
+                                'obj_prog_bar' : None,
+                                'geom_status' : False},
+                        },
+                        'matchs' : {
+                            'obj_prog_bar': None,
+                        },
+                        'standard': {
+                            'name': 'MDE_PA_proj',
+                            'files': {
+                                'prj': '.gpkg',
+                                'log': '.log',
+                                'result_txt': '_result.txt',
+                                'result_prof': '_prof.csv',
+                        }}}
+        self.srid = None
+        self.crs_epsg = None
+        self.gpkg_path = ''
         self.workers = None
         self.task_queue = None
         self.layer_aux = None
@@ -253,7 +283,7 @@ class Wd1(QWidget):
         name_ = self.main.name_.replace(' ', '_')
         self.setObjectName(f'Wd_{name_}')
         self.dic_debugger = {
-            'user': 'adriano.caliman',
+            'user': 'adria',
             'log_state': True,
             'plugin_name': f'Wd_{name_}'
         }
@@ -293,102 +323,93 @@ class Wd1(QWidget):
         r_ = 0
         gl_tool.addWidget(self.lb_session_logo, r_, 0)
 
-        self.lb_topo_logo = QLabel()
-        self.lb_topo_logo.setFixedSize(QSize(70, 30))
-        pixmap_ = QPixmap(os.path.join(plugin_path, 'icons/topo_logo.png'))
-        scaled_ = pixmap_.scaled(self.lb_topo_logo.size(), Qt.KeepAspectRatio)
-        self.lb_topo_logo.setPixmap(scaled_)
-        gl_tool.addWidget(self.lb_topo_logo, r_, 1)
-
-        gl_tool.addItem(QSpacerItem(0, 0, QSizePolicy.Expanding, QSizePolicy.Minimum), r_, 2)
-
         self.lb_version = QLabel(f'v{self.main.plugin_version()}')
         self.lb_version.setAlignment(Qt.AlignRight)
         gl_tool.addWidget(self.lb_version, r_, 2)
 
         r_ += 1
-        self.cb_db = QComboBox()
-        self.cb_db.setMinimumWidth(130)
-        self.start_cb()
-        gl_tool.addWidget(self.cb_db, r_, 0, 1, 1)
-        self.le_user = QLineEdit()
-        self.le_user.setPlaceholderText('Usuário')
-        gl_tool.addWidget(self.le_user, r_, 1, 1, 1)
-
-        self.pb_conn = QPushButton()
-        self.pb_conn.setToolTip('Desconectado! Clique para conectar')
-        self.icon_conx = QIcon(os.path.join(plugin_path, 'icons/icon_conx.png'))
-        self.icon_conn = QIcon(os.path.join(plugin_path, 'icons/icon_conn.png'))
-        self.pb_conn.setIcon(self.icon_conx)
-        self.pb_conn.setFlat(True)
-        self.pb_conn.setIconSize(QSize(30, 30))
-        self.pb_conn.setFixedSize(QSize(40, 40))
-        gl_tool.addWidget(self.pb_conn, r_, 2, 2, 1)
-
-        r_ += 1
-        self.le_pass = QLineEdit()
-        self.le_pass.setPlaceholderText('Senha')
-        self.le_pass.setEchoMode(QLineEdit.Password)
-        icon_path_eye = os.path.join(plugin_path, 'icons/icon_eye.png')
-        self.icon_eye = QIcon(icon_path_eye)
-        self.action_pass = self.le_pass.addAction(self.icon_eye, QLineEdit.TrailingPosition)
-        gl_tool.addWidget(self.le_pass, r_, 1, 1, 1)
-
-        r_ += 1
         sep_line = QFrame()
         sep_line.setFrameShape(QFrame.HLine)
         gl_tool.addWidget(sep_line, r_, 0, 1, 3)
+
+        r_ += 1
+        gl_prj = QGridLayout()
+        self.lb_title_proj = QLabel('Projeto:')
+        gl_prj.addWidget(self.lb_title_proj, 0, 0)
+        self.lb_status_proj = QLabel('Não Definido')
+        gl_prj.addWidget(self.lb_status_proj,  0, 1)
+        self.pb_clear_prj_folder = QPushButton('Limpar Pasta')
+        self.pb_clear_prj_folder.setVisible(False)
+        self.pb_clear_prj_folder.setToolTip(
+            'Este Botão irá excluir os arquivos com nomes que são utilizados no projeto apenas. \nNomes fora do padrão NÂO serão removidos')
+        gl_prj.addWidget(self.pb_clear_prj_folder, 0, 2)
+        gl_tool.addLayout(gl_prj, r_, 0, 1, 3)
+
+        r_ += 1
+        self.lb_path_proj = QLabel('~~~')
+        gl_tool.addWidget(self.lb_path_proj, r_, 0, 1, 2)
+        self.pb_define_proj = QPushButton('...')
+        self.pb_define_proj.setMaximumWidth(40)
+        gl_tool.addWidget(self.pb_define_proj, r_, 2)
+
+        for key_ in self.dic_prj['dems']:
+
+            r_ += 1
+            sep_line = QFrame(self)
+            sep_line.setFrameShape(QFrame.HLine)
+            gl_tool.addWidget(sep_line, r_, 0, 1, 3)
+            r_ += 1
+            lb_title_ = QLabel( f'Modelo de {self.dic_prj['dems'][key_]['type']}:')
+            gl_tool.addWidget(lb_title_, r_, 0)
+            obj_pb = QPushButton('info')
+            obj_pb.setMaximumWidth(40)
+            gl_tool.addWidget(obj_pb, r_, 2)
+            self.dic_prj['dems'][key_]['obj_pb'] = obj_pb
+            r_ += 1
+            obj_cbx = QgsMapLayerComboBox(self)
+            obj_cbx.setFilters(QgsMapLayerProxyModel.RasterLayer)
+            gl_tool.addWidget(obj_cbx, r_, 0, 1, 3)
+            self.dic_prj['dems'][key_]['obj_cbx'] = obj_cbx
+            r_ += 1
+            obj_prog_bar = QProgressBar(self)
+            gl_tool.addWidget(obj_prog_bar, r_, 0, 1, 3)
+            self.dic_prj['dems'][key_]['obj_prog_bar'] = obj_prog_bar
+
+        # self.pb_define_ref = QPushButton('...')
+        # self.pb_define_ref.setMaximumWidth(40)
+        # gl_tool.addWidget(self.pb_define_ref, r_, 2)
 
         # r_ += 1
-        # self.pb_remove = QPushButton('-')
-        # self.pb_remove.setMaximumWidth(25)
-        # gl_tool.addWidget(self.pb_remove, r_, 1)
-
-        self.cb_add_tool = QComboBox()
-        self.cb_add_tool.addItems(self.list_add_tool)
-        self.cb_add_tool.setMaximumWidth(40)
-        gl_tool.addWidget(self.cb_add_tool, r_, 2)
-
-        r_ += 1
-        # self.gl_3 = QGridLayout()
-        # gl_tool.addLayout(self.gl_3, r_, 0, 1, 3)
-        self.tw_data = QTableWidget()
-        gl_tool.addWidget(self.tw_data, r_, 0, 1, 3)
-        self.tw_data.setColumnCount(3)
-        self.icon_trash = QIcon(os.path.join(plugin_path, 'icons/icon_del.png'))
+        # self.lb_title_test = QLabel('Modelo de Teste:')
+        # gl_tool.addWidget(self.lb_title_test, r_, 0)
+        # self.pb_inf_test = QPushButton('info')
+        # self.pb_inf_test.setMaximumWidth(40)
+        # gl_tool.addWidget(self.pb_inf_test, r_, 2)
+        # r_ += 1
+        # self.cbx_model_test = QgsMapLayerComboBox()
+        # self.cbx_model_test.setFilters(QgsMapLayerProxyModel.RasterLayer)
+        # gl_tool.addWidget(self.cbx_model_test, r_, 0, 1, 3)
+        # # self.pb_define_test = QPushButton('...')
+        # # self.pb_define_test.setMaximumWidth(40)
+        # # gl_tool.addWidget(self.pb_define_test, r_, 2)
 
         r_ += 1
-        sep_line = QFrame()
-        sep_line.setFrameShape(QFrame.HLine)
-        gl_tool.addWidget(sep_line, r_, 0, 1, 3)
+        self.pb_proc = QPushButton('Avaliar')
+        gl_tool.addWidget(self.pb_proc, r_, 1, 1, 1)
+        self.pb_config = QPushButton('Config')
+        self.pb_config.setEnabled(False)
+        gl_tool.addWidget(self.pb_config, r_, 0, 1, 1)
 
         r_ += 1
-        self.lb_path = QLabel()
-        gl_tool.addWidget(self.lb_path, r_, 0, 1, 2)
-        self.pb_server_folder = QPushButton('...')
-        gl_tool.addWidget(self.pb_server_folder, r_, 2)
-
+        self.lb_log = QLabel('LOG:')
+        gl_tool.addWidget(self.lb_log, r_, 0, 1, 3)
         r_ += 1
-        lb_date = QLabel('Data do Lev.:')
-        gl_tool.addWidget(lb_date, r_, 0)
-        self.de_date = QDateEdit(self)
-        self.de_date.setCalendarPopup(True)
-        self.de_date.setDate(QDate.currentDate())
-        gl_tool.addWidget(self.de_date, r_, 1)
-
-        r_ += 1
-        lb_epsg = QLabel('SIRGAS - UTM:')
-        gl_tool.addWidget(lb_epsg, r_, 0)
-        self.cb_epsg = QComboBox(self)
-        self.cb_epsg.addItems(['-'] + list(self.dic_epsg))
-        gl_tool.addWidget(self.cb_epsg, r_, 1)
-
-        r_ += 1
-        self.pb_proc = QPushButton('PROC')
-        gl_tool.addWidget(self.pb_proc, r_, 2, 1, 1)
-        self.pb_stop = QPushButton('PARAR')
-        self.pb_stop.setEnabled(False)
-        gl_tool.addWidget(self.pb_stop, r_, 1, 1, 1)
+        self.pte_log = QPlainTextEdit ()
+        self.pte_log.setReadOnly(True)  # Logs are read-only
+        self.pte_log.setWordWrapMode(QTextOption.WordWrap)  # Prevents long lines from wrapping
+        self.pte_log.setBackgroundVisible(False)  # Optional, makes it look cleaner
+        self.pte_log.setFont(QFont("Monospace", 8))  # Use a monospace font for better alignment
+        gl_tool.addWidget(self.pte_log, r_, 0, 1, 3)
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -403,191 +424,181 @@ class Wd1(QWidget):
         return lg_sa
 
     def trigger_actions(self):
-        self.cb_db.highlighted.connect(self.start_cb)
-        self.cb_db.activated.connect(self.update_parameters)
-        self.pb_conn.clicked.connect(self.connect_db)
+        self.pb_define_proj.clicked.connect(partial(self.get_folder, key_='dir_prj'))
+        self.pb_clear_prj_folder.clicked.connect(self.clear_prj_folder)
+        for key_ in self.dic_prj['dems']:
+            self.dic_prj['dems'][key_]['obj_pb'].clicked.connect(partial(self.log_mde_inf, key_=key_))
 
-        self.cb_add_tool.activated.connect(self.cb_add_activated)
-        self.tw_data.cellClicked.connect(self.tw_cell_clicked)
-        self.pb_server_folder.clicked.connect(self.get_folder_out)
-        self.pb_proc.clicked.connect(self.parse_list)
+        # self.cb_db.highlighted.connect(self.start_cb)
+        # self.cb_db.activated.connect(self.update_parameters)
+        # self.pb_conn.clicked.connect(self.connect_db)
+        #
+        # self.cb_add_tool.activated.connect(self.cb_add_activated)
+        # self.tw_data.cellClicked.connect(self.tw_cell_clicked)
+        # self.pb_server_folder.clicked.connect(self.get_folder_out)z
+        self.pb_proc.clicked.connect(self.exec_analyze)
 
-    def start_cb(self):
-        print('start_cb')
-        if not self.dic_dbs and self.first_start_cb:
-            self.get_db_inf()
-            self.first_start_cb = False
-
-    def get_db_inf(self):
-        print('get_db_inf')
-        str_dic_dbs = self.aux_tools.get_(key_='db_inf')
-        if str_dic_dbs and str_dic_dbs != '{}':
-            self.dic_dbs = json.loads(str_dic_dbs)
-        self.set_db_names()
-
-    def save_db_inf(self):
-        print("save_db_inf")
-        self.aux_tools.save_(key_='db_inf', value_=json.dumps(self.dic_dbs))
-
-    def set_db_names(self, cur_=''):
-        print('set_db_names')
-        self.cb_db.clear()
-        self.cb_db.addItems(["..."] + sorted(list(self.dic_dbs)) + ["Novo/Editar"])
-        if cur_:
-            self.cb_db.setCurrentText(cur_)
-
-    def update_parameters(self):
-        print("update_parameters")
-        cur_ = self.cb_db.currentText()
-        if self.db:
-            self.close_conn()
-        if cur_ == "Novo/Editar":
-            self.le_user.setText("")
-            self.le_pass.setText("")
-            self.insert_db()
-        elif cur_ == "...":
-            self.le_user.setText("")
-            self.le_pass.setText("")
-            self.close_conn()
-        else:
-            chk_1 = 'plugin_version' in self.dic_dbs[cur_]['conn']
-            cur_version = self.main.plugin_version()
-            chk_2 = (chk_1 and cur_version == self.dic_dbs[cur_]['conn']['plugin_version'])
-            if not chk_2:
-                print(cur_version, self.dic_dbs[cur_]['conn']['plugin_version'])
-                self.insert_db()
-                return
-
-            user_ = self.dic_dbs[cur_]['conn']['user']['value']
-            self.le_user.setText(user_)
-            pass_ = self.dic_dbs[cur_]['conn']['pass']['value']
-            self.le_pass.setText(pass_)
-            self.connect_db()
-
-    def insert_db(self):
-        print("insert_db")
-        self.edit_dlg = SettingsDbDlg(main=self.main, parent=self)
-        self.edit_dlg.exec_()
-
-    def connect_db(self):
-        print('connect_db')
-        conn_name = self.cb_db.currentText()
-        chk_cb = True if conn_name not in ['...', 'Novo/Editar'] else False
-        chk_user = True if self.le_user.text() != '' else False
-        chk_pass = True if self.le_pass.text() != '' else False
-        if not (chk_cb and chk_user and chk_pass):
-            if not chk_cb:
-                self.aux_tools.do_anim(self.cb_db)
-            if not chk_user:
-                self.aux_tools.do_anim(self.le_user)
-            if not chk_pass:
-                self.aux_tools.do_anim(self.le_pass)
-            return
-        if self.db and self.db.is_connected():
-            self.close_conn()
-            return
-        self.db = Database(parent=self, main=self.main, dic_conn=self.dic_dbs[conn_name]['conn'])
-        self.pb_conn.setIcon(self.icon_conn)
-        self.pb_conn.setToolTip('Conectado! Clique para desconectar')
-
-    def close_conn(self):
-        print('close_conn')
-        if self.db and self.db.is_connected():
-            self.db.close_()
-            self.cb_db.setCurrentIndex(0)
-            self.le_user.setText('')
-            self.le_pass.setText('')
-
-        self.db = None
-        self.pb_conn.setIcon(self.icon_conx)
-        self.pb_conn.setToolTip('Desconectado! Clique para conectar')
-
-    def cb_add_activated(self, idx_):
-        print('cb_add_activated', idx_)
-
-        if self.list_add_tool[idx_] == '...':
-            return
-        elif self.list_add_tool[idx_] == 'clear':
-            self.list_data = []
-
-        if self.list_add_tool[idx_] == 'add_folder':
-            self.list_data += self.get_folder()
-        elif self.list_add_tool[idx_] == 'add_files':
-            self.list_data += self.get_files()
-        self.update_tw()
-
-    def update_tw(self):
-        self.tw_data.setRowCount(0)
-        for i, vet_ in enumerate(self.list_data):
-            self.tw_data.insertRow(i)
-            item1 = QTableWidgetItem()
-            item1.setText(vet_[0])
-            self.tw_data.setItem(i, 0, item1)
-            item2 = QTableWidgetItem()
-            item2.setIcon(self.icon_trash)
-            self.tw_data.setItem(i, 1, item2)
-
-        # self.tw_data.setSizeAdjustPolicy(QAbstractScrollArea.AdjustToContents)
-        self.tw_data.resizeColumnsToContents()
-        self.tw_data.setColumnWidth(2, 250)
-
-    def get_folder(self, key_='dir_in'):
+    def get_folder(self, key_='dir_prj'):
         print('get_folder')
         dir_ = self.aux_tools.get_(key_=key_)
         # Get Directory using QFileDialog
         source_folder = QFileDialog.getExistingDirectory(directory=dir_)
-        list_out = []
         if source_folder and os.path.exists(source_folder):
             self.aux_tools.save_(key_=key_, value_=source_folder)
-            if key_ == 'dir_in':
-                list_files = os.listdir(source_folder)
-
-                for file_ in list_files:
-                    if file_[-4:].lower() in self.dic_mime_type['surfaces'] + self.dic_mime_type['point_clouds']:
-                        list_out.append([file_, source_folder])
-                return list_out
+            if key_ == 'dir_prj':
+                self.dic_prj['path'] = source_folder
+                self.check_prj_folder(source_folder)
             else:
-                return source_folder
-        return list_out
+                print(f'CHAVE "{key_}" DESCONHECIDA')
+        else:
+            print(f'"{source_folder}" INVÁLIDO')
+            self.log_message(f'"{source_folder}" INVÁLIDO', 'ERROR')
 
-    def get_files(self):
-        print('get_files')
-        dir_ = self.aux_tools.get_(key_='dir')
-        filter = "Point Cloud (*.las *.laz) ;; MDT (*.tif)"
-        list_path, _ = QFileDialog.getOpenFileNames(None, 'Arquivos', dir_, filter)
-        list_out = []
-        if list_path:
-            for i, path_ in enumerate(list_path):
-                file_dir = os.path.dirname(path_)
-                file_name = os.path.basename(path_)
-                if i == 0:
-                    self.aux_tools.save_(key_='dir', value_=file_dir)
-                list_out.append([file_name, file_dir])
-        return list_out
+    def check_prj_folder(self, source_folder):
+        if os.path.exists(source_folder):
+            dic_st = self.dic_prj["standard"]
+            self.lb_path_proj.setText(f'{source_folder}/{dic_st["name"]}{dic_st["files"]["prj"]}')
+            self.log_message(f'Pasta do Projeto definida: {source_folder}', 'INFO')
 
-    def tw_cell_clicked(self, r_, c_):
-        print('tw_cell_clicked', r_, c_)
-        if c_ == 1:
-            rm_ = self.list_data.pop(r_)
-            print('removio - ', rm_[0])
-        self.update_tw()
 
-    def get_folder_out(self):
-        print('get_folder_out')
-        self.folder_out_path = self.get_folder('dir_out')
-        if self.folder_out_path and os.path.exists(self.folder_out_path):
-            folder2 = os.path.basename(self.folder_out_path)
-            folder1 = os.path.basename(os.path.dirname(self.folder_out_path))
-            self.lb_path.setText(f'.../{folder1}/{folder2}')
+            list_ = os.listdir(source_folder)
+            chk_ = False
+            for file_ in list_:
+                for st_key in self.dic_prj['standard']['files']:
+                    if file_.upper() == f'{dic_st["name"]}{dic_st["files"][st_key]}'.upper():
+                        self.lb_status_proj.setText('Projeto já existe. Defina outra pasta ou clique -> ')
+                        self.lb_status_proj.setStyleSheet("color: red;")
+                        self.pb_clear_prj_folder.setVisible(True)
+                        chk_ = True
+                        self.log_message(f'ARQUIVO PADRÃO JÁ EXISTE: "{dic_st["name"]}{dic_st["files"][st_key]}" ', 'ERROR')
+            if chk_:
+                self.dic_prj['status'] = 0
+            else:
+                self.dic_prj['status'] = 1
+                self.lb_status_proj.setText('OK')
+                self.lb_status_proj.setStyleSheet("color: blue;")
+                self.pb_clear_prj_folder.setVisible(False)
 
-    def get_db_info(self):
-        dic_out = {}
-        if self.db and self.db.is_connected():
-            dic_ = self.dic_dbs[self.cb_db.currentText()]['sch_metapoly']
-            dic_out = {'sch': dic_['alias'][0], 'tab': dic_['tab']['alias'][0], 'fields': {}}
-            for field_ in dic_['fields']:
-                dic_out['fields'][field_] = dic_['fields'][field_]['alias'][0]
-        return dic_out
+        else:
+            print(f'"{source_folder}" INVÁLIDO')
+            self.log_message(f'"{source_folder}" INVÁLIDO', 'ERROR')
+            return
+
+    def log_message(self, message: str, level: str = "INFO"):
+        """
+        Appends a new log message with a timestamp and color coding.
+        """
+        timestamp = QDateTime.currentDateTime().toString("yyyy-MM-dd hh:mm:ss")
+        if message:
+            log_entry = f"[{timestamp}] [{level}]\n  {message}\n"
+        else:
+            log_entry = f""
+
+        # Determine the color based on the log level
+        if level == "INFO":
+            color = QColor("black")
+        elif level == "WARNING":
+            color = QColor("darkorange")
+        elif level == "ERROR":
+            color = QColor("red")
+        else:
+            color = QColor("gray")
+
+        # Apply color to the text
+        cursor = self.pte_log.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        cursor.insertText(log_entry)
+
+        # Set format for the newly inserted text
+        format = QTextCharFormat()
+        format.setForeground(QBrush(color))
+        cursor.movePosition(cursor.MoveOperation.StartOfLine, cursor.MoveMode.KeepAnchor)
+        cursor.mergeCharFormat(format)
+
+        # Scroll to the bottom automatically
+        self.pte_log.verticalScrollBar().setValue(self.pte_log.verticalScrollBar().maximum())
+
+        dic_st = self.dic_prj["standard"]
+        source_folder = self.dic_prj['path']
+        log_path = os.path.join(source_folder, f'{dic_st["name"]}{dic_st["files"]['log']}')
+
+        with open(log_path, "a") as file:
+            file.write(log_entry)
+
+
+    def log_mde_inf(self, key_: int):
+        if self.dic_prj['dems'][key_]['obj_cbx']:
+            layer_ = self.dic_prj['dems'][key_]['obj_cbx'].currentLayer()
+
+            mss_ = f'=======================================\n'
+            mss_ += f'  INFORMAÇÕES DO MODELO DE {self.dic_prj['dems'][key_]['type'].upper()}\n'
+            mss_ += f'  Layer name: {layer_.name()}\n'
+            mss_ += f'  Source path: {layer_.source()}\n'
+            mss_ += f'  Is valid: {layer_.isValid()}\n'
+            mss_ += f'  CRS: {layer_.crs().authid()}\n'
+            mss_ += f'  Width (pixels): {layer_.width()}\n'
+            mss_ += f'  Height (pixels): {layer_.height()}\n'
+            mss_ += f'  Band count: {layer_.bandCount()}\n'
+            mss_ += f'  Extent (string): {layer_.extent().snappedToGrid(0.001)}\n'
+            mss_ += f'  Pixel size X: {layer_.rasterUnitsPerPixelX()}\n'
+            mss_ += f'  Pixel size Y: {layer_.rasterUnitsPerPixelY()}\n'
+            mss_ += f'=======================================\n'
+            self.log_message(mss_, 'INFO')
+        else:
+            self.log_message(f'MODELO DE {self.dic_prj['dems'][key_]['type']} NÃO DEFINIDO', 'ERROR')
+
+            
+    # def clear_log(self):
+    #     """
+    #     Clears all text from the log widget.
+    #     """
+    #     self.pte_log.clear()
+
+    def clear_prj_folder(self):
+        dic_st = self.dic_prj["standard"]
+        source_folder = self.dic_prj['path']
+        self.log_message('', 'INFO')
+        self.log_message(f'REMOVENDO ARQUIVOS "{source_folder}"', 'INFO')
+        for st_key in self.dic_prj['standard']['files']:
+            file_path = os.path.join(source_folder, f'{dic_st["name"]}{dic_st["files"][st_key]}')
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                self.log_message(f'REMOVIDO: "{dic_st["name"]}{dic_st["files"][st_key]}" ', 'INFO')
+        self.dic_prj['status'] = 1
+        self.lb_status_proj.setText('OK')
+        self.lb_status_proj.setStyleSheet("color: blue;")
+        self.pb_clear_prj_folder.setVisible(False)
+
+    # def get_files(self):
+    #     print('get_files')
+    #     dir_ = self.aux_tools.get_(key_='dir')
+    #     filter = "Point Cloud (*.las *.laz) ;; MDT (*.tif)"
+    #     list_path, _ = QFileDialog.getOpenFileNames(None, 'Arquivos', dir_, filter)
+    #     list_out = []
+    #     if list_path:
+    #         for i, path_ in enumerate(list_path):
+    #             file_dir = os.path.dirname(path_)
+    #             file_name = os.path.basename(path_)
+    #             if i == 0:
+    #                 self.aux_tools.save_(key_='dir', value_=file_dir)
+    #             list_out.append([file_name, file_dir])
+    #     return list_out
+
+    # def tw_cell_clicked(self, r_, c_):
+    #     print('tw_cell_clicked', r_, c_)
+    #     if c_ == 1:
+    #         rm_ = self.list_data.pop(r_)
+    #         print('removio - ', rm_[0])
+    #     self.update_tw()
+
+    # def get_folder_out(self):
+    #     print('get_folder_out')
+    #     self.folder_out_path = self.get_folder('dir_out')
+    #     if self.folder_out_path and os.path.exists(self.folder_out_path):
+    #         folder2 = os.path.basename(self.folder_out_path)
+    #         folder1 = os.path.basename(os.path.dirname(self.folder_out_path))
+    #         self.lb_path.setText(f'.../{folder1}/{folder2}')
+
 
     def task_done(self, key_):
         """ Called when a thread finishes processing, allowing another to start """
@@ -607,28 +618,203 @@ class Wd1(QWidget):
         worker.start()  # Start processing
         self.threads_running += 1
 
+    def exec_analyze(self):
+        layer_ref = self.dic_prj['dems'][0]['obj_cbx'].currentLayer()
+
+        self.crs_epsg = layer_ref.crs().authid()
+
+        self.create_gpkg()
+        self.define_intersection()
+
+
+    def run_polygon_intersection(self):
+        status_0 = self.dic_prj['dems'][0]['geom_status']
+        status_1 = self.dic_prj['dems'][1]['geom_status']
+        if status_0 and status_1:
+            mss_ = f'CALCULANDO AREA DE INTERSEÇÃO DOS MDEs'
+            self.log_message(mss_, 'INFO')
+
+            layer_0 = self.show_vrt(prefix_= f'__Limit_{self.dic_prj["dems"][0]["type"]}__')
+            layer_1 = self.show_vrt(prefix_= f'__Limit_{self.dic_prj["dems"][1]["type"]}__')
+            layer_i = self.show_vrt(prefix_= '__Limit_Intersecao__')[0]
+
+
+            for feat_0 in layer_0[0].getFeatures():
+                geom_0 = feat_0.geometry()
+                for feat_1 in layer_1[0].getFeatures():
+                    geom_1 = feat_1.geometry()
+                    intersec_ = geom_0.intersection(geom_1)
+                    feat_i = QgsFeature()
+                    feat_i.setGeometry(intersec_)
+                    count = layer_i.featureCount()
+                    feat_i.setAttributes([count + 1])
+                    layer_i.startEditing()
+                    layer_i.addFeature(feat_i)
+                    layer_i.commitChanges()
+                    layer_i.updateExtents()
+                    layer_i.triggerRepaint()
+            mss_ = f'AREA DE INTERSEÇÃO DOS MDEs DEFINIDA\n'
+            mss_ += f'=======================================\n'
+            self.log_message(mss_, 'INFO')
+            self.define_morphology()
+
+
+    def create_gpkg(self):
+        dic_st = self.dic_prj["standard"]
+        source_folder = self.dic_prj['path']
+        self.gpkg_path = os.path.join(source_folder, f'{dic_st["name"]}{dic_st["files"]['prj']}')
+        options_ = QgsVectorFileWriter.SaveVectorOptions()
+        options_.driverName = "GPKG"
+        layer_r_name = f'__Limit_{self.dic_prj["dems"][0]["type"]}__'
+        options_.layerName = layer_r_name
+        writer_ = QgsVectorFileWriter.create(
+            self.gpkg_path,
+            QgsFields(),
+            QgsWkbTypes.Polygon,
+            QgsCoordinateReferenceSystem(self.crs_epsg),
+            QgsCoordinateTransformContext(),
+            options_)
+        assert writer_.hasError() == QgsVectorFileWriter.NoError
+        del writer_  # to flush
+        self.show_vrt(prefix_=layer_r_name)
+
+        layer_t_name = f'__Limit_{self.dic_prj["dems"][1]["type"]}__'
+        layer_ = QgsVectorLayer(f'polygon?crs={self.crs_epsg}&index=yes', layer_t_name, "memory")
+        pr_ = layer_.dataProvider()
+        pr_.addAttributes(QgsFields())
+        layer_.updateFields()
+
+        options = QgsVectorFileWriter.SaveVectorOptions()
+        options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+        options.layerName = layer_t_name
+        QgsVectorFileWriter.writeAsVectorFormat(
+            layer=layer_,
+            fileName=self.gpkg_path,
+            options=options)
+        self.show_vrt(prefix_=layer_t_name)
+
+        layer_i_name = '__Limit_Intersecao__'
+        layer_ = QgsVectorLayer(f'polygon?crs={self.crs_epsg}&index=yes', layer_i_name, "memory")
+        pr_ = layer_.dataProvider()
+        pr_.addAttributes(QgsFields())
+        layer_.updateFields()
+
+        options = QgsVectorFileWriter.SaveVectorOptions()
+        options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+        options.layerName = layer_i_name
+        QgsVectorFileWriter.writeAsVectorFormat(
+            layer=layer_,
+            fileName=self.gpkg_path,
+            options=options)
+        self.show_vrt(prefix_=layer_i_name)
+
+    def gpkg_conn(self):
+        print('gpkg_conn')
+        self.conn = sqlite3.connect(self.gpkg_path)  # , isolation_level=None)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.enable_load_extension(True)
+        self.conn.load_extension('mod_spatialite')
+        self.conn.execute('SELECT load_extension("mod_spatialite")')
+        self.conn.execute('pragma journal_mode=wal')
+        self.cur = self.conn.cursor()
+
+    def gpkg_close_conn(self):
+        print('close conn')
+        if self.conn:
+            self.cur.close()
+            self.conn.close()
+            self.cur = None
+            self.conn = None
+
+    def show_vrt(self, prefix_=''):
+        print('show_vrt', prefix_)
+        self.node_group = QgsProject.instance().layerTreeRoot().findGroup('__MDE_PA__')
+        if not self.node_group:
+            self.node_group = QgsProject.instance().layerTreeRoot().insertGroup(0, '__MDE_PA__')
+
+        if prefix_:
+            layer_ = QgsProject.instance().mapLayersByName(prefix_)
+            if layer_:
+                print(f'Layer {prefix_} já carregada')
+                return layer_
+
+            self.gpkg_conn()
+            uri_ = f'{self.gpkg_path}|layername={prefix_}'
+
+            layer_ = QgsVectorLayer(uri_, prefix_, 'ogr')
+            self.conn.commit()
+            style_path = os.path.join(plugin_path, r'styles', f'{prefix_}.qml')
+            layer_.loadNamedStyle(style_path)
+            layer_.triggerRepaint()
+
+            QgsProject.instance().addMapLayer(layer_, False)
+            self.node_group.addLayer(layer_)
+        self.gpkg_close_conn()
+
+        return layer_
+
+    def define_intersection(self):
+        mss_ = f'=======================================\n'
+        mss_ += f'DEFININDO POLÍGONOS'
+        self.log_message(mss_, 'INFO')
+        for key_ in self.dic_prj['dems']:
+            layer_ = self.dic_prj['dems'][key_]['obj_cbx'].currentLayer()
+            dic_ = {
+                'file_path': layer_.source(),
+                'step': 'polygon',
+                'srid_ref': self.crs_epsg,
+                'srid': layer_.crs().authid(),
+                'gpkg':self.gpkg_path,
+                'layer':  f'__Limit_{self.dic_prj["dems"][0]["type"]}__',
+                'parent': self,
+                'main': self.main
+            }
+
+            # Add tasks to queue
+            self.task_queue.put((key_, dic_))
+
+        # Start up to max_threads tasks
+        while self.threads_running < self.max_threads and not self.task_queue.empty():
+            key_, dic_ = self.task_queue.get()
+            self.start_task(key_, dic_)
+
+    def define_morphology(self):
+        mss_ = f'=======================================\n'
+        mss_ += f'DEFININDO ELEMENTOS DE MORFOLOGIA DO TERRENO'
+        self.log_message(mss_, 'INFO')
+        for key_ in self.dic_prj['dems']:
+            layer_ = self.dic_prj['dems'][key_]['obj_cbx'].currentLayer()
+            dic_ = {
+                'file_path': layer_.source(),
+                'step': 'morphology',
+                'srid_ref': self.crs_epsg,
+                'srid': layer_.crs().authid(),
+                'gpkg':self.gpkg_path,
+                'layer':  f'__Limit_{self.dic_prj["dems"][0]["type"]}__',
+                'parent': self,
+                'main': self.main
+            }
+
+            # Add tasks to queue
+            self.task_queue.put((key_, dic_))
+
+        # Start up to max_threads tasks
+        while self.threads_running < self.max_threads and not self.task_queue.empty():
+            key_, dic_ = self.task_queue.get()
+            self.start_task(key_, dic_)
+
     def parse_list(self):
         """ Enqueue tasks and start only 3 at a time """
-        for key_, vet_ in enumerate(self.list_data):
-            file_path = os.path.join(vet_[1], vet_[0])
-
+        for key_ in self.dic_prj['dems']:
+            layer_ = self.dic_prj['dems'][key_]['obj_cbx'].currentLayer()
             dic_ = {
-                'db': self.db,
-                'info': self.get_db_info(),
-                'file_path': file_path,
-                'dest': self.folder_out_path,
+                'file_path': layer_.source(),
                 'srid': self.dic_epsg.get(self.cb_epsg.currentText(), '-'),
-                'fuse': 22,
-                'date': self.de_date.date().toString("yyyy-MM-dd"),
                 'log': self.log,
                 'vrt': self.layer_aux,
                 'parent': self,
                 'main': self.main
             }
-
-            prog_bar = QProgressBar(self)
-            self.dic_obj[key_] = {'prog_bar': prog_bar}
-            self.tw_data.setCellWidget(key_, 2, prog_bar)
 
             # Add tasks to queue
             self.task_queue.put((key_, dic_))
@@ -640,7 +826,7 @@ class Wd1(QWidget):
 
     def update_bar(self, dic_):
         key_ = dic_['key']
-        prog_bar = self.dic_obj[key_]['prog_bar']
+        prog_bar = self.dic_prj['dems'][key_]['obj_prog_bar']
         palette = QPalette()
         palette.setColor(QPalette.Highlight, QColor(Qt.cyan))
         prog_bar.setPalette(palette)
@@ -655,44 +841,40 @@ class Wd1(QWidget):
         elif 'quant' in dic_:
             prog_bar.setRange(0, dic_['quant'])
             prog_bar.setValue(0)
-            self.log.info(True, f"set range {key_} 0 - {dic_['quant']}", pretty=True)
+            # self.log.info(True, f"set range {key_} 0 - {dic_['quant']}", pretty=True)
             palette.setColor(QPalette.Highlight, QColor(Qt.yellow))
             prog_bar.setPalette(palette)
         elif 'value' in dic_:
             prog_bar.setValue(dic_['value'])
             prog_bar.setFormat(f"{dic_['value']} - {dic_['msg']}")
-            self.count_commit += 1
-            if self.count_commit % 100 == 0:
-                self.db.commit_()
-            # if self.layer_aux and 'feat' in dic_:
-            #
-            #     self.layer_aux.startEditing()
-            #     self.layer_aux.addFeature(dic_['feat'])
-            #     self.layer_aux.commitChanges()
-            #     self.layer_aux.updateExtents()
-            #     self.layer_aux.triggerRepaint()
+            self.log_message(f"{self.dic_prj['dems'][dic_['key']]['type']} {dic_['value']} - {dic_['msg']}")
+            # self.count_commit += 1
+            # if self.count_commit % 100 == 0:
+            #     self.db.commit_()
+            if 'feat' in dic_:
+                if dic_['value'] == 6:
+                    layer_name = f'__Limit_{self.dic_prj["dems"][key_]["type"]}__'
+                    layer = QgsProject.instance().mapLayersByName(layer_name)[0]
+                    count = layer.featureCount()
+                    feat_ = dic_['feat']
+                    feat_.setAttributes([count + 1])
+                    # print(feat_, feat_.geometry())
+
+                    layer.startEditing()
+                    layer.addFeature(feat_)
+                    layer.commitChanges()
+                    layer.updateExtents()
+                    layer.triggerRepaint()
+
+                    self.dic_prj['dems'][dic_['key']]['geom_status'] = True
+                    self.run_polygon_intersection()
 
         elif 'end' in dic_:
             palette.setColor(QPalette.Highlight, QColor(Qt.darkGreen))
             prog_bar.setValue(dic_['end'])
             prog_bar.setFormat(dic_['msg'])
             prog_bar.setPalette(palette)
-            self.db.commit_()
-
-    # def creat_aux_layer(self):
-    #     layer_aux = QgsVectorLayer(f'Polygon?crs=EPSG:4674&field=id:integer&index=yes', '__VRT_AUX__',
-    #                                "memory")
-    #     fields_aux = QgsFields()
-    #     fields_aux.append(QgsField('name', QVariant.String))
-    #     fields_aux.append(QgsField('path', QVariant.String))
-    #     fields_aux.append(QgsField('type', QVariant.String))
-    #     fields_aux.append(QgsField('date', QVariant.Date))
-    #     fields_aux.append(QgsField('valid', QVariant.Bool))
-    #     fields_aux.append(QgsField('srid', QVariant.Int))
-    #     layer_aux.dataProvider().addAttributes(fields_aux)
-    #     layer_aux.updateFields()
-    #     QgsProject.instance().addMapLayer(layer_aux)
-    #     return layer_aux
+            # self.db.commit_()
 
 
 class SettingsDbDlg(QDialog):

@@ -3,29 +3,29 @@
 # This file should be included when you package your plugin.# Mandatory items:
 
 [general]
-name=T Metapoly
-qgisMinimumVersion=3.40
-description=Used to organize base data to api-qgis in server and generate metapoly.gpkg
+name=MDE-Positional Accuracy
+qgisMinimumVersion=3.30
+description=Used to evaluate the three-dimensional positional accuracy of DEMs.
 version=1.0
-author=Consultoria Topocart
-email=contato@topocart.com.br
+author=Adriano Caliman Salvador
+email=adriano.caliman@ufv.br; adrianocsalvador@gmail.com
 
 about=This plugin is used as base for a new docK plugin.
 
-tracker=https://github.com/DevTopocart/mod_metapoly/issues
-repository=https://github.com/DevTopocart/mod_metapoly
+tracker=https:https://github.com/adrianocsalvador/vsession_accuracy
+repository=https:https://github.com/adrianocsalvador/vsession_accuracy
 # End of mandatory metadata
 
 # Recommended items:
 
-hasProcessingProvider=no
+hasProcessingProvider=yes
 # Uncomment the following line and add your changelog:
 # changelog=
 
 # Tags are comma separated with spaces allowed
-tags=vertical session, point cloud, profile, section, Topocart
+tags=MDE, accuracy, linear features
 
-homepage=https://github.com/DevTopocart/mod_metaply
+homepage=https://github.com/adrianocsalvador/vsession_accuracy
 category=Plugins
 icon=icons/icon_bfn.png
 # experimental flag

@@ -3,9 +3,9 @@
 /***************************************************************************
                                  A QGIS plugin
                              -------------------
-        begin                : 2025-03-19
-        copyright            : (C) 2025 Consultoria Técnica de Cartografia da Topocart - BR
-        email                : contato@topocart.com.br
+        begin                : 2025-11-01
+        copyright            : (C) 2025 Adriano Caliman Salvador - BR
+        email                : adriano.caliman@com.br
         git sha              : $Format:%H$
  ***************************************************************************/
 
@@ -30,5 +30,5 @@ def classFactory(iface):  # pylint: disable=invalid-name
     """
     #
 
-    from .mods.mod_metapoly import Metapoly
-    return Metapoly(iface)
+    from .mods.mod_mde_positional_accuracy import MDEPositionalAccuracy
+    return MDEPositionalAccuracy(iface)
