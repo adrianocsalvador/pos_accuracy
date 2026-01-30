@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from sys import prefix
 
+from osgeo import ogr
 from qgis.PyQt.QtCore import QSettings, Qt, QSize, QTranslator, QCoreApplication, QEvent, QThreadPool, QDateTime
 from qgis.PyQt.QtGui import QPixmap, QIcon, QFont, QPalette, QColor, QTextCharFormat, QBrush, QTextOption
 from qgis.PyQt.QtWidgets import (QAction, QScrollArea, QGridLayout, QPushButton, QLabel, QWidget, QSizePolicy,
@@ -634,9 +635,9 @@ class Wd1(QWidget):
             mss_ = f'CALCULANDO AREA DE INTERSEÇÃO DOS MDEs'
             self.log_message(mss_, 'INFO')
 
-            layer_0 = self.show_vrt(prefix_= f'__Limit_{self.dic_prj["dems"][0]["type"]}__')
-            layer_1 = self.show_vrt(prefix_= f'__Limit_{self.dic_prj["dems"][1]["type"]}__')
-            layer_i = self.show_vrt(prefix_= '__Limit_Intersecao__')[0]
+            layer_0 = self.get_gpkg_layer(prefix_= f'__Limit_{self.dic_prj["dems"][0]["type"]}__')
+            layer_1 = self.get_gpkg_layer(prefix_= f'__Limit_{self.dic_prj["dems"][1]["type"]}__')
+            layer_i = self.get_gpkg_layer(prefix_= '__Limit_Intersecao__')[0]
 
 
             for feat_0 in layer_0[0].getFeatures():
@@ -676,7 +677,7 @@ class Wd1(QWidget):
             options_)
         assert writer_.hasError() == QgsVectorFileWriter.NoError
         del writer_  # to flush
-        self.show_vrt(prefix_=layer_r_name)
+        self.get_gpkg_layer(prefix_=layer_r_name, gpkg_path=self.gpkg_path)
 
         layer_t_name = f'__Limit_{self.dic_prj["dems"][1]["type"]}__'
         layer_ = QgsVectorLayer(f'polygon?crs={self.crs_epsg}&index=yes', layer_t_name, "memory")
@@ -691,7 +692,7 @@ class Wd1(QWidget):
             layer=layer_,
             fileName=self.gpkg_path,
             options=options)
-        self.show_vrt(prefix_=layer_t_name)
+        self.get_gpkg_layer(prefix_=layer_t_name, gpkg_path=self.gpkg_path)
 
         layer_i_name = '__Limit_Intersecao__'
         layer_ = QgsVectorLayer(f'polygon?crs={self.crs_epsg}&index=yes', layer_i_name, "memory")
@@ -706,50 +707,53 @@ class Wd1(QWidget):
             layer=layer_,
             fileName=self.gpkg_path,
             options=options)
-        self.show_vrt(prefix_=layer_i_name)
+        self.get_gpkg_layer(prefix_=layer_i_name, gpkg_path=self.gpkg_path)
 
-    def gpkg_conn(self):
-        print('gpkg_conn')
-        self.conn = sqlite3.connect(self.gpkg_path)  # , isolation_level=None)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.enable_load_extension(True)
-        self.conn.load_extension('mod_spatialite')
-        self.conn.execute('SELECT load_extension("mod_spatialite")')
-        self.conn.execute('pragma journal_mode=wal')
-        self.cur = self.conn.cursor()
 
-    def gpkg_close_conn(self):
-        print('close conn')
-        if self.conn:
-            self.cur.close()
-            self.conn.close()
-            self.cur = None
-            self.conn = None
+    def get_gpkg_layer(self, prefix_='', gpkg_path='', show=True):
+        def gpkg_conn(gpkg_path_):
+            conn_ = sqlite3.connect(gpkg_path_)  # , isolation_level=None)
+            conn_.row_factory = sqlite3.Row
+            conn_.enable_load_extension(True)
+            conn_.load_extension('mod_spatialite')
+            conn_.execute('SELECT load_extension("mod_spatialite")')
+            conn_.execute('pragma journal_mode=wal')
+            # cur_ = conn_.cursor()
+            return conn_
 
-    def show_vrt(self, prefix_=''):
-        print('show_vrt', prefix_)
+        def gpkg_close_conn(conn_=None, cur_=None):
+            print('close conn')
+            if conn_:
+                conn_.close()
+            if cur_:
+                cur_.close()
+
+        print('get_gpkg_layer', prefix_)
         self.node_group = QgsProject.instance().layerTreeRoot().findGroup('__MDE_PA__')
         if not self.node_group:
             self.node_group = QgsProject.instance().layerTreeRoot().insertGroup(0, '__MDE_PA__')
 
+        conn = None
+        layer_ = None
+        # cur = None
         if prefix_:
             layer_ = QgsProject.instance().mapLayersByName(prefix_)
             if layer_:
                 print(f'Layer {prefix_} já carregada')
                 return layer_
 
-            self.gpkg_conn()
-            uri_ = f'{self.gpkg_path}|layername={prefix_}'
+            conn = gpkg_conn(gpkg_path)
+            uri_ = f'{gpkg_path}|layername={prefix_}'
 
             layer_ = QgsVectorLayer(uri_, prefix_, 'ogr')
-            self.conn.commit()
+            conn.commit()
             style_path = os.path.join(plugin_path, r'styles', f'{prefix_}.qml')
             layer_.loadNamedStyle(style_path)
             layer_.triggerRepaint()
-
-            QgsProject.instance().addMapLayer(layer_, False)
-            self.node_group.addLayer(layer_)
-        self.gpkg_close_conn()
+            if show:
+                QgsProject.instance().addMapLayer(layer_, False)
+                self.node_group.addLayer(layer_)
+        gpkg_close_conn(conn)
 
         return layer_
 
@@ -834,6 +838,7 @@ class Wd1(QWidget):
             prog_bar.setFormat(str(dic_['error']))
             palette.setColor(QPalette.Highlight, QColor(Qt.red))
             prog_bar.setPalette(palette)
+            self.log_message(f"{self.dic_prj['dems'][dic_['key']]['type']} {dic_['value']} - {dic_['error']}", level='ERROR')
         elif 'warn' in dic_:
             prog_bar.setFormat(str(dic_['warn']))
             palette.setColor(QPalette.Highlight, QColor(Qt.lightGray))
@@ -868,6 +873,26 @@ class Wd1(QWidget):
 
                     self.dic_prj['dems'][dic_['key']]['geom_status'] = True
                     self.run_polygon_intersection()
+            elif 'layer' in dic_:
+                # print("dic_['layer']['gpkg']=", dic_['layer']['gpkg'])
+                if isinstance(dic_['layer']['gpkg'], str):
+                    datasource = ogr.Open(dic_['layer']['gpkg'])
+                    # for i in range(datasource.GetLayerCount()):
+                    #     layer = datasource.GetLayerByIndex(i)
+                    #     print(f"- {layer.GetName()}")
+                    layer_prefix = datasource.GetLayerByIndex(0).GetName()
+                    layer = self.get_gpkg_layer(prefix_=layer_prefix, gpkg_path=dic_['layer']['gpkg'], show=False)
+                else:
+                    layer = dic_['layer']['gpkg']
+                layer_name = f'__{dic_['layer']['type']}_{self.dic_prj["dems"][key_]["type"]}__'
+                options = QgsVectorFileWriter.SaveVectorOptions()
+                options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+                options.layerName = layer_name
+                QgsVectorFileWriter.writeAsVectorFormat(
+                    layer=layer,
+                    fileName=self.gpkg_path,
+                    options=options)
+                self.get_gpkg_layer(prefix_=layer_name, gpkg_path=self.gpkg_path)
 
         elif 'end' in dic_:
             palette.setColor(QPalette.Highlight, QColor(Qt.darkGreen))
