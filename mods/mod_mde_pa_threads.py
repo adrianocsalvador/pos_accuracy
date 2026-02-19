@@ -191,12 +191,12 @@ class MorphologyThread(QThread):
         self.key_ = key_
         self.file_path = dic_['file_path']
         self.gpkg_path = dic_['gpkg']
-        self.tab = dic_['layer']
+        self.boudary = dic_['layer']
 
         self.srid_ref = dic_['srid_ref']
         self.srid = dic_['srid']
 
-        self.nr_procs = 11
+        self.nr_procs = 12
         self.cur = None
         self.conn = None
 
@@ -204,26 +204,32 @@ class MorphologyThread(QThread):
     def run(self):
         self.sig_status.emit({'key': self.key_, 'quant': self.nr_procs})
         nr_ = 0
-        tool_ = 'gdal:buildvirtualraster'
+        tool_ = 'gdal:cliprasterbymasklayer'
         print(tool_, self.key_, self.file_path)
         try:
             nr_ += 1  # 1
             params = {
                 'INPUT': f'{self.file_path}',
-                'RESOLUTION': 1,
-                'SEPARATE': False,
-                'PROJ_DIFFERENCE': False,
-                'ADD_ALPHA': False,
-                'ASSIGN_CRS': None,
-                'RESAMPLING': 3,
-                'SRC_NODATA': '',
-                'EXTRA': '',
+                'MASK':f'{self.boudary}',
+                'SOURCE_CRS':None,
+                'TARGET_CRS':None,
+                'TARGET_EXTENT':None,
+                'NODATA':None,
+                'ALPHA_BAND':False,
+                'CROP_TO_CUTLINE':True,
+                'KEEP_RESOLUTION':False,
+                'SET_RESOLUTION':False,
+                'X_RESOLUTION':None,
+                'Y_RESOLUTION':None,
+                'MULTITHREADING':False,
+                'OPTIONS':'',
+                'DATA_TYPE':0,
+                'EXTRA':'',
                 'OUTPUT': 'TEMPORARY_OUTPUT',
             }
             result_vrt = processing.run(tool_, params)
             print('result_vrt', result_vrt)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
-
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
             return
@@ -336,11 +342,18 @@ class MorphologyThread(QThread):
                 'GRASS_VECTOR_LCO':'',
                 'GRASS_VECTOR_EXPORT_NOCAT':False}
             result_basian_vect = processing.run(tool_, params)
-            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+            dic_layer = {
+                'gpkg': result_basian_vect['output'],
+                'type': 'Bacias'
+            }
+            print('dic_layer =', dic_layer)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
+            # self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
             return
 
+        print("result_basian_vect['output']=", result_basian_vect['output'])
         # 6 "native:fixgeometries"
         try:
             nr_ += 1  # 1
@@ -351,25 +364,47 @@ class MorphologyThread(QThread):
                 'OUTPUT': 'TEMPORARY_OUTPUT',
             }
             result_fix = processing.run(tool_, params)
-            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+            dic_layer = {
+                'gpkg': result_fix['OUTPUT'],
+                'type': 'Bacias'
+            }
+            print('dic_layer =', dic_layer)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
+            # self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
             return
 
+        print("result_fix['OUTPUT']=", result_fix['OUTPUT'])
         # 7 "native:polygonstolines"
         try:
             nr_ += 1  # 1
-            tool_ = "native:polygonstolines"
+            tool_ = "grass7:v.to.lines"
             params = {
-                'INPUT': result_fix['OUTPUT'],
-                'OUTPUT': 'TEMPORARY_OUTPUT',
+                'input': result_fix['OUTPUT'],
+                'method':None,
+                'output':'TEMPORARY_OUTPUT',
+                'GRASS_REGION_PARAMETER':None,
+                'GRASS_SNAP_TOLERANCE_PARAMETER':-1,
+                'GRASS_MIN_AREA_PARAMETER':0.0001,
+                'GRASS_OUTPUT_TYPE_PARAMETER':0,
+                'GRASS_VECTOR_DSCO':'',
+                'GRASS_VECTOR_LCO':'',
+                'GRASS_VECTOR_EXPORT_NOCAT':False
             }
             result_lines = processing.run(tool_, params)
-            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+            dic_layer = {
+                'gpkg': result_lines['output'],
+                'type': 'Bacias_Linhas'
+            }
+            print('dic_layer =', dic_layer)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
+            # self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
             return
 
+        print("result_lines['OUTPUT']=", result_lines['OUTPUT'])
         # 8 "native:explodelines"
         try:
             nr_ += 1  # 1
@@ -379,11 +414,18 @@ class MorphologyThread(QThread):
                 'OUTPUT': 'TEMPORARY_OUTPUT',
             }
             result_ex = processing.run(tool_, params)
-            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+            dic_layer = {
+                'gpkg': result_ex['OUTPUT'],
+                'type': 'Bacias_Linhas_Ex'
+            }
+            print('dic_layer =', dic_layer)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
+            # self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
             return
 
+        print("result_ex['OUTPUT']=", result_ex['OUTPUT'])
         # 9 "native:deleteduplicategeometries"
         try:
             nr_ += 1  # 1
@@ -393,11 +435,18 @@ class MorphologyThread(QThread):
                 'OUTPUT': 'TEMPORARY_OUTPUT',
             }
             result_del_dup = processing.run(tool_, params)
-            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+            dic_layer = {
+                'gpkg': result_del_dup['OUTPUT'],
+                'type': 'Bacias_Linhas_deldup'
+            }
+            print('dic_layer =', dic_layer)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
+            # self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
             return
 
+        print("result_del_dup['OUTPUT']=", result_del_dup['OUTPUT'])
         # 10 "native:dissolve"
         try:
             nr_ += 1  # 1
@@ -408,12 +457,18 @@ class MorphologyThread(QThread):
             }
             result_diss = processing.run(tool_, params)
             # print('result_diss', result_diss)
-
-            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+            dic_layer = {
+                'gpkg': result_diss['OUTPUT'],
+                'type': 'Bacias_Linhas_diss'
+            }
+            print('dic_layer =', dic_layer)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
+            # self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
             return
 
+        print("result_diss['OUTPUT']=", result_diss['OUTPUT'])
         # 11 "native:multiparttosingleparts"
         try:
             nr_ += 1  # 1
@@ -423,18 +478,39 @@ class MorphologyThread(QThread):
                 'OUTPUT': 'TEMPORARY_OUTPUT',
             }
             result_single = processing.run(tool_, params)
-            # print('result_diss', result_diss)
             dic_layer = {
                 'gpkg': result_single['OUTPUT'],
-                'type': 'Cumeadas'
+                'type': 'Bacias_Linhas_sing'
             }
+            print('dic_layer =', dic_layer)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
+
+            # self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
             return
 
+        # 12 "gdal:convertformat"
+        try:
+            nr_ += 1  # 1
+            tool_ = "gdal:convertformat"
+            params = {
+                'INPUT': result_single['OUTPUT'],
+                'CONVERT_ALL_LAYERS': False,
+                'OPTIONS': '',
+                'OUTPUT': 'TEMPORARY_OUTPUT',
+            }
+            result_conv = processing.run(tool_, params)
+            dic_layer = {
+                'gpkg': result_conv['OUTPUT'],
+                'type': 'Cumeadas'
+            }
+            print('result_conv', result_conv['OUTPUT'])
 
-
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            return
 
         if self.nr_procs:
             self.sig_status.emit({
