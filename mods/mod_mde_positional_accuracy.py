@@ -627,7 +627,6 @@ class Wd1(QWidget):
         self.create_gpkg()
         self.define_intersection()
 
-
     def run_polygon_intersection(self):
         status_0 = self.dic_prj['dems'][0]['geom_status']
         status_1 = self.dic_prj['dems'][1]['geom_status']
@@ -658,7 +657,6 @@ class Wd1(QWidget):
             mss_ += f'=======================================\n'
             self.log_message(mss_, 'INFO')
             self.define_morphology()
-
 
     def create_gpkg(self):
         dic_st = self.dic_prj["standard"]
@@ -708,7 +706,6 @@ class Wd1(QWidget):
             fileName=self.gpkg_path,
             options=options)
         self.get_gpkg_layer(prefix_=layer_i_name, gpkg_path=self.gpkg_path)
-
 
     def get_gpkg_layer(self, prefix_='', gpkg_path='', show=True):
         def gpkg_conn(gpkg_path_):
@@ -794,7 +791,7 @@ class Wd1(QWidget):
                 'srid_ref': self.crs_epsg,
                 'srid': layer_.crs().authid(),
                 'gpkg':self.gpkg_path,
-                'layer':  f'__Limit_{self.dic_prj["dems"][0]["type"]}__',
+                'layer':  self.get_gpkg_layer(prefix_= '__Limit_Intersecao__')[0].source(),
                 'parent': self,
                 'main': self.main
             }
@@ -874,24 +871,35 @@ class Wd1(QWidget):
                     self.dic_prj['dems'][dic_['key']]['geom_status'] = True
                     self.run_polygon_intersection()
             elif 'layer' in dic_:
-                # print("dic_['layer']['gpkg']=", dic_['layer']['gpkg'])
+                print("dic_['layer']['gpkg']=", dic_['layer']['gpkg'])
                 if isinstance(dic_['layer']['gpkg'], str):
+                    print('is string')
                     datasource = ogr.Open(dic_['layer']['gpkg'])
-                    # for i in range(datasource.GetLayerCount()):
-                    #     layer = datasource.GetLayerByIndex(i)
-                    #     print(f"- {layer.GetName()}")
+                    for i in range(datasource.GetLayerCount()):
+                        layer = datasource.GetLayerByIndex(i)
+                        print(f"- {layer.GetName()}")
                     layer_prefix = datasource.GetLayerByIndex(0).GetName()
                     layer = self.get_gpkg_layer(prefix_=layer_prefix, gpkg_path=dic_['layer']['gpkg'], show=False)
                 else:
+                    print('is layer')
                     layer = dic_['layer']['gpkg']
                 layer_name = f'__{dic_['layer']['type']}_{self.dic_prj["dems"][key_]["type"]}__'
                 options = QgsVectorFileWriter.SaveVectorOptions()
                 options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+                output_fields = QgsFields()
+                for field in layer.fields():
+                    # Check if the field name is 'fid' (case-insensitive check for robustness)
+                    print('field.name()=', field.name())
+                    if field.name().lower() != 'fid':
+                        output_fields.append(QgsField(field.name(), field.type()))  # Append
+                options.fields = output_fields
                 options.layerName = layer_name
+                print(f'Writhing {layer_name} layer')
                 QgsVectorFileWriter.writeAsVectorFormat(
                     layer=layer,
                     fileName=self.gpkg_path,
                     options=options)
+                print(f'Writhing finished')
                 self.get_gpkg_layer(prefix_=layer_name, gpkg_path=self.gpkg_path)
 
         elif 'end' in dic_:
