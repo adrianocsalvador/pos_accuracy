@@ -360,7 +360,7 @@ class Wd1(QWidget):
             sep_line.setFrameShape(QFrame.HLine)
             gl_tool.addWidget(sep_line, r_, 0, 1, 3)
             r_ += 1
-            lb_title_ = QLabel( f'Modelo de {self.dic_prj['dems'][key_]['type']}:')
+            lb_title_ = QLabel( f"Modelo de {self.dic_prj['dems'][key_]['type']}:")
             gl_tool.addWidget(lb_title_, r_, 0)
             obj_pb = QPushButton('info')
             obj_pb.setMaximumWidth(40)
@@ -521,7 +521,7 @@ class Wd1(QWidget):
 
         dic_st = self.dic_prj["standard"]
         source_folder = self.dic_prj['path']
-        log_path = os.path.join(source_folder, f'{dic_st["name"]}{dic_st["files"]['log']}')
+        log_path = os.path.join(source_folder, f'{dic_st["name"]}{dic_st["files"]["log"]}')
 
         with open(log_path, "a") as file:
             file.write(log_entry)
@@ -532,7 +532,7 @@ class Wd1(QWidget):
             layer_ = self.dic_prj['dems'][key_]['obj_cbx'].currentLayer()
 
             mss_ = f'=======================================\n'
-            mss_ += f'  INFORMAÇÕES DO MODELO DE {self.dic_prj['dems'][key_]['type'].upper()}\n'
+            mss_ += f'  INFORMAÇÕES DO MODELO DE {self.dic_prj["dems"][key_]["type"].upper()}\n'
             mss_ += f'  Layer name: {layer_.name()}\n'
             mss_ += f'  Source path: {layer_.source()}\n'
             mss_ += f'  Is valid: {layer_.isValid()}\n'
@@ -546,7 +546,7 @@ class Wd1(QWidget):
             mss_ += f'=======================================\n'
             self.log_message(mss_, 'INFO')
         else:
-            self.log_message(f'MODELO DE {self.dic_prj['dems'][key_]['type']} NÃO DEFINIDO', 'ERROR')
+            self.log_message(f"MODELO DE {self.dic_prj['dems'][key_]['type']} NÃO DEFINIDO", "ERROR")
 
             
     # def clear_log(self):
@@ -661,7 +661,7 @@ class Wd1(QWidget):
     def create_gpkg(self):
         dic_st = self.dic_prj["standard"]
         source_folder = self.dic_prj['path']
-        self.gpkg_path = os.path.join(source_folder, f'{dic_st["name"]}{dic_st["files"]['prj']}')
+        self.gpkg_path = os.path.join(source_folder, f'{dic_st["name"]}{dic_st["files"]["prj"]}')
         options_ = QgsVectorFileWriter.SaveVectorOptions()
         options_.driverName = "GPKG"
         layer_r_name = f'__Limit_{self.dic_prj["dems"][0]["type"]}__'
@@ -883,7 +883,7 @@ class Wd1(QWidget):
                 else:
                     print('is layer')
                     layer = dic_['layer']['gpkg']
-                layer_name = f'__{dic_['layer']['type']}_{self.dic_prj["dems"][key_]["type"]}__'
+                layer_name = f'__{dic_["layer"]["type"]}_{self.dic_prj["dems"][key_]["type"]}__'
                 options = QgsVectorFileWriter.SaveVectorOptions()
                 options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
                 output_fields = QgsFields()
