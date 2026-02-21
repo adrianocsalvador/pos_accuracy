@@ -1,0 +1,552 @@
+import os
+import shutil
+import sqlite3
+
+from PyQt5.QtCore import QThread, pyqtSignal, QRunnable, QObject
+from qgis import processing
+from qgis.core import QgsCoordinateReferenceSystem, QgsFeature
+
+class PolygonThread(QThread):
+    sig_status = pyqtSignal(dict, name='Status for processing bar')
+
+    def __init__(self, main, parent, key_=None, dic_=None):
+        QThread.__init__(self, parent)
+
+        self.main = main
+        self.parent = parent
+        self.key_ = key_
+        self.file_path = dic_['file_path']
+        self.gpkg_path = dic_['gpkg']
+        self.tab = dic_['layer']
+
+        self.srid_ref = dic_['srid_ref']
+        self.srid = dic_['srid']
+
+        self.nr_procs = 6
+        self.cur = None
+        self.conn = None
+
+
+    def run(self):
+        self.sig_status.emit({'key': self.key_, 'quant': self.nr_procs})
+        nr_ = 0
+        tool_ = ''
+
+        # 1 "gdal:rastercalculator"
+        try:
+            nr_ += 1  # 1
+            # mdt_layer = QgsRasterLayer(self.file_path, 'MDT')
+            params = {
+                'INPUT_A': f'{self.file_path}',
+                'BAND_A': 1,
+                'INPUT_B': None, 'BAND_B': None,
+                'INPUT_C': None, 'BAND_C': None,
+                'INPUT_D': None, 'BAND_D': None,
+                'INPUT_E': None, 'BAND_E': None,
+                'INPUT_F': None, 'BAND_F': None,
+                'FORMULA': 'A > -100',
+                'NO_DATA': 0,
+                'EXTENT_OPT': 0,
+                'PROJWIN': None,
+                'RTYPE': 11,
+                'OPTIONS': None,
+                'EXTRA': '',
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }
+            tool_ = "gdal:rastercalculator"
+            result_calc = processing.run(tool_, params)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+            # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            # self.log.error(True, f'PolygonThread: {self.key_} {tool_}: {e}', pretty=True)
+            return
+
+        # 2 "gdal:polygonize"
+        try:
+            nr_ += 1  # 2
+            params = {
+                'INPUT': result_calc['OUTPUT'],
+                'BAND': 1,
+                'FIELD': 'DN',
+                'EIGHT_CONNECTEDNESS': False,
+                'EXTRA': '',
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }
+            tool_ = "gdal:polygonize"
+            result_poly = processing.run(tool_, params)
+            # print('result_poly', result_poly)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+            # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            # self.log.error(True, f'PolygonThread: {self.key_} {tool_}: {e}', pretty=True)
+            return
+
+        # 3 "native:assignprojection"
+        try:
+            nr_ += 1
+            params = {
+                'INPUT': result_poly['OUTPUT'],
+                'CRS': QgsCoordinateReferenceSystem(self.srid),
+                'OUTPUT': 'TEMPORARY_OUTPUT'
+            }
+            tool_ = "native:assignprojection"
+            result_setpro = processing.run(tool_, params)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+            # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            # self.log.error(True, f'PolygonThread: {self.key_} {tool_}: {e}', pretty=True)
+            return
+
+        # 4 "native:reprojectlayer"
+        nr_ += 1
+        if self.srid_ref != self.srid:
+            try:
+                params = {
+                    'INPUT': result_setpro['OUTPUT'],
+                    'TARGET_CRS': QgsCoordinateReferenceSystem('EPSG:4674'),
+                    'CONVERT_CURVED_GEOMETRIES': False,
+                    'OUTPUT': 'TEMPORARY_OUTPUT'
+                }
+                tool_ = "native:reprojectlayer"
+                result_repro = processing.run(tool_, params)
+                self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+                # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
+            except Exception as e:
+                self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+                # self.log.error(True, f'PolygonThread: {self.key_} {tool_}: {e}', pretty=True)
+                return
+        else:
+            result_repro = result_setpro
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+
+        # 5 "native:buffer"
+        try:
+            nr_ += 1  # 5
+            params = {
+                'INPUT': result_repro['OUTPUT'],
+                'DISTANCE': 0,
+                'SEGMENTS': 5,
+                'END_CAP_STYLE': 0,
+                'JOIN_STYLE': 0,
+                'MITER_LIMIT': 2,
+                'DISSOLVE': True,
+                'SEPARATE_DISJOINT': False,
+                'OUTPUT': 'TEMPORARY_OUTPUT'}
+            tool_ = "native:buffer"
+            result_bff = processing.run(tool_, params)
+            print('result_bff', result_bff)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+            # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            # self.log.error(True, f'PolygonThread: {self.key_} {tool_}: {e}', pretty=True)
+            return
+
+        wkt_ = ''
+        # 6 'geometry'
+        try:
+            nr_ += 1  # 6
+            layer_ = result_bff['OUTPUT']
+            # layer_ = result_poly['OUTPUT']
+            tool_ = 'geometry'
+            for i, feat_ in enumerate(layer_.getFeatures()):
+                geom_ = feat_.geometry()
+                geom_.convertToSingleType()
+                feat_out = QgsFeature()
+                if geom_:
+                    feat_out.setGeometry(geom_)
+
+                self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': f'{tool_} nr:{i + 1}', 'feat': feat_})
+                # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
+            # self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            # self.log.error(True, f'PolygonThread: {self.key_} {tool_}: {e}', pretty=True)
+            return
+
+        if self.nr_procs:
+            self.sig_status.emit({
+                'key': self.key_,
+                'end': self.nr_procs,
+                'msg': ':) FINALIZADO (:'
+            })
+        else:
+            self.sig_status.emit({
+                'key': self.key_,
+                'end': self.nr_procs,
+                'msg': 'NENHUM PROCESSO SELECIONADO'
+            })
+
+class MorphologyThread(QThread):
+    sig_status = pyqtSignal(dict, name='Status for processing bar')
+
+    def __init__(self, main, parent, key_=None, dic_=None):
+        QThread.__init__(self, parent)
+
+        self.main = main
+        self.parent = parent
+        self.key_ = key_
+        self.file_path = dic_['file_path']
+        self.gpkg_path = dic_['gpkg']
+        self.boudary = dic_['layer']
+
+        self.srid_ref = dic_['srid_ref']
+        self.srid = dic_['srid']
+
+        self.nr_procs = 12
+        self.cur = None
+        self.conn = None
+
+
+    def run(self):
+        self.sig_status.emit({'key': self.key_, 'quant': self.nr_procs})
+        nr_ = 0
+        tool_ = 'gdal:cliprasterbymasklayer'
+        print(tool_, self.key_, self.file_path)
+        try:
+            nr_ += 1  # 1
+            params = {
+                'INPUT': f'{self.file_path}',
+                'MASK':f'{self.boudary}',
+                'SOURCE_CRS':None,
+                'TARGET_CRS':None,
+                'TARGET_EXTENT':None,
+                'NODATA':None,
+                'ALPHA_BAND':False,
+                'CROP_TO_CUTLINE':True,
+                'KEEP_RESOLUTION':False,
+                'SET_RESOLUTION':False,
+                'X_RESOLUTION':None,
+                'Y_RESOLUTION':None,
+                'MULTITHREADING':False,
+                'OPTIONS':'',
+                'DATA_TYPE':0,
+                'EXTRA':'',
+                'OUTPUT': 'TEMPORARY_OUTPUT',
+            }
+            result_vrt = processing.run(tool_, params)
+            print('result_vrt', result_vrt)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            return
+
+        # 2 "grass: r.watershed"
+        try:
+            nr_ += 1  # 1
+            tool_ = "grass7:r.watershed"
+            params = {
+                'distance_units' : 'meters',
+                'area_units' : 'km2',
+                'ellipsoid' : 'EPSG:7019',
+                'elevation' : result_vrt['OUTPUT'],
+                'threshold' : 5000,
+                'convergence' : 5,
+                'memory' : 50000,
+                '-s' : 'false',
+                '-m' : 'false',
+                '-4' : 'false',
+                '-a' : 'false',
+                '-b' : 'false',
+                'accumulation' : 'TEMPORARY_OUTPUT',
+                'drainage' : 'TEMPORARY_OUTPUT',
+                'basin' : 'TEMPORARY_OUTPUT',
+                'stream' : 'TEMPORARY_OUTPUT',
+                'half_basin' : 'TEMPORARY_OUTPUT',
+                'length_slope' : 'TEMPORARY_OUTPUT',
+                'slope_steepness' : 'TEMPORARY_OUTPUT',
+                'tci' : 'TEMPORARY_OUTPUT',
+                'spi' : 'TEMPORARY_OUTPUT',
+                'GRASS_REGION_CELLSIZE_PARAMETER' : 0,
+                'GRASS_RASTER_FORMAT_OPT' : '',
+                'GRASS_RASTER_FORMAT_META' : '',
+            }
+
+            result_watershed = processing.run(tool_, params)
+            # print('result_calc', result_watershed)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            return
+
+        # 3 "grass: r.thin"
+        try:
+            nr_ += 1  # 1
+            tool_ = "grass7:r.thin"
+            params = {
+                'input': result_watershed['stream'],
+                'iterations': 200,
+                'output': 'TEMPORARY_OUTPUT',
+                'GRASS_REGION_CELLSIZE_PARAMETER': 0,
+                'GRASS_RASTER_FORMAT_OPT': '',
+                'GRASS_RASTER_FORMAT_META': '',
+            }
+            result_stream_thin = processing.run(tool_, params)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            return
+
+        # 4 "grass: r.to.vect"
+        try:
+            nr_ += 1  # 1
+            tool_ = "grass7:r.to.vect"
+            params = {
+                'input': result_stream_thin['output'],
+                'type':0,
+                'column':'value',
+                '-s':False,
+                '-v':False,
+                '-z':False,
+                '-b':False,
+                '-t':False,
+                'output':'TEMPORARY_OUTPUT',
+                'GRASS_REGION_PARAMETER':None,
+                'GRASS_REGION_CELLSIZE_PARAMETER':0,
+                'GRASS_OUTPUT_TYPE_PARAMETER':0,
+                'GRASS_VECTOR_DSCO':'',
+                'GRASS_VECTOR_LCO':'',
+                'GRASS_VECTOR_EXPORT_NOCAT':False}
+            result_stream_vect = processing.run(tool_, params)
+            dic_layer = {
+                'gpkg': result_stream_vect['output'],
+                'type': 'Hidrografia_Numerica'
+            }
+            print('dic_layer =', dic_layer)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer':dic_layer})
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            return
+
+        # 5 "grass: r.to.vect"
+        try:
+            nr_ += 1  # 1
+            tool_ = "grass7:r.to.vect"
+            params = {
+                'input': result_watershed['basin'],
+                'type':2,
+                'column':'value',
+                '-s':False,
+                '-v':False,
+                '-z':False,
+                '-b':False,
+                '-t':False,
+                'output':'TEMPORARY_OUTPUT',
+                'GRASS_REGION_PARAMETER':None,
+                'GRASS_REGION_CELLSIZE_PARAMETER':0,
+                'GRASS_OUTPUT_TYPE_PARAMETER':0,
+                'GRASS_VECTOR_DSCO':'',
+                'GRASS_VECTOR_LCO':'',
+                'GRASS_VECTOR_EXPORT_NOCAT':False}
+            result_basian_vect = processing.run(tool_, params)
+            dic_layer = {
+                'gpkg': result_basian_vect['output'],
+                'type': 'Bacias'
+            }
+            print('dic_layer =', dic_layer)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
+            # self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            return
+
+        print("result_basian_vect['output']=", result_basian_vect['output'])
+        # 6 "native:fixgeometries"
+        try:
+            nr_ += 1  # 1
+            tool_ = "native:fixgeometries"
+            params = {
+                'INPUT': result_basian_vect['output'],
+                'METHOD': 1,
+                'OUTPUT': 'TEMPORARY_OUTPUT',
+            }
+            result_fix = processing.run(tool_, params)
+            dic_layer = {
+                'gpkg': result_fix['OUTPUT'],
+                'type': 'Bacias'
+            }
+            print('dic_layer =', dic_layer)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
+            # self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            return
+
+        print("result_fix['OUTPUT']=", result_fix['OUTPUT'])
+        # 7 "native:polygonstolines"
+        try:
+            nr_ += 1  # 1
+            tool_ = "grass7:v.to.lines"
+            params = {
+                'input': result_fix['OUTPUT'],
+                'method':None,
+                'output':'TEMPORARY_OUTPUT',
+                'GRASS_REGION_PARAMETER':None,
+                'GRASS_SNAP_TOLERANCE_PARAMETER':-1,
+                'GRASS_MIN_AREA_PARAMETER':0.0001,
+                'GRASS_OUTPUT_TYPE_PARAMETER':0,
+                'GRASS_VECTOR_DSCO':'',
+                'GRASS_VECTOR_LCO':'',
+                'GRASS_VECTOR_EXPORT_NOCAT':False
+            }
+            result_lines = processing.run(tool_, params)
+            dic_layer = {
+                'gpkg': result_lines['output'],
+                'type': 'Bacias_Linhas'
+            }
+            print('dic_layer =', dic_layer)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
+            # self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            return
+
+        print("result_lines['OUTPUT']=", result_lines['OUTPUT'])
+        # 8 "native:explodelines"
+        try:
+            nr_ += 1  # 1
+            tool_ = "native:explodelines"
+            params = {
+                'INPUT': result_lines['OUTPUT'],
+                'OUTPUT': 'TEMPORARY_OUTPUT',
+            }
+            result_ex = processing.run(tool_, params)
+            dic_layer = {
+                'gpkg': result_ex['OUTPUT'],
+                'type': 'Bacias_Linhas_Ex'
+            }
+            print('dic_layer =', dic_layer)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
+            # self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            return
+
+        print("result_ex['OUTPUT']=", result_ex['OUTPUT'])
+        # 9 "native:deleteduplicategeometries"
+        try:
+            nr_ += 1  # 1
+            tool_ = "native:deleteduplicategeometries"
+            params = {
+                'INPUT': result_ex['OUTPUT'],
+                'OUTPUT': 'TEMPORARY_OUTPUT',
+            }
+            result_del_dup = processing.run(tool_, params)
+            dic_layer = {
+                'gpkg': result_del_dup['OUTPUT'],
+                'type': 'Bacias_Linhas_deldup'
+            }
+            print('dic_layer =', dic_layer)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
+            # self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            return
+
+        print("result_del_dup['OUTPUT']=", result_del_dup['OUTPUT'])
+        # 10 "native:dissolve"
+        try:
+            nr_ += 1  # 1
+            tool_ = "native:dissolve"
+            params = {
+                'INPUT': result_del_dup['OUTPUT'],
+                'OUTPUT': 'TEMPORARY_OUTPUT',
+            }
+            result_diss = processing.run(tool_, params)
+            # print('result_diss', result_diss)
+            dic_layer = {
+                'gpkg': result_diss['OUTPUT'],
+                'type': 'Bacias_Linhas_diss'
+            }
+            print('dic_layer =', dic_layer)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
+            # self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            return
+
+        print("result_diss['OUTPUT']=", result_diss['OUTPUT'])
+        # 11 "native:multiparttosingleparts"
+        try:
+            nr_ += 1  # 1
+            tool_ = "native:multiparttosingleparts"
+            params = {
+                'INPUT': result_diss['OUTPUT'],
+                'OUTPUT': 'TEMPORARY_OUTPUT',
+            }
+            result_single = processing.run(tool_, params)
+            dic_layer = {
+                'gpkg': result_single['OUTPUT'],
+                'type': 'Bacias_Linhas_sing'
+            }
+            print('dic_layer =', dic_layer)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
+
+            # self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            return
+
+        # 12 "gdal:convertformat"
+        try:
+            nr_ += 1  # 1
+            tool_ = "gdal:convertformat"
+            params = {
+                'INPUT': result_single['OUTPUT'],
+                'CONVERT_ALL_LAYERS': False,
+                'OPTIONS': '',
+                'OUTPUT': 'TEMPORARY_OUTPUT',
+            }
+            result_conv = processing.run(tool_, params)
+            dic_layer = {
+                'gpkg': result_conv['OUTPUT'],
+                'type': 'Cumeadas'
+            }
+            print('result_conv', result_conv['OUTPUT'])
+
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            return
+
+        if self.nr_procs:
+            self.sig_status.emit({
+                'key': self.key_,
+                'end': self.nr_procs,
+                'msg': ':) FINALIZADO (:'
+            })
+        else:
+            self.sig_status.emit({
+                'key': self.key_,
+                'end': self.nr_procs,
+                'msg': 'NENHUM PROCESSO SELECIONADO'
+            })
+
+
+class Worker(QObject):
+    """ Worker that manages a processing thread and signals when it's done """
+    finished = pyqtSignal(int)  # Signal to notify when a task is done
+
+    def __init__(self, key_, dic_, parent):
+        super().__init__()
+        self.key_ = key_
+        self.dic_ = dic_
+        self.parent = parent  # Reference to the main class
+        self.process_thread = None
+
+    def start(self):
+        """ Start the appropriate processing thread asynchronously """
+        if self.dic_['step'] == 'polygon' :
+            self.process_thread = PolygonThread(main=self.dic_['main'], parent=self.dic_['parent'], key_=self.key_,
+                                                dic_=self.dic_)
+        elif self.dic_['step'] == 'morphology':
+            self.process_thread = MorphologyThread(main=self.dic_['main'], parent=self.dic_['parent'], key_=self.key_,
+                                                dic_=self.dic_)
+
+        self.process_thread.sig_status.connect(self.dic_['parent'].update_bar)
+        self.process_thread.finished.connect(lambda: self.finished.emit(self.key_))  # Notify when done
+        self.process_thread.start()
+
