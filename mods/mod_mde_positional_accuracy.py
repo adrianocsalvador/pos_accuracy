@@ -10,19 +10,21 @@ from functools import partial
 from sys import prefix
 
 from osgeo import ogr
-from qgis.PyQt.QtCore import QSettings, Qt, QSize, QTranslator, QCoreApplication, QEvent, QThreadPool, QDateTime
+from qgis.PyQt.QtCore import (QSettings, Qt, QSize, QTranslator, QCoreApplication, QEvent, QThreadPool, QDateTime,
+                              QVariant)
 from qgis.PyQt.QtGui import QPixmap, QIcon, QFont, QPalette, QColor, QTextCharFormat, QBrush, QTextOption
 from qgis.PyQt.QtWidgets import (QAction, QScrollArea, QGridLayout, QPushButton, QLabel, QWidget, QSizePolicy,
                                  QSpacerItem, QDockWidget, QSplitter, QComboBox, QLineEdit, QDialog, QFrame, QCheckBox,
                                  QHBoxLayout, QVBoxLayout, QFileDialog, QTableWidget,
                                  QProgressBar, QDateEdit, QWidget, QVBoxLayout, QPushButton, QPlainTextEdit)
-from qgis._core import QgsVectorFileWriter, QgsWkbTypes, QgsCoordinateTransformContext, QgsCoordinateReferenceSystem, \
-    QgsFeature
-from qgis.core import QgsVectorLayer, QgsFields, QgsField, QgsProject, QgsMapLayerProxyModel
-from qgis.gui import QgsAdvancedDigitizingDockWidget, QgsMapLayerComboBox
-from .mod_aux_tools import AuxTools, Obs2, Logger
+from qgis.core import (QgsVectorFileWriter, QgsWkbTypes, QgsCoordinateTransformContext, QgsCoordinateReferenceSystem,
+                       QgsFeature, QgsVectorLayer, QgsFields, QgsField, QgsProject, QgsMapLayerProxyModel,
+                       QgsLayerTreeLayer)
+from qgis.gui import QgsMapLayerComboBox
+from .mod_aux_tools import AuxTools#, Obs2, Logger
 from .mod_login import Database
 from .mod_mde_pa_threads import Worker
+from .mod_settings import SettingsDlg
 
 plugin_path = os.path.dirname(os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.join(plugin_path, 'libs')))
@@ -151,7 +153,8 @@ class MDEPositionalAccuracy:
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
         # self.dock = QDockWidget('T - Inventário de Via.')
 
-        self.dock1 = QgsAdvancedDigitizingDockWidget(self.iface.mapCanvas())
+        # QDockWidget: painel customizado; QgsAdvancedDigitizingDockWidget é para CAD e pode esconder nosso conteúdo
+        self.dock1 = QDockWidget()
         self.title1 = f'{self.name_}.'
         self.dock1.setWindowTitle(self.title1)
 
@@ -209,112 +212,185 @@ class Wd1(QWidget):
     def __init__(self, iface, parent=None, main=None):
 
         super(Wd1, self).__init__(parent)
-
-        self.dic_prj = {'path': '',
-                        'dems': {
-                            0 : {
-                                'type': 'Referencia',
-                                'obj_cbx':None,
-                                'obj_pb':None,
-                                'obj_prog_bar' : None,
-                                'geom_status' : False},
-                            1 : {
-                                'type': 'Teste',
-                                'obj_cbx':None,
-                                'obj_pb':None,
-                                'obj_prog_bar' : None,
-                                'geom_status' : False},
-                        },
-                        'matchs' : {
-                            'obj_prog_bar': None,
-                        },
-                        'standard': {
-                            'name': 'MDE_PA_proj',
-                            'files': {
-                                'prj': '.gpkg',
-                                'log': '.log',
-                                'result_txt': '_result.txt',
-                                'result_prof': '_prof.csv',
-                        }}}
-        self.srid = None
-        self.crs_epsg = None
-        self.gpkg_path = ''
-        self.workers = None
-        self.task_queue = None
-        self.layer_aux = None
-        self.folder_out_path = ''
-        self.first_start_cb = True
-        self.dic_dbs = {}
-        self.filter_dlg = None
-        self.db = None
-        self.count_commit = 0
-        self.list_add_tool = ['...', 'add_folder', 'add_files', 'clear']
-        self.list_data = []
-        self.dic_mime_type = {'surfaces': ['.tif'], 'point_clouds': ['.las', '.laz']}
-        self.dic_obj = {}
-        self.dic_epsg = {
-            '-25(S)': 31985,
-            '-24(S)': 31984,
-            '-23(S)': 31983,
-            '-22(S)': 31982,
-            '-21(S)': 31981,
-            '-20(S)': 31980,
-            '-19(S)': 31979,
-            '-18(S)': 31978,
-            '18(N)': 31972,
-            '19(N)': 31973,
-            '20(N)': 31974,
-            '21(N)': 31975,
-            '22(N)': 31976,
-            '23(N)': 6210,
-            '24(N)': 6211}
-
-        self.max_threads = 3  # Limit to 3 concurrent tasks
-        self.thread_pool = QThreadPool.globalInstance()  # Use QThreadPool for task management
-        self.thread_pool.setMaxThreadCount(self.max_threads)
-
-        self.task_queue = Queue()  # Task queue
-        self.threads_running = 0  # Track active threads
-        self.active_workers = {}  # Keep track of active workers
-
         # Save reference to the QGIS interface
         self.iface = iface
         self.parent = parent
         self.main = main
         name_ = self.main.name_.replace(' ', '_')
         self.setObjectName(f'Wd_{name_}')
-        self.dic_debugger = {
-            'user': 'adria',
-            'log_state': True,
-            'plugin_name': f'Wd_{name_}'
-        }
-        if os.getlogin() == self.dic_debugger['user']:
+        # self.dic_debugger = {
+        #     'user': 'adria',
+        #     'log_state': True,
+        #     'plugin_name': f'Wd_{name_}'
+        # }
+        if os.getlogin() == 'adria':
             self.iface.actionShowPythonDialog().trigger()
-            self.log = Logger(self.main.name_)
+        #     self.log = Logger(self.main.name_)
 
-        self.canvas = self.iface.mapCanvas()
+        self.dic_prj = \
+            {'path': '',
+             'dems': {
+                 0: {
+                     'type': 'Referencia',
+                     'obj_cbx': None,
+                     'obj_pb': None,
+                     'obj_prog_bar': None,
+                     'geom_status': False},
+                 1: {
+                     'type': 'Teste',
+                     'obj_cbx': None,
+                     'obj_pb': None,
+                     'obj_prog_bar': None,
+                     'geom_status': False},
+             },
+             'matchs': {
+                 'obj_prog_bar': None,
+             },
+             'standard': {
+                 'name': 'MDE_PA_proj',
+                 'files': {
+                     'prj': '.gpkg',
+                     'log': '.log',
+                     'result_txt': '_result.txt',
+                     'result_prof': '_prof.csv',
+                 }}}
+        self.dic_match = {}
+        self.srid = None
+        self.crs_epsg = None
+        self.gpkg_path = ''
+        self.workers = None
+        self.task_queue = None
+        self.folder_out_path = ''
+        self.list_add_tool = ['...', 'add_folder', 'add_files', 'clear']
+        # self.dic_epsg = {
+        #     '-25(S)': 31985,
+        #     '-24(S)': 31984,
+        #     '-23(S)': 31983,
+        #     '-22(S)': 31982,
+        #     '-21(S)': 31981,
+        #     '-20(S)': 31980,
+        #     '-19(S)': 31979,
+        #     '-18(S)': 31978,
+        #     '18(N)': 31972,
+        #     '19(N)': 31973,
+        #     '20(N)': 31974,
+        #     '21(N)': 31975,
+        #     '22(N)': 31976,
+        #     '23(N)': 6210,
+        #     '24(N)': 6211}
+
+        self.max_threads = 3  # Limit to 3 concurrent tasks
+        # self.thread_pool = QThreadPool.globalInstance()  # Use QThreadPool for task management
+        # self.thread_pool.setMaxThreadCount(self.max_threads)
+
+        self.task_queue = Queue()  # Task queue
+        self.threads_running = 0  # Track active threads
+        self.active_workers = {}  # Keep track of active workers
+
         self.aux_tools = AuxTools(parent=self)
         lg = self.create_layout()
         self.setLayout(lg)
+        self.dic_pec_mm = {
+            'H': {
+                'A': {
+                    'pec': 0.28,
+                    'ep': 0.17
+                },
+                'B': {
+                    'pec': 0.5,
+                    'ep': 0.3
+                },
+                'C': {
+                    'pec': 0.8,
+                    'ep': 0.5
+                },
+                'D': {
+                    'pec': 1.0,
+                    'ep': 0.6
+                },
+            },
+            'V': {
+                'A': {
+                    'pec': 0.27,
+                    'ep': 0.17
+                },
+                'B': {
+                    'pec': 0.5,
+                    'ep': 0.33
+                },
+                'C': {
+                    'pec': 0.6,
+                    'ep': 0.4
+                },
+                'D': {
+                    'pec': 0.75,
+                    'ep': 0.5
+                },
+            },
+        }
+        self.dic_pec_v = {
+            50: {
+                'A': {
+                    'pec': 5.0,
+                    'ep': 3.33
+                },
+                'B': {
+                    'pec': 10.0,
+                    'ep': 6.66
+                },
+                'C': {
+                    'pec': 12.0,
+                    'ep': 8.0
+                },
+                'D': {
+                    'pec': 15.0,
+                    'ep': 10.0
+                },
+            },
+            100: {
+                'A': {
+                    'pec': 13.7,
+                    'ep': 8.33
+                },
+                'B': {
+                    'pec': 25.00,
+                    'ep': 16.66
+                },
+                'C': {
+                    'pec': 30.0,
+                    'ep': 20.0
+                },
+                'D': {
+                    'pec': 37.5,
+                    'ep': 25.0
+                },
+            },
+            250: {
+                'A': {
+                    'pec': 27.0,
+                    'ep': 16.67
+                },
+                'B': {
+                    'pec': 50.0,
+                    'ep': 33.33
+                },
+                'C': {
+                    'pec': 60.0,
+                    'ep': 40.0
+                },
+                'D': {
+                    'pec': 75.0,
+                    'ep': 50.0
+                },
+            },
+        }
+        self.settings_dlg = SettingsDlg(main=parent, parent=self)
+        self.morph = ['Cumeada', 'Hidrografia_Numerica']
 
     def create_layout(self):
-        gl_1 = QGridLayout()
-        gl_1.setContentsMargins(0, 0, 0, 0)
-        gl_1.setSpacing(1)
-        spt_left = QSplitter(Qt.Horizontal)
-
-        gl_1.addWidget(spt_left, 0, 0)
-
-        wd_tool = QWidget()
-        sp_ = QSizePolicy()
-        sp_.setHorizontalPolicy(QSizePolicy.Minimum)
-        sp_.setHorizontalStretch(0)
-        sp_.setVerticalPolicy(QSizePolicy.Expanding)
-        wd_tool.setSizePolicy(sp_)
         gl_tool = QGridLayout()
         gl_tool.setContentsMargins(0, 0, 0, 0)
-        wd_tool.setLayout(gl_tool)
-        spt_left.addWidget(wd_tool)
+        gl_tool.setSpacing(1)
 
         self.lb_session_logo = QLabel()
         self.lb_session_logo.setFixedSize(QSize(40, 40))
@@ -398,7 +474,7 @@ class Wd1(QWidget):
         self.pb_proc = QPushButton('Avaliar')
         gl_tool.addWidget(self.pb_proc, r_, 1, 1, 1)
         self.pb_config = QPushButton('Config')
-        self.pb_config.setEnabled(False)
+        # self.pb_config.setEnabled(False)
         gl_tool.addWidget(self.pb_config, r_, 0, 1, 1)
 
         r_ += 1
@@ -412,14 +488,10 @@ class Wd1(QWidget):
         self.pte_log.setFont(QFont("Monospace", 8))  # Use a monospace font for better alignment
         gl_tool.addWidget(self.pte_log, r_, 0, 1, 3)
 
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setMinimumHeight(400)
-        scroll_area.setLayout(gl_1)
         lg_sa = QGridLayout()
         lg_sa.setContentsMargins(0, 0, 0, 0)
         lg_sa.setSpacing(0)
-        lg_sa.addWidget(scroll_area)
+        lg_sa.addLayout(gl_tool, 0, 0)
 
         self.trigger_actions()
         return lg_sa
@@ -438,6 +510,7 @@ class Wd1(QWidget):
         # self.tw_data.cellClicked.connect(self.tw_cell_clicked)
         # self.pb_server_folder.clicked.connect(self.get_folder_out)z
         self.pb_proc.clicked.connect(self.exec_analyze)
+        self.pb_config.clicked.connect(self.open_settings)
 
     def get_folder(self, key_='dir_prj'):
         print('get_folder')
@@ -526,7 +599,6 @@ class Wd1(QWidget):
         with open(log_path, "a") as file:
             file.write(log_entry)
 
-
     def log_mde_inf(self, key_: int):
         if self.dic_prj['dems'][key_]['obj_cbx']:
             layer_ = self.dic_prj['dems'][key_]['obj_cbx'].currentLayer()
@@ -548,7 +620,6 @@ class Wd1(QWidget):
         else:
             self.log_message(f"MODELO DE {self.dic_prj['dems'][key_]['type']} NÃO DEFINIDO", "ERROR")
 
-            
     # def clear_log(self):
     #     """
     #     Clears all text from the log widget.
@@ -604,7 +675,8 @@ class Wd1(QWidget):
     def task_done(self, key_):
         """ Called when a thread finishes processing, allowing another to start """
         self.threads_running -= 1  # Reduce active thread count
-        del self.active_workers[key_]  # Remove from active workers
+        if key_ in self.active_workers:
+            del self.active_workers[key_]  # Remove from active workers
 
         # Start next task if there are pending tasks in the queue
         if not self.task_queue.empty():
@@ -638,7 +710,6 @@ class Wd1(QWidget):
             layer_1 = self.get_gpkg_layer(prefix_= f'__Limit_{self.dic_prj["dems"][1]["type"]}__')
             layer_i = self.get_gpkg_layer(prefix_= '__Limit_Intersecao__')[0]
 
-
             for feat_0 in layer_0[0].getFeatures():
                 geom_0 = feat_0.geometry()
                 for feat_1 in layer_1[0].getFeatures():
@@ -647,7 +718,7 @@ class Wd1(QWidget):
                     feat_i = QgsFeature()
                     feat_i.setGeometry(intersec_)
                     count = layer_i.featureCount()
-                    feat_i.setAttributes([count + 1])
+                    feat_i.setAttributes([count + 1, intersec_.area()])
                     layer_i.startEditing()
                     layer_i.addFeature(feat_i)
                     layer_i.commitChanges()
@@ -695,7 +766,9 @@ class Wd1(QWidget):
         layer_i_name = '__Limit_Intersecao__'
         layer_ = QgsVectorLayer(f'polygon?crs={self.crs_epsg}&index=yes', layer_i_name, "memory")
         pr_ = layer_.dataProvider()
-        pr_.addAttributes(QgsFields())
+        schema_ = QgsFields()
+        schema_.append(QgsField('AREA', QVariant.Double))
+        pr_.addAttributes(schema_)
         layer_.updateFields()
 
         options = QgsVectorFileWriter.SaveVectorOptions()
@@ -707,24 +780,26 @@ class Wd1(QWidget):
             options=options)
         self.get_gpkg_layer(prefix_=layer_i_name, gpkg_path=self.gpkg_path)
 
+    def gpkg_conn(self, gpkg_path_=''):
+        if not gpkg_path_:
+            gpkg_path_ = self.gpkg_path
+        conn_ = sqlite3.connect(gpkg_path_)  # , isolation_level=None)
+        conn_.row_factory = sqlite3.Row
+        conn_.enable_load_extension(True)
+        conn_.load_extension('mod_spatialite')
+        conn_.execute('SELECT load_extension("mod_spatialite")')
+        conn_.execute('pragma journal_mode=wal')
+        # cur_ = conn_.cursor()
+        return conn_
+
+    def gpkg_close_conn(self, conn_=None, cur_=None):
+        print('close conn')
+        if conn_:
+            conn_.close()
+        if cur_:
+            cur_.close()
+
     def get_gpkg_layer(self, prefix_='', gpkg_path='', show=True):
-        def gpkg_conn(gpkg_path_):
-            conn_ = sqlite3.connect(gpkg_path_)  # , isolation_level=None)
-            conn_.row_factory = sqlite3.Row
-            conn_.enable_load_extension(True)
-            conn_.load_extension('mod_spatialite')
-            conn_.execute('SELECT load_extension("mod_spatialite")')
-            conn_.execute('pragma journal_mode=wal')
-            # cur_ = conn_.cursor()
-            return conn_
-
-        def gpkg_close_conn(conn_=None, cur_=None):
-            print('close conn')
-            if conn_:
-                conn_.close()
-            if cur_:
-                cur_.close()
-
         print('get_gpkg_layer', prefix_)
         self.node_group = QgsProject.instance().layerTreeRoot().findGroup('__MDE_PA__')
         if not self.node_group:
@@ -739,7 +814,7 @@ class Wd1(QWidget):
                 print(f'Layer {prefix_} já carregada')
                 return layer_
 
-            conn = gpkg_conn(gpkg_path)
+            conn = self.gpkg_conn(gpkg_path)
             uri_ = f'{gpkg_path}|layername={prefix_}'
 
             layer_ = QgsVectorLayer(uri_, prefix_, 'ogr')
@@ -749,8 +824,10 @@ class Wd1(QWidget):
             layer_.triggerRepaint()
             if show:
                 QgsProject.instance().addMapLayer(layer_, False)
-                self.node_group.addLayer(layer_)
-        gpkg_close_conn(conn)
+                layer_node = QgsLayerTreeLayer(layer_)
+                self.node_group.insertChildNode(0, layer_node)
+                # self.node_group.insertLayer(layer_, 0)
+        self.gpkg_close_conn(conn)
 
         return layer_
 
@@ -779,51 +856,167 @@ class Wd1(QWidget):
             key_, dic_ = self.task_queue.get()
             self.start_task(key_, dic_)
 
-    def define_morphology(self):
+    def define_morphology(self, key_=0):
         mss_ = f'=======================================\n'
-        mss_ += f'DEFININDO ELEMENTOS DE MORFOLOGIA DO TERRENO'
+        mss_ += f'DEFININDO ELEMENTOS DE MORFOLOGIA DO TERRENO - {self.dic_prj['dems'][key_]['type']}'
         self.log_message(mss_, 'INFO')
-        for key_ in self.dic_prj['dems']:
-            layer_ = self.dic_prj['dems'][key_]['obj_cbx'].currentLayer()
-            dic_ = {
-                'file_path': layer_.source(),
-                'step': 'morphology',
-                'srid_ref': self.crs_epsg,
-                'srid': layer_.crs().authid(),
-                'gpkg':self.gpkg_path,
-                'layer':  self.get_gpkg_layer(prefix_= '__Limit_Intersecao__')[0].source(),
-                'parent': self,
-                'main': self.main
-            }
+        layer_ = self.dic_prj['dems'][key_]['obj_cbx'].currentLayer()
+        gsd_ = layer_.rasterUnitsPerPixelX()
+        dic_param_morphology = self.settings_dlg.dic_param['step_morfologia']['fields']
+        max_px = int(float(dic_param_morphology['max_basin_area']['value']) / (gsd_ ** 2))
+        dic_ = {
+            'file_path': layer_.source(),
+            'step': 'morphology',
+            'srid_ref': self.crs_epsg,
+            'srid': layer_.crs().authid(),
+            'gpkg':self.gpkg_path,
+            'layer':  self.get_gpkg_layer(prefix_= '__Limit_Intersecao__')[0].source(),
+            'max_px': max_px,
+            'max_memo': float(dic_param_morphology['max_memo_grass']['value']),
+            'morph_names':self.morph,
+            'parent': self,
+            'main': self.main
+        }
 
-            # Add tasks to queue
-            self.task_queue.put((key_, dic_))
-
-        # Start up to max_threads tasks
-        while self.threads_running < self.max_threads and not self.task_queue.empty():
-            key_, dic_ = self.task_queue.get()
-            self.start_task(key_, dic_)
-
-    def parse_list(self):
-        """ Enqueue tasks and start only 3 at a time """
-        for key_ in self.dic_prj['dems']:
-            layer_ = self.dic_prj['dems'][key_]['obj_cbx'].currentLayer()
-            dic_ = {
-                'file_path': layer_.source(),
-                'srid': self.dic_epsg.get(self.cb_epsg.currentText(), '-'),
-                'log': self.log,
-                'vrt': self.layer_aux,
-                'parent': self,
-                'main': self.main
-            }
-
-            # Add tasks to queue
-            self.task_queue.put((key_, dic_))
+        # Add tasks to queue
+        self.task_queue.put((key_, dic_))
 
         # Start up to max_threads tasks
         while self.threads_running < self.max_threads and not self.task_queue.empty():
             key_, dic_ = self.task_queue.get()
             self.start_task(key_, dic_)
+
+    def matching_lines(self):
+        print('matching_lines')
+        conn = self.gpkg_conn()
+        curs = conn.cursor()
+        dist_max = 150
+        area_percent = 0.3
+        type_0 = self.dic_prj["dems"][0]["type"]
+        type_1 = self.dic_prj["dems"][1]["type"]
+        morph_0 = self.morph[0]
+        morph_1 = self.morph[1]
+        sql_ = f"""
+        WITH
+            ct as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid from __{morph_0}_{type_1}__),
+            cr as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid from __{morph_0}_{type_0}__),
+            ht as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid from __{morph_1}_{type_1}__),
+            hr as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid from __{morph_1}_{type_0}__)
+        SELECT '{morph_0}' TIPO, cr.fid fidr, ct.fid fidt, ROUND(ST_DISTANCE(ct.centroid, cr.centroid),2) as DIST,  ROUND(ABS(ST_AREA(ct.eogeom) - ST_AREA(cr.eogeom))/ ST_AREA(ct.eogeom),2) PER
+            FROM ct, cr
+            WHERE 
+                ST_DISTANCE(ct.centroid, cr.centroid) < {dist_max}
+                AND (ABS(ST_AREA(ct.eogeom) - ST_AREA(cr.eogeom))/ ST_AREA(ct.eogeom)) < {area_percent}
+        UNION
+        SELECT '{morph_1}' TIPO, hr.fid fidr, ht.fid fidt, ROUND(ST_DISTANCE(ht.centroid, hr.centroid),2) as DIST, ROUND(ABS(ST_AREA(ht.eogeom) - ST_AREA(hr.eogeom))/ ST_AREA(ht.eogeom),2) PER
+            FROM ht, hr
+            WHERE 
+                ST_DISTANCE(ht.centroid, hr.centroid) < {dist_max}
+                AND (ABS(ST_AREA(ht.eogeom) - ST_AREA(hr.eogeom))/ ST_AREA(ht.eogeom)) < {area_percent}
+            ORDER BY 1,4 ASC;
+        """
+        result_ = curs.execute(sql_)
+        result_fa = result_.fetchall()
+        for row_ in result_fa:
+            for j, col_ in enumerate(row_):
+                if j == 0:
+                    tag_ = col_
+                    if tag_ not in self.dic_match:
+                        self.dic_match[tag_] = [[]]
+                        k = 0
+                    else:
+                        self.dic_match[tag_].append([])
+                        k += 1
+                else:
+                    self.dic_match[tag_][k].append(col_)
+
+            #     print(col_,end='\t')
+            # print()
+        print('dic_match', self.dic_match)
+        self.create_buffers()
+
+    def create_buffers_layer(self):
+        prefix_1 = f'__Buffer_{self.dic_prj["dems"][1]["type"]}__'
+
+        layer_1 = QgsVectorLayer(f'polygon?crs={self.crs_epsg}&index=yes', prefix_1, "memory")
+        schema_ = QgsFields()
+        schema_.append(QgsField('id_ref', QVariant.Int))
+        schema_.append(QgsField('scale', QVariant.Int))
+        schema_.append(QgsField('class', QVariant.String))
+        schema_.append(QgsField('layer_ref', QVariant.String))
+        schema_.append(QgsField('Test_name', QVariant.String))
+        schema_.append(QgsField('Area_Test', QVariant.Double))
+        schema_.append(QgsField('Area_Ref', QVariant.Double))
+        schema_.append(QgsField('Area_Inter', QVariant.Double))
+        schema_.append(QgsField('DM_H', QVariant.Double))
+        schema_.append(QgsField('OUT_H', QVariant.Bool))
+        schema_.append(QgsField('Area_Test_Prof', QVariant.Double))
+        schema_.append(QgsField('Area_Ref_Prof', QVariant.Double))
+        schema_.append(QgsField('Area_Inter_Prof', QVariant.Double))
+        schema_.append(QgsField('DM_V', QVariant.Double))
+        schema_.append(QgsField('OUT_V', QVariant.Bool))
+        schema_.append(QgsField('Cota_Media_r', QVariant.Double))
+        schema_.append(QgsField('Cota_Media_t', QVariant.Double))
+        pr_ = layer_1.dataProvider()
+        pr_.addAttributes(schema_)
+        layer_1.updateFields()
+
+        options = QgsVectorFileWriter.SaveVectorOptions()
+        options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+        options.layerName = prefix_1
+        QgsVectorFileWriter.writeAsVectorFormat(
+            layer=layer_1,
+            fileName=self.gpkg_path,
+            options=options)
+        layer_test = self.get_gpkg_layer(prefix_=prefix_1, gpkg_path=self.gpkg_path)
+
+        prefix_0 = f'__Buffer_{self.dic_prj["dems"][0]["type"]}__'
+
+        layer_0 = QgsVectorLayer(f'polygon?crs={self.crs_epsg}&index=yes', prefix_0, "memory")
+        schema_ = QgsFields()
+        schema_.append(QgsField('id_ref', QVariant.Int))
+        schema_.append(QgsField('scale', QVariant.Int))
+        schema_.append(QgsField('class', QVariant.String))
+        pr_ = layer_0.dataProvider()
+        pr_.addAttributes(schema_)
+        layer_0.updateFields()
+
+        options = QgsVectorFileWriter.SaveVectorOptions()
+        options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+        options.layerName = prefix_0
+        QgsVectorFileWriter.writeAsVectorFormat(
+            layer=layer_0,
+            fileName=self.gpkg_path,
+            options=options)
+        layer_ref = self.get_gpkg_layer(prefix_=prefix_0, gpkg_path=self.gpkg_path)
+        return layer_test, layer_ref
+
+    def create_buffers(self):
+        layer_buffer_test, layer_buffer_ref = self.create_buffers_layer()
+        for tag_ in self.dic_match:
+            layer_r = self.get_gpkg_layer(f'__{tag_}_{self.dic_prj["dems"][0]["type"]}__')
+            layer_t = self.get_gpkg_layer(f'__{tag_}_{self.dic_prj["dems"][1]["type"]}__')
+            for vet_ in self.dic_match[tag_]:
+                id_r = vet_[0]
+                feat_r = layer_r.get_feature(id_r)
+                geom_r = feat_r.geometry()
+                id_t = vet_[1]
+                feat_t = layer_t.get_feature(id_t)
+                geom_t = feat_t.geometry()
+                for scale_ in self.dic_pec_v:
+                    for class_ in dic_pec_mm['H']:
+                        pec_h = scale_ * dic_pec_mm['H'][class_]['pec']
+                        ep_h = scale_ * dic_pec_mm['H'][class_]['ep']
+                        geom_bt = geom_t.buffer(pec_h, 20)
+                        feat_bt = QgsFeature()
+                        feat_bt.setGeometry(geom_bt)
+
+                        geom_br = geom_r.buffer(pec_h, 20)
+                        feat_br = QgsFeature()
+                        feat_br.setGeometry(geom_br)
+
+                        geom_i = geom_bt.intersection(geom_br)
+
 
     def update_bar(self, dic_):
         key_ = dic_['key']
@@ -850,9 +1043,7 @@ class Wd1(QWidget):
             prog_bar.setValue(dic_['value'])
             prog_bar.setFormat(f"{dic_['value']} - {dic_['msg']}")
             self.log_message(f"{self.dic_prj['dems'][dic_['key']]['type']} {dic_['value']} - {dic_['msg']}")
-            # self.count_commit += 1
-            # if self.count_commit % 100 == 0:
-            #     self.db.commit_()
+            print('dic_:', dic_)
             if 'feat' in dic_:
                 if dic_['value'] == 6:
                     layer_name = f'__Limit_{self.dic_prj["dems"][key_]["type"]}__'
@@ -871,17 +1062,13 @@ class Wd1(QWidget):
                     self.dic_prj['dems'][dic_['key']]['geom_status'] = True
                     self.run_polygon_intersection()
             elif 'layer' in dic_:
-                print("dic_['layer']['gpkg']=", dic_['layer']['gpkg'])
                 if isinstance(dic_['layer']['gpkg'], str):
-                    print('is string')
                     datasource = ogr.Open(dic_['layer']['gpkg'])
                     for i in range(datasource.GetLayerCount()):
                         layer = datasource.GetLayerByIndex(i)
-                        print(f"- {layer.GetName()}")
                     layer_prefix = datasource.GetLayerByIndex(0).GetName()
                     layer = self.get_gpkg_layer(prefix_=layer_prefix, gpkg_path=dic_['layer']['gpkg'], show=False)
                 else:
-                    print('is layer')
                     layer = dic_['layer']['gpkg']
                 layer_name = f'__{dic_["layer"]["type"]}_{self.dic_prj["dems"][key_]["type"]}__'
                 options = QgsVectorFileWriter.SaveVectorOptions()
@@ -889,18 +1076,23 @@ class Wd1(QWidget):
                 output_fields = QgsFields()
                 for field in layer.fields():
                     # Check if the field name is 'fid' (case-insensitive check for robustness)
-                    print('field.name()=', field.name())
                     if field.name().lower() != 'fid':
                         output_fields.append(QgsField(field.name(), field.type()))  # Append
                 options.fields = output_fields
                 options.layerName = layer_name
-                print(f'Writhing {layer_name} layer')
                 QgsVectorFileWriter.writeAsVectorFormat(
                     layer=layer,
                     fileName=self.gpkg_path,
                     options=options)
-                print(f'Writhing finished')
                 self.get_gpkg_layer(prefix_=layer_name, gpkg_path=self.gpkg_path)
+            if 'start_task' in dic_:
+                if key_ == 0:
+                    self.define_morphology(1)
+                elif key_ == 1:
+                    self.matching_lines()
+            if 'model' in dic_:
+                print(f'modelo {key_}:', dic_['model'])
+                self.dic_prj["dems"][key_]['model'] = dic_['model']
 
         elif 'end' in dic_:
             palette.setColor(QPalette.Highlight, QColor(Qt.darkGreen))
@@ -909,611 +1101,10 @@ class Wd1(QWidget):
             prog_bar.setPalette(palette)
             # self.db.commit_()
 
-
-class SettingsDbDlg(QDialog):
-    """DB Form"""
-
-    def __init__(self, main=None, parent=None):
-        super().__init__(parent)
-        self.setObjectName('SettingsDbDlg')
-        self.main = main
-        self.parent = parent
-        # self.parent_dlg = parent
-        self.setWindowTitle('Informacoes do Banco de Dados')
-        self.setWindowIcon(QIcon(":/plugins/mod_cut_pan/icons/icon_cut.png"))
-        self.dic_param = None
-        self.icon_eye = None
-        self.icon_eyex = None
-        self.aux_tools = AuxTools(parent=self)
-        geom = self.aux_tools.get_geometry()
-        if geom:
-            self.restoreGeometry(geom)
-        else:
-            x_, y_, w_, h_ = 100, 100, 300, 300
-            self.setGeometry(x_, y_, w_, h_)
-        dlgLayout = self.create_layout_db()
-        self.setLayout(dlgLayout)
-        self.current_idx = 0
-        self.db = None
-
-    def create_layout_db(self):
-        print("create_layout_db")
-        r_ = 0
-        gl_ = QGridLayout()
-
-        self.cb_name = QComboBox(self)
-        # self.cb_name.
-        self.update_cb_name()
-        gl_.addWidget(self.cb_name, r_, 2, 1, 2)
-
-        self.dic_param = \
-            {
-                'conn': {
-                    'name': {
-                        'value': 'api_qgis_teste',
-                        'label': 'Nome Conexão:',
-                    },
-                    'host': {
-                        'value': 'vmdbtst01.topo.local',
-                        'label': 'HOST:',
-                    },
-                    'port': {
-                        'value': '5433',
-                        'label': 'PORTA:',
-                    },
-                    'db': {
-                        'value': 'api_qgis_teste',
-                        'label': 'BANCO:',
-                    },
-                    'user': {
-                        'value': 'django',
-                        'label': 'Usuário:',
-                    },
-                    'pass': {
-                        'value': '',
-                        'label': 'Senha:',
-                    },
-                    'plugin_version': self.main.plugin_version(),
-                },
-
-                'sch_metapoly': {
-                    'alias': ['metapoly'],
-                    'label': 'Tabela Metapoly',
-                    'tab': {
-                        'alias': ['metapoly']},
-                    'fields': {
-                        'fld_name': {
-                            'alias': ['name'],
-                            'label': 'Campo: Nome'},
-                        'fld_path': {
-                            'alias': ['path'],
-                            'label': 'Campo: Caminho'},
-                        'fld_type': {
-                            'alias': ['type'],
-                            'label': 'Campo: Tipo'},
-                        'fld_date': {
-                            'alias': ['date'],
-                            'label': 'Campo: Data'},
-                        'fld_valid': {
-                            'alias': ['valid'],
-                            'label': 'Campo: Validade'},
-                        'fld_srid': {
-                            'alias': ['srid'],
-                            'label': 'Campo: SRID'},
-
-                    },
-                },
-            }
-
-        for i, tag_ in enumerate(self.dic_param['conn']):
-            if i != 0:
-                r_ += 1
-            if tag_ == 'plugin_version':
-                continue
-            label_ = self.dic_param['conn'][tag_]['label']
-            lb_ = QLabel(label_)
-            lb_.setObjectName('lb_' + tag_.lower())
-            # self.dic_obj.update({'lb_' + name_.lower(): lb_})
-            gl_.addWidget(lb_, r_, 0, 1, 1)
-            le_ = QLineEdit(self)
-            le_.setText(self.dic_param['conn'][tag_]['value'])
-            le_.setObjectName('le_' + tag_.lower())
-            gl_.addWidget(le_, r_, 1, 1, 1)
-            if tag_ == 'pass':
-                le_.setEchoMode(QLineEdit.Password)
-                icon_path_eye = os.path.join(plugin_path, 'icons/icon_eye.png')
-                self.icon_eye = QIcon(icon_path_eye)
-                self.action_pass = le_.addAction(self.icon_eye, QLineEdit.TrailingPosition)
-            elif tag_ == 'pass':
-                le_.textChanged.connect(self.check_exists_name)
-            r_ += 1
-
-        r_ += 1
-        self.pb_test = QPushButton(self)
-        self.pb_test.setIcon(self.parent.icon_conx)
-        gl_.addWidget(self.pb_test, r_, 3, 1, 1)
-
-        r_ += 1
-        frame1 = QFrame(self)
-        frame1.setFrameShape(QFrame.HLine)
-        gl_.addWidget(frame1, r_, 1, 1, 3)
-
-        for i, item_i in enumerate(self.dic_param):
-            if item_i[:4] == 'sch_':
-                r_ += 1
-                lb_ = QLabel(self.dic_param[item_i]['label'])
-                lb_.setFont(QFont('MS Shell Dlg 2', 14))
-                lb_.setObjectName(item_i.replace('sch', 'lb'))
-                lb_.setMinimumWidth(25)
-                gl_.addWidget(lb_, r_, 0, 1, 2)
-                if 'chk' in self.dic_param[item_i]:
-                    chk_ = QCheckBox(self.dic_param[item_i]['chk']['label'])
-                    chk_.setCheckState(self.dic_param[item_i]['chk']['status'])
-                    chk_.setObjectName('chk_' + item_i.lower())
-                    chk_.setTristate(False)
-                    gl_.addWidget(chk_, r_, 2, 1, 1)
-
-                r_ += 1
-                lb_ = QLabel('Esquema:')
-                lb_.setObjectName('lb_' + item_i.lower())
-                # self.dic_obj.update({'lb_' + name_.lower(): lb_})
-                gl_.addWidget(lb_, r_, 0)
-                cbx_sch = QComboBox(self)
-                cbx_sch.setMinimumWidth(25)
-                cbx_name = 'cbx_' + item_i.lower()
-                cbx_sch.setObjectName(cbx_name)
-                # self.update_cbx(cbx_=cbx_sch, alias=self.dic_param[item_i]['alias'])
-                gl_.addWidget(cbx_sch, r_, 1)
-
-                r_ += 1
-                lb_ = QLabel('Tabela:')
-                lb_.setObjectName('lb_' + item_i.lower().replace('sch', 'tab'))
-                # self.dic_obj.update({'lb_' + name_.lower(): lb_})
-                gl_.addWidget(lb_, r_, 0)
-                cbx_tab = QComboBox(self)
-                cbx_tab.setMinimumWidth(25)
-                cbx_name = 'cbx_' + item_i.lower().replace('sch', 'tab')
-                cbx_tab.setObjectName(cbx_name)
-                # self.update_cbx(sch_=cbx_sch, cbx_=cbx_tab, alias=self.dic_param[item_i]['tab']['alias'])
-                gl_.addWidget(cbx_tab, r_, 1)
-
-                cbx_sch.currentIndexChanged.connect(partial(self.update_cbx,
-                                                            sch_=cbx_sch,
-                                                            cbx_=cbx_tab,
-                                                            alias=self.dic_param[item_i]['tab']['alias']))
-
-                for j, item_j in enumerate(self.dic_param[item_i]['fields']):
-                    r_ += 1
-                    if 'status' in self.dic_param[item_i]['fields'][item_j]:
-                        cb_ = QCheckBox(self.dic_param[item_i]['fields'][item_j]['label'], self)
-                        cb_.setObjectName(item_j.replace('fld', 'cb'))
-                        cb_.setChecked(bool(self.dic_param[item_i]['fields'][item_j]['status']))
-                        gl_.addWidget(cb_, r_, 0, 1, 1)
-                        if self.dic_param[item_i]['fields'][item_j]['status']:
-                            cb_ = self.findChild(QCheckBox, item_j.replace('fld', 'cb'))
-                            cb_.setChecked(True)
-                    else:
-                        lb_ = QLabel(self.dic_param[item_i]['fields'][item_j]['label'])
-                        lb_.setObjectName('lb_' + item_j.lower())
-                    # self.dic_obj.update({'lb_' + name_.lower(): lb_})
-                    gl_.addWidget(lb_, r_, 0)
-                    cbx_ = QComboBox(self)
-                    cbx_.setMinimumWidth(25)
-                    cbx_name = 'cbx_' + item_j.lower()
-                    cbx_.setObjectName(cbx_name)
-                    # self.update_cbx(tab_=cbx_tab, sch_=cbx_sch, cbx_=cbx_,
-                    #                 alias=self.dic_param[item_i]['fields'][item_j]['alias'])
-                    gl_.addWidget(cbx_, r_, 1)
-                    cbx_tab.currentIndexChanged.connect(partial(self.update_cbx,
-                                                                tab_=cbx_tab,
-                                                                sch_=cbx_sch,
-                                                                cbx_=cbx_,
-                                                                alias=self.dic_param[item_i]['fields'][item_j][
-                                                                    'alias']))
-
-        r_ += 1
-        frame2 = QFrame(self)
-        frame2.setFrameShape(QFrame.HLine)
-        gl_.addWidget(frame2, r_, 1, 1, 3)
-
-        r_ += 1
-        hl_ = QHBoxLayout()
-
-        self.pb_exp = QPushButton("Exportar", self)
-        self.pb_exp.setEnabled(True)
-        hl_.addWidget(self.pb_exp)
-
-        self.pb_imp = QPushButton("Importar", self)
-        # self.pb_imp.setEnabled(False)
-        hl_.addWidget(self.pb_imp)
-
-        self.pb_save = QPushButton("Salvar", self)
-        # self.pb_save.setEnabled(False)
-        hl_.addWidget(self.pb_save)
-
-        self.pb_remove = QPushButton("Remover", self)
-        # self.pb_remove.setEnabled(False)
-        hl_.addWidget(self.pb_remove)
-        gl_.addLayout(hl_, r_, 0, 1, 4)
-
-        self.trigger_actions_db()
-
-        r_ += 1
-        self.lb_topo_logo = QLabel()
-        self.lb_topo_logo.setMinimumSize(QSize(100, 30))
-        self.lb_topo_logo.setMaximumSize(QSize(100, 30))
-        self.lb_topo_logo.setText("")
-        icon_path = os.path.join(plugin_path, 'icons/topo_logo.png')
-        self.lb_topo_logo.setPixmap(QPixmap(icon_path))
-        self.lb_topo_logo.setScaledContents(True)
-        self.lb_topo_logo.setAlignment(Qt.AlignBottom | Qt.AlignLeading | Qt.AlignLeft)
-        self.lb_topo_logo.setObjectName("lb_topo_logo")
-        gl_.addWidget(self.lb_topo_logo, r_, 0, 1, 1)
-
-        base_widget = QWidget()
-        base_widget.setLayout(gl_)
-
-        sla_ = QScrollArea(self)
-        # gl_.addWidget(sla_)
-        # sla_.setLayout(gl_)
-        sla_.setWidgetResizable(True)
-        sla_.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        sla_.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        sla_.setWidget(base_widget)
-
-        vl_ = QVBoxLayout(self)
-        vl_.addWidget(sla_)
-
-        return vl_
-
-    def trigger_actions_db(self):
-        print("trigger_actions_db")
-        self.pb_save.clicked.connect(self.append_update_db)
-        self.pb_test.clicked.connect(self.test_connection)
-        self.pb_remove.clicked.connect(self.remove_db)
-        # self.le_name.textChanged.connect(self.check_exists_name)
-        self.cb_name.activated.connect(self.fill_inf)
-        self.action_pass.triggered.connect(self.toggle_visibility)
-        # self.cb_use_file.toggled.connect(self.enable_priority)
-        # self.cb_use_vinc.toggled.connect(self.enable_vinc)
-        self.pb_exp.clicked.connect(self.export_db_inf)
-        self.pb_imp.clicked.connect(self.import_db_inf)
-        # self.cb_pop_media.toggled.connect(self.enable_media)
-
-    def toggle_visibility(self):
-        le_pass = self.findChild(QLineEdit, 'le_pass')
-        if le_pass.echoMode() == QLineEdit.Normal:
-            le_pass.setEchoMode(QLineEdit.Password)
-            if not self.icon_eye:
-                icon_path_eye = os.path.join(plugin_path, 'icons/icon_eye.png')
-                self.icon_eye = QIcon(icon_path_eye)
-            self.action_pass.setIcon(self.icon_eye)
-        else:
-            le_pass.setEchoMode(QLineEdit.Normal)
-            if not self.icon_eyex:
-                icon_path_eyex = os.path.join(plugin_path, 'icons/icon_eyex.png')
-                self.icon_eyex = QIcon(icon_path_eyex)
-            self.action_pass.setIcon(self.icon_eyex)
-
-    def fill_inf(self):
-        print('fill_inf')
-        self.pb_remove.setEnabled(True)
-        # conn_name = self.cb_name.currentText()
-        conn_name = self.cb_name.currentText()
-        if conn_name == '...':
-            self.clear_values()
-            self.db = None
-            return
-        elif not conn_name:
-            return
-        dic_base = self.dic_param
-        if conn_name in self.parent.dic_dbs:
-            dic_parent = self.parent.dic_dbs[conn_name]
-            for i, item_i in enumerate(dic_base):
-                if item_i not in dic_parent:
-                    dic_parent[item_i] = dic_base[item_i]
-                    continue
-                for j, item_j in enumerate(dic_base[item_i]):
-                    if item_j not in dic_parent[item_i] or item_j == 'plugin_version':
-                        dic_parent[item_i][item_j] = dic_base[item_i][item_j]
-                        continue
-                    for k, item_k in enumerate(dic_base[item_i][item_j]):
-                        if item_k not in dic_parent[item_i][item_j]:
-                            dic_parent[item_i][item_j][item_k] = dic_base[item_i][item_j][item_k]
-
-            aux_list_dic_i = list(dic_parent)
-            for i, item_i in enumerate(aux_list_dic_i):
-                if item_i not in dic_base:
-                    dic_parent.pop(item_i)
-                    continue
-                aux_list_dic_j = list(dic_parent[item_i])
-                for j, item_j in enumerate(aux_list_dic_j):
-                    if item_j not in dic_base[item_i]:
-                        self.dic_param[item_i].pop(item_j)
-                        continue
-                    elif item_j == 'plugin_version':
-                        continue
-                    aux_list_dic_k = list(dic_parent[item_i][item_j])
-                    for k, item_k in enumerate(aux_list_dic_k):
-                        if item_k and item_k not in dic_base[item_i][item_j]:
-                            self.dic_param[item_i][item_j].pop(item_k)
-            self.dic_param = dic_parent
-        for tag_1 in self.dic_param['conn']:
-            # print('le_name=', le_name)
-            if tag_1 == 'plugin_version':
-                continue
-            le_name = f'le_{tag_1}'
-            le_obj = self.findChild(QLineEdit, le_name)
-            le_obj.setText(self.dic_param['conn'][tag_1]['value'])
-
-        if not self.db:
-            self.create_conn()
-            if self.db and not self.db.is_connected():
-                return
-            elif not self.db:
-                return
-        else:
-            if self.db.conn_name != self.dic_param['conn']['name']['value']:
-                self.db.close()
-                self.db = self.create_conn()
-                if not self.db:
-                    return
-
-        for tag_0 in self.dic_param:
-            if tag_0 == 'conn':
-                continue
-
-            # for tag_1 in self.dic_param[tag_0]:
-            cbx_name = 'cbx_' + tag_0.lower()
-            cbx_sch = self.findChild(QComboBox, cbx_name)
-            cbx_sch.clear()
-            self.update_cbx(cbx_=cbx_sch, alias=self.dic_param[tag_0]['alias'])
-            if 'chk' in self.dic_param[tag_0]:
-                # chk_ = QCheckBox(self.dic_param[tag_0]['chk']['label'])
-                # print('chk', self.dic_param[tag_0]['chk']['status'])
-                chk_name = 'chk_' + tag_0.lower()
-                chk_obj = self.findChild(QCheckBox, chk_name)
-                chk_obj.setCheckState(self.dic_param[tag_0]['chk']['status'])
-
-            cbx_name = cbx_name.replace('sch', 'tab')
-            cbx_tab = self.findChild(QComboBox, cbx_name)
-            cbx_tab.clear()
-            self.update_cbx(sch_=cbx_sch, cbx_=cbx_tab, alias=self.dic_param[tag_0]['tab']['alias'])
-
-            for tag_1 in self.dic_param[tag_0]['fields']:
-                cbx_name = 'cbx_' + tag_1.lower()
-                cbx_field = self.findChild(QComboBox, cbx_name)
-                cbx_field.clear()
-                self.update_cbx(tab_=cbx_tab, sch_=cbx_sch, cbx_=cbx_field,
-                                alias=self.dic_param[tag_0]['fields'][tag_1]['alias'])
-
-    def update_cb_name(self, cur_=''):
-        print('update_cb_name', cur_)
-        self.cb_name.setEnabled(True)
-        self.cb_name.clear()
-        list_ = list(self.parent.dic_dbs)
-        if cur_ and cur_ not in list_:
-            list_.append(cur_)
-
-        self.cb_name.addItems(['...'] + sorted(list_))
-        if cur_:
-            self.cb_name.setCurrentText(cur_)
-            # self.fill_inf()
-
-    def clear_values(self):
-        print('clear_values')
-        for tag_0 in self.dic_param:
-            if tag_0 == 'conn':
-                for tag_1 in self.dic_param['conn']:
-                    # print('le_name=', le_name)
-                    if tag_1 == 'plugin_version':
-                        continue
-                    le_name = f'le_{tag_1}'
-                    le_obj = self.findChild(QLineEdit, le_name)
-                    le_obj.setText('')
-            else:
-                # for tag_1 in self.dic_param[tag_0]:
-                cbx_name = 'cbx_' + tag_0.lower()
-                cbx_obj = self.findChild(QComboBox, cbx_name)
-                cbx_obj.clear()
-                cbx_name = cbx_name.replace('sch', 'tab')
-                cbx_obj = self.findChild(QComboBox, cbx_name)
-                cbx_obj.clear()
-                for field_ in self.dic_param[tag_0]['fields']:
-                    cbx_name = 'cbx_' + field_.lower()
-                    cbx_obj = self.findChild(QComboBox, cbx_name)
-                    cbx_obj.clear()
-
-    def update_dic_conn(self, conn_only=False):
-        print('update_dic_conn')
-        for tag_0 in self.dic_param:
-            if tag_0 == 'conn':
-                for tag_1 in self.dic_param['conn']:
-                    if tag_1 == 'plugin_version':
-                        self.dic_param['conn'][tag_1] = self.main.plugin_version()
-                        continue
-                    # print('le_name=', le_name)
-                    le_name = f'le_{tag_1}'
-                    le_obj = self.findChild(QLineEdit, le_name)
-                    le_text = le_obj.text()
-                    if le_text:
-                        if le_name == 'le_name':
-                            le_text_name = le_obj.text()
-                        if le_text != self.dic_param['conn'][tag_1]['value']:
-                            self.dic_param['conn'][tag_1]['value'] = le_text
-            elif not conn_only:
-                cbx_name = 'cbx_' + tag_0.lower()
-                cbx_obj = self.findChild(QComboBox, cbx_name)
-                cbx_txt = cbx_obj.currentText()
-                if cbx_txt != self.dic_param[tag_0]['alias'][0]:
-                    vet_ = self.dic_param[tag_0]['alias']
-                    if cbx_txt in vet_:
-                        vet_.remove(cbx_txt)
-                    self.dic_param[tag_0]['alias'] = [cbx_txt] + vet_
-                if 'chk' in self.dic_param[tag_0]:
-                    chk_name = 'chk_' + tag_0.lower()
-                    chk_obj = self.findChild(QCheckBox, chk_name)
-                    self.dic_param[tag_0]['chk']['status'] = 2 if chk_obj.checkState() else False
-                cbx_name = cbx_name.replace('sch', 'tab')
-                cbx_obj = self.findChild(QComboBox, cbx_name)
-                cbx_txt = cbx_obj.currentText()
-                if cbx_txt != self.dic_param[tag_0]['tab']['alias'][0]:
-                    vet_ = self.dic_param[tag_0]['tab']['alias']
-                    if cbx_txt in vet_:
-                        vet_.remove(cbx_txt)
-                    self.dic_param[tag_0]['tab']['alias'] = [cbx_txt] + vet_
-                for field_ in self.dic_param[tag_0]['fields']:
-                    cbx_name = 'cbx_' + field_.lower()
-                    cbx_obj = self.findChild(QComboBox, cbx_name)
-                    cbx_txt = cbx_obj.currentText()
-                    if cbx_txt != self.dic_param[tag_0]['fields'][field_]['alias'][0]:
-                        vet_ = self.dic_param[tag_0]['fields'][field_]['alias']
-                        if cbx_txt in vet_:
-                            vet_.remove(cbx_txt)
-                        self.dic_param[tag_0]['fields'][field_]['alias'] = [cbx_txt] + vet_
-        return {le_text_name: self.dic_param}
-
-    def append_update_db(self):
-        print("append_update_db")
-        dic_ = self.update_dic_conn()
-        self.parent.dic_dbs.update(dic_)
-        self.parent.set_db_names(cur_=list(dic_)[0])
-        self.parent.save_db_inf()
-        # self.parent.save_prj_inf()
-        self.parent.update_parameters()
-        # self.parent.connect_db()
-        # self.update_cb_name(cur_=list(dic_)[0])
-
-        self.close()
-
-    def remove_db(self):
-        print('remove_db')
-        if self.cb_name.currentText() != '...':
-            # idx_list = self.cb_name.currentIndex() - 1
-            del self.parent.dic_dbs[self.cb_name.currentText()]
-            self.parent.save_db_inf()
-            # self.parent.get_db_inf()
-
-            self.cb_name.clear()
-            self.cb_name.addItems(['...'] + sorted(list(self.parent.dic_dbs)))
-            self.cb_name.setCurrentText('...')
-            self.fill_inf()
-
-    def check_exists_name(self):
-        print("check_exists_name")
-        if self.le_name.text():
-            self.pb_save.setEnabled(True)
-        if self.le_name.text() in self.parent.dic_db:
-            self.pb_save.setText("Substituir")
-            return True
-        else:
-            self.pb_save.setText("Salvar")
-            return False
-
-    def create_conn(self):
-        print('create_conn')
-        # try:
-        self.update_dic_conn()
-        self.db = Database(parent=self, main=self.main, dic_conn=self.dic_param['conn'])
-        if self.db.is_connected():
-            self.pb_test.setIcon(self.parent.icon_conn)
-            self.pb_test.setText("")
-            return True
-        else:
-            self.db = None
-            return False
-        # except:
-        #     self.db = None
-        #     return False
-
-    def test_connection(self):
-        self.update_dic_conn(conn_only=True)
-        try:
-            chk_conn = self.create_conn()
-            if not chk_conn or (self.db and not self.db.is_connected()):
-                self.pb_test.setIcon(self.parent.icon_conx)
-                # print(self.dic_param['conn'])
-                self.pb_test.setText("FALHOU")
-                return False
-            # self.pb_test.setIcon(self.parent.icon_conn)
-            le_obj = self.findChild(QLineEdit, 'le_name')
-            le_text = le_obj.text()
-            self.update_cb_name(cur_=le_text)
-            self.update_dic_conn()
-            self.fill_inf()
-            return True
-        except:
-            self.pb_test.setIcon(self.parent.icon_conx)
-            # print(self.dic_param['conn'])
-            self.pb_test.setText("FALHOU")
-            return False
-
-    def export_db_inf(self):
-        print('export_db_inf')
-        le_obj = self.findChild(QLineEdit, 'le_name')
-        le_text = le_obj.text()
-        if not le_text:
-            return
-        self.w = QWidget()
-        filter = "DBs inf (*.idb)"
-        str_dir_ = self.aux_tools.get_(key_='dir_exp')
-
-        if str_dir_:
-            file_ = os.path.join(str_dir_, le_text)
-        else:
-            file_ = le_text
-        path_file = QFileDialog.getSaveFileName(self.w, 'Exportar Arquivo', file_, filter)
-        if path_file and path_file[0]:
-            self.aux_tools.save_(key_='dir_exp', value_=os.path.dirname(path_file[0]))
-            str_ = json.dumps(self.dic_param)
-            bin_ = Obs2().str_encode(str_)
-            with open(path_file[0], "wb") as outfile:
-                outfile.write(bin_)
-
-    def import_db_inf(self):
-        print('import_db_inf')
-        self.w = QWidget()
-        filter = "DBs inf (*.idb)"
-        str_dir_ = self.aux_tools.get_(key_='dir_exp')
-        # Get filename using QFileDialog
-        path_db_inf, _ = QFileDialog.getOpenFileName(self.w, 'Abrir Informações', str_dir_, filter)
-        if not os.path.exists(path_db_inf):
-            return
-        with open(path_db_inf, 'rb') as infile:
-            bin_ = infile.read()
-            infile.close()
-        str_ = Obs2().str_decode(bin_)
-        self.dic_param = json.loads(str_)
-        self.fill_inf()
-
-    def update_cbx(self, sch_=None, tab_=None, cbx_=None, alias=[]):
-        # print('update_cbx', cbx_, alias)
-
-        def loop_set_cbx():
-            # print(list_)
-            for alias_i in alias:
-                if alias_i and alias_i in list_:
-                    cbx_.setCurrentText(alias_i)
-                    return
-                for name_ in list_:
-                    if alias_i and alias_i in name_:
-                        cbx_.setCurrentText(name_)
-                        return
-
-        cbx_.clear()
-        if sch_ and sch_.currentText() and tab_ and tab_.currentText():
-            list_ = self.aux_tools.get_columns(db=self.db, sch_=sch_.currentText(), tab_=tab_.currentText())
-        elif sch_ and sch_.currentText():
-            list_ = self.aux_tools.get_tables(db=self.db, sch_=sch_.currentText())
-        else:
-            list_ = self.aux_tools.get_schemas(db=self.db)
-        # print('list_=', list_)
-        cbx_.addItems(list_)
-        loop_set_cbx()
-
-    def closeEvent(self, evt):
-        print('closeEvent')
-        self.aux_tools.save_geometry(self)
+    def open_settings(self):
+        if not self.settings_dlg:
+            self.settings_dlg = SettingsDlg(main=self.parent, parent=self)
+        self.settings_dlg.show()
 
 
 class QLabelEvent(QLabel):
