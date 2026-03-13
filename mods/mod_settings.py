@@ -56,6 +56,21 @@ class SettingsDlg(QDialog):
                             'obj': None},
                     },
                 },
+                'step_match':{
+                    'label': 'Definições para Seleção dos Pares',
+                    'fields': {
+                        'dist_max': {
+                            'label': 'Distância Máxima entre Centróides',
+                            'value': '150',
+                            'default': '150',
+                            'obj': None},
+                        'percent_area': {
+                            'label': 'Deferença % entre área dos mínimos envelopes',
+                            'value': '30',
+                            'default': '30',
+                            'obj': None},
+                    },
+                },
                 'step_buffers':{
                     'label': 'Definições para geração Buffers',
                     'fields': {
@@ -265,9 +280,11 @@ class SettingsDlg(QDialog):
                     else:
                         value_ = self.dic_param[item_i]['fields'][item_j]['obj'].text()
                     dic_save[item_i][item_j] = value_
+                    self.parent.log_message(f'{item_i} - {item_j} : "{value_}"')
                     self.dic_param[item_i]['fields'][item_j]['value'] = value_
 
         self.aux_tools.save_dic(dic_=dic_save,key_='dic_param')
+
         self.close()
 
     def rest_default(self):
