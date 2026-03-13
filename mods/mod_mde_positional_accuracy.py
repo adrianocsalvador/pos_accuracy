@@ -3,11 +3,12 @@ import datetime
 import json
 import os
 import sqlite3
+import math
 from queue import Queue
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
-from sys import prefix
+# from sys import prefix
 
 from osgeo import ogr
 from qgis.PyQt.QtCore import (QSettings, Qt, QSize, QTranslator, QCoreApplication, QEvent, QThreadPool, QDateTime,
@@ -386,6 +387,7 @@ class Wd1(QWidget):
         }
         self.settings_dlg = SettingsDlg(main=parent, parent=self)
         self.morph = ['Cumeada', 'Hidrografia_Numerica']
+        self.intersection_name = '__Limit_Intersecao__'
 
     def create_layout(self):
         gl_tool = QGridLayout()
@@ -708,7 +710,7 @@ class Wd1(QWidget):
 
             layer_0 = self.get_gpkg_layer(prefix_= f'__Limit_{self.dic_prj["dems"][0]["type"]}__')
             layer_1 = self.get_gpkg_layer(prefix_= f'__Limit_{self.dic_prj["dems"][1]["type"]}__')
-            layer_i = self.get_gpkg_layer(prefix_= '__Limit_Intersecao__')[0]
+            layer_i = self.get_gpkg_layer(prefix_= self.intersection_name)[0]
 
             for feat_0 in layer_0[0].getFeatures():
                 geom_0 = feat_0.geometry()
@@ -763,7 +765,7 @@ class Wd1(QWidget):
             options=options)
         self.get_gpkg_layer(prefix_=layer_t_name, gpkg_path=self.gpkg_path)
 
-        layer_i_name = '__Limit_Intersecao__'
+        layer_i_name = self.intersection_name
         layer_ = QgsVectorLayer(f'polygon?crs={self.crs_epsg}&index=yes', layer_i_name, "memory")
         pr_ = layer_.dataProvider()
         schema_ = QgsFields()
@@ -870,10 +872,11 @@ class Wd1(QWidget):
             'srid_ref': self.crs_epsg,
             'srid': layer_.crs().authid(),
             'gpkg':self.gpkg_path,
-            'layer':  self.get_gpkg_layer(prefix_= '__Limit_Intersecao__')[0].source(),
+            'layer':  self.get_gpkg_layer(prefix_= self.intersection_name)[0].source(),
             'max_px': max_px,
             'max_memo': float(dic_param_morphology['max_memo_grass']['value']),
             'morph_names':self.morph,
+            'gsd': gsd_,
             'parent': self,
             'main': self.main
         }
@@ -890,18 +893,19 @@ class Wd1(QWidget):
         print('matching_lines')
         conn = self.gpkg_conn()
         curs = conn.cursor()
-        dist_max = 150
-        area_percent = 0.3
+        dic_param_match = self.settings_dlg.dic_param['step_match']['fields']
+        dist_max = float(dic_param_match['dist_max']['value'])
+        area_percent = float(dic_param_match['percent_area']['value']) / 100
         type_0 = self.dic_prj["dems"][0]["type"]
         type_1 = self.dic_prj["dems"][1]["type"]
         morph_0 = self.morph[0]
         morph_1 = self.morph[1]
         sql_ = f"""
         WITH
-            ct as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid from __{morph_0}_{type_1}__),
-            cr as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid from __{morph_0}_{type_0}__),
-            ht as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid from __{morph_1}_{type_1}__),
-            hr as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid from __{morph_1}_{type_0}__)
+            ct as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid from __{morph_0}_Z_{type_1}__),
+            cr as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid from __{morph_0}_Z_{type_0}__),
+            ht as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid from __{morph_1}_Z_{type_1}__),
+            hr as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid from __{morph_1}_Z_{type_0}__)
         SELECT '{morph_0}' TIPO, cr.fid fidr, ct.fid fidt, ROUND(ST_DISTANCE(ct.centroid, cr.centroid),2) as DIST,  ROUND(ABS(ST_AREA(ct.eogeom) - ST_AREA(cr.eogeom))/ ST_AREA(ct.eogeom),2) PER
             FROM ct, cr
             WHERE 
@@ -991,22 +995,58 @@ class Wd1(QWidget):
         layer_ref = self.get_gpkg_layer(prefix_=prefix_0, gpkg_path=self.gpkg_path)
         return layer_test, layer_ref
 
+    def get_list_scale(self):
+        max_scale_from_set = self.settings_dlg.dic_param['step_buffers']['fields']['max_scale']['value']
+        min_scale_from_set = self.settings_dlg.dic_param['step_buffers']['fields']['min_scale']['value']
+        print('max_scale_from_set', max_scale_from_set, 'min_scale_from_set', min_scale_from_set)
+        layer_ = self.dic_prj['dems'][1]['obj_cbx'].currentLayer()
+        gsd_ = layer_.rasterUnitsPerPixelX()
+        if  max_scale_from_set:
+            print(f'getting max_scale_from_set: {max_scale_from_set}')
+            max_scale = max_scale_from_set - 1
+        else:
+            for i, scale_ in enumerate(self.dic_pec_v):
+                if self.dic_pec_mm['H']['A']['pec'] * scale_ > gsd_/2:
+                    max_scale = i - 1
+                    print('else max', list(self.dic_pec_v)[max_scale])
+                    break
+        if min_scale_from_set:
+            print(f'getting min_scale_from_set: {min_scale_from_set}')
+            min_scale = min_scale_from_set - 1
+        else:
+            for i, scale_ in enumerate(self.dic_pec_v):
+                if self.dic_pec_mm['H']['A']['pec'] * scale_ > gsd_ * 2:
+                    min_scale = i
+                    print('else min',list(self.dic_pec_v)[min_scale])
+                    break
+        print('min_scale', min_scale, 'max_scale', max_scale)
+        max_scale_idx = max(min(max_scale, min_scale), 0)
+        min_scale_idx = min(max(max_scale, min_scale), len(self.dic_pec_v) - 1)
+        print('max_scale_idx', max_scale_idx, 'min_scale_idx', min_scale_idx)
+        return list(self.dic_pec_v)[max_scale_idx: min_scale_idx]
+
     def create_buffers(self):
-        layer_buffer_test, layer_buffer_ref = self.create_buffers_layer()
+        layer_bt, layer_br = self.create_buffers_layer()
+        layer_bt.startEditing()
+        layer_br.startEditing()
+        list_scale = self.get_list_scale()
         for tag_ in self.dic_match:
-            layer_r = self.get_gpkg_layer(f'__{tag_}_{self.dic_prj["dems"][0]["type"]}__')
-            layer_t = self.get_gpkg_layer(f'__{tag_}_{self.dic_prj["dems"][1]["type"]}__')
+            layer_r_name = f'__{tag_}_Z_{self.dic_prj["dems"][0]["type"]}__'
+            layer_r = self.get_gpkg_layer(layer_r_name)[0]
+            layer_t_name = f'__{tag_}_Z_{self.dic_prj["dems"][1]["type"]}__'
+            layer_t = self.get_gpkg_layer(layer_t_name)[0]
+
             for vet_ in self.dic_match[tag_]:
                 id_r = vet_[0]
-                feat_r = layer_r.get_feature(id_r)
+                feat_r = layer_r.getFeature(id_r)
                 geom_r = feat_r.geometry()
                 id_t = vet_[1]
-                feat_t = layer_t.get_feature(id_t)
+                feat_t = layer_t.getFeature(id_t)
                 geom_t = feat_t.geometry()
-                for scale_ in self.dic_pec_v:
-                    for class_ in dic_pec_mm['H']:
-                        pec_h = scale_ * dic_pec_mm['H'][class_]['pec']
-                        ep_h = scale_ * dic_pec_mm['H'][class_]['ep']
+                for scale_ in list_scale:
+                    for class_ in self.dic_pec_mm['H']:
+                        pec_h = scale_ * self.dic_pec_mm['H'][class_]['pec']
+                        ep_h = scale_ * self.dic_pec_mm['H'][class_]['ep']
                         geom_bt = geom_t.buffer(pec_h, 20)
                         feat_bt = QgsFeature()
                         feat_bt.setGeometry(geom_bt)
@@ -1016,6 +1056,43 @@ class Wd1(QWidget):
                         feat_br.setGeometry(geom_br)
 
                         geom_i = geom_bt.intersection(geom_br)
+                        # CÁLCULO DO DM HORIZONTAL
+                        dm_ = math.pi * pec_h * (geom_br.area() - geom_i.area()) / geom_bt.area()
+                        feat_bt.setAttributes([
+                            len(layer_bt) + 1,
+                            feat_r.id(),
+                            scale_,
+                            class_,
+                            layer_r_name,
+                            layer_t_name,
+                            geom_bt.area(),
+                            geom_br.area(),
+                            geom_i.area(),
+                                dm_,
+                                False,
+                            0,
+                            0,
+                            0,
+                            0,
+                            False,
+                            0,
+                            0
+                        ])
+                        layer_bt.addFeature(feat_bt)
+                        layer_bt.commitChanges(stopEditing=False)
+                        layer_bt.triggerRepaint()
+
+                        feat_br.setAttributes([
+                            len(layer_br) + 1,
+                            feat_r.id(),
+                            scale_,
+                            class_
+                        ])
+                        layer_br.addFeature(feat_br)
+                        layer_br.commitChanges(stopEditing=False)
+                        layer_br.triggerRepaint()
+        layer_bt.commitChanges()
+        layer_br.commitChanges()
 
 
     def update_bar(self, dic_):
@@ -1089,6 +1166,7 @@ class Wd1(QWidget):
                 if key_ == 0:
                     self.define_morphology(1)
                 elif key_ == 1:
+                    # self.define_extract_h()
                     self.matching_lines()
             if 'model' in dic_:
                 print(f'modelo {key_}:', dic_['model'])
