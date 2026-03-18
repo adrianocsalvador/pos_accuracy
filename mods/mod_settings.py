@@ -42,7 +42,7 @@ class SettingsDlg(QDialog):
         self.dic_param = \
             {
                 'step_morfologia': {
-                    'label': 'Definições para geração de Morfologia',
+                    'label': 'Definições para Geração de Morfologia',
                     'fields': {
                         'max_basin_area': {
                             'label': 'Máxima Área das Bacias (m²)',
@@ -72,21 +72,32 @@ class SettingsDlg(QDialog):
                     },
                 },
                 'step_buffers':{
-                    'label': 'Definições para geração Buffers',
+                    'label': 'Definições para Geração Buffers',
                     'fields': {
                         'max_scale': {
                             'label': 'Máxima Escala',
                             'list':self.list_scale,
                             'string': '1:{}.000',
-                            'value': 1,
-                            'default': 1,
+                            'value': 10,
+                            'default': 10,
                             'obj': None},
                         'min_scale': {
                             'label': 'Mínima Escala',
                             'list': self.list_scale,
                             'string': '1:{}.000',
-                            'value': 3,
-                            'default': 3,
+                            'value': 10,
+                            'default': 10,
+                            'obj': None},
+                    },
+                },
+                'step_normalize_prog':{
+                    'label': 'Definições para Normalização de Progressivas',
+                    'fields': {
+                        'norm_type': {
+                            'label': 'Método para Normalização',
+                            'list':['Escalar', 'Mínima Distância', 'Sem Normalização'],
+                            'value': 0,
+                            'default': 0,
                             'obj': None},
                     },
                 },
@@ -170,10 +181,11 @@ class SettingsDlg(QDialog):
                     if 'list' in self.dic_param[item_i]['fields'][item_j]:
                         cmb_ = QComboBox(self)
                         if 'string' in self.dic_param[item_i]['fields'][item_j]:
-                            list_ = ['']
+                            list_ = []
                             string_ = self.dic_param[item_i]['fields'][item_j]['string']
                             for value_ in self.dic_param[item_i]['fields'][item_j]['list']:
                                 list_.append(string_.format(value_))
+                            list_.append('')
                         else:
                             list_ = self.dic_param[item_i]['fields'][item_j]['list']
                         cmb_.addItems(list_)
@@ -264,9 +276,6 @@ class SettingsDlg(QDialog):
         print("trigger_actions")
         self.pb_save.clicked.connect(self.set_dic_param)
         self.pb_rest.clicked.connect(self.rest_default)
-        # self.pb_remove.clicked.connect(self.remove_dic_param)
-        # self.pb_exp.clicked.connect(self.export_inf)
-        # self.pb_imp.clicked.connect(self.import_inf)
 
     def set_dic_param(self):
         dic_save = {}
@@ -284,6 +293,8 @@ class SettingsDlg(QDialog):
                     self.dic_param[item_i]['fields'][item_j]['value'] = value_
 
         self.aux_tools.save_dic(dic_=dic_save,key_='dic_param')
+        list_scale = self.parent.get_list_scale()
+        print('list_scale:', list_scale)
 
         self.close()
 
