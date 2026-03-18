@@ -3,6 +3,7 @@ import shutil
 import sqlite3
 import uuid
 import tempfile
+import math
 
 from osgeo.ogr import wkbTIN
 from qgis.PyQt.QtCore import QThread, pyqtSignal, QRunnable, QObject
@@ -234,8 +235,8 @@ class MorphologyThread(QThread):
             params = {
                 'INPUT': f'{self.file_path}',
                 'MASK':f'{self.boudary}',
-                'SOURCE_CRS':None,
-                'TARGET_CRS':None,
+                'SOURCE_CRS':QgsCoordinateReferenceSystem(self.srid),
+                'TARGET_CRS':QgsCoordinateReferenceSystem(self.srid_ref),
                 'TARGET_EXTENT':None,
                 'NODATA':None,
                 'ALPHA_BAND':False,
@@ -558,6 +559,150 @@ class MorphologyThread(QThread):
                 'msg': 'NENHUM PROCESSO SELECIONADO'
             })
 
+class BufferThread(QThread):
+    sig_status = pyqtSignal(dict, name='Status for processing bar')
+
+    def __init__(self, main, parent, key_=None, dic_=None):
+        QThread.__init__(self, parent)
+
+        self.main = main
+        self.parent = parent
+
+        self.dic_layers_line = dic_['dic_layers_line']
+        self.list_scale = dic_['list_scale']
+        self.dic_match = dic_['dic_match']
+        self.dic_pec_mm = dic_['dic_pec_mm']
+        self.dic_pec_v = dic_['dic_pec_v']
+        self.norm_type = dic_['norm_type']
+
+        self.dic_values = {}
+        self.nr_procs = 0
+        for tag_ in self.dic_match:
+            for vet_ in self.dic_match[tag_]:
+                for scale_ in self.list_scale:
+                    for class_ in self.dic_pec_mm['H']:
+                        self.nr_procs += 1
+
+    def run(self):
+        for i in [0, 1]:
+            self.sig_status.emit({'key': i, 'quant': self.nr_procs})
+        nr_ = 0
+        count_ = 0
+        try:
+            for tag_ in self.dic_match:
+                print('tag_', tag_)
+                layer_r = self.dic_layers_line[tag_][0]
+                layer_t = self.dic_layers_line[tag_][1]
+                print('layer_r', layer_r)
+                print('layer_t', layer_t)
+                for i, vet_ in enumerate(self.dic_match[tag_]):
+                    print('vet_', vet_)
+                    id_r = vet_[0]
+                    feat_r = layer_r.getFeature(id_r)
+                    geom_r = feat_r.geometry()
+                    id_t = vet_[1]
+                    feat_t = layer_t.getFeature(id_t)
+                    geom_t = feat_t.geometry()
+                    for scale_ in self.list_scale:
+                        if scale_ not in self.dic_values:
+                            self.dic_values[scale_] = {}
+                        # print('scale_', scale_)
+                        for class_ in self.dic_pec_mm['H']:
+                            if class_ not in self.dic_values[scale_]:
+                                self.dic_values[scale_][class_] = {}
+                            # print('class_', class_)
+                            count_ += 1
+                            self.dic_values[scale_][class_][count_] = {}
+                            pec_h = scale_ * self.dic_pec_mm['H'][class_]['pec']
+                            ep_h = scale_ * self.dic_pec_mm['H'][class_]['ep']
+                            self.dic_values[scale_][class_][count_]['layer_r'] = layer_r.name()
+                            self.dic_values[scale_][class_][count_]['fid_r'] = vet_[0]
+                            self.dic_values[scale_][class_][count_]['layer_t'] = layer_t.name()
+                            self.dic_values[scale_][class_][count_]['fid_t'] = vet_[1]
+
+                            geom_br = geom_r.buffer(pec_h, 20)
+                            feat_br = QgsFeature()
+                            feat_br.setGeometry(geom_br)
+                            feat_br.setAttributes([count_ + 10000, scale_, class_, id_r, layer_r.name()])
+
+                            geom_bt = geom_t.buffer(pec_h, 20)
+                            feat_bt = QgsFeature()
+                            feat_bt.setGeometry(geom_bt)
+                            feat_bt.setAttributes([count_ + 20000, scale_, class_, id_t, layer_t.name()])
+
+                            geom_i = geom_bt.intersection(geom_br)
+                            feat_i = QgsFeature()
+                            feat_i.setGeometry(geom_i)
+                            feat_i.setAttributes([count_ + 30000, scale_, class_, None, 'Intersecao'])
+
+                            dic_feats = { 'feat_br': feat_br, 'feat_bt': feat_bt, 'feat_i': feat_i}
+                            # CÁLCULO DO DM HORIZONTAL
+                            dm_ = math.pi * pec_h * (geom_br.area() - geom_i.area()) / geom_bt.area()
+                            self.dic_values[scale_][class_][count_]['dm_h'] = dm_
+
+                            self.sig_status.emit(
+                                {'key': 0,
+                                 'value': count_,
+                                 'msg': f'{tag_} {i} {scale_} - {class_}',
+                                 'feats': dic_feats}
+                            )
+                            self.sig_status.emit(
+                                {'key': 1,
+                                 'value': count_,
+                                 'msg': f'{tag_} {i} {scale_} - {class_}'}
+                            )
+                            # feat_bt.setAttributes([
+                            #     len(layer_bt) + 1,
+                            #     feat_r.id(),
+                            #     scale_,
+                            #     class_,
+                            #     f'{tag_}-ref',
+                            #     f'{tag_}-test',
+                            #     geom_bt.area(),
+                            #     geom_br.area(),
+                            #     geom_i.area(),
+                            #         dm_,
+                            #         False,
+                            #     0,
+                            #     0,
+                            #     0,
+                            #     0,
+                            #     False,
+                            #     0,
+                            #     0
+                            # ])
+                            # layer_bt.addFeature(feat_bt)
+                            # layer_bt.commitChanges(stopEditing=False)
+                            # layer_bt.triggerRepaint()
+
+                            # feat_br.setAttributes([
+                            #     len(layer_br) + 1,
+                            #     feat_r.id(),
+                            #     scale_,
+                            #     class_
+                            # ])
+
+            self.sig_status.emit({'key': 0, 'dic_values': self.dic_values})
+        except Exception as e:
+            for i in [0, 1]:
+                self.sig_status.emit({'key': i, 'value': nr_, 'error': e})
+            return
+
+
+        if self.nr_procs:
+            for i in [0, 1]:
+                self.sig_status.emit({
+                    'key': i,
+                    'end': self.nr_procs,
+                    'msg': ':) FINALIZADO BUFFERS (:'
+                })
+        else:
+            for i in [0, 1]:
+                self.sig_status.emit({
+                    'key': i,
+                    'end': self.nr_procs,
+                    'msg': 'NENHUM PROCESSO SELECIONADO'
+                })
 
 class Worker(QObject):
     """ Worker that manages a processing thread and signals when it's done """
@@ -578,8 +723,8 @@ class Worker(QObject):
         elif self.dic_['step'] == 'morphology':
             self.process_thread = MorphologyThread(main=self.dic_['main'], parent=self.dic_['parent'], key_=self.key_,
                                                 dic_=self.dic_)
-        elif self.dic_['step'] == 'extract_h':
-            self.process_thread = ExtractElevThread(main=self.dic_['main'], parent=self.dic_['parent'], key_=self.key_,
+        elif self.dic_['step'] == 'buffers':
+            self.process_thread = BufferThread(main=self.dic_['main'], parent=self.dic_['parent'], key_=self.key_,
                                                 dic_=self.dic_)
 
         self.process_thread.sig_status.connect(self.dic_['parent'].update_bar)
