@@ -4,12 +4,13 @@ import sqlite3
 import uuid
 import tempfile
 import math
+import statistics
 
 from osgeo.ogr import wkbTIN
 from qgis.PyQt.QtCore import QThread, pyqtSignal, QRunnable, QObject
 from qgis import processing
 from qgis.core import (QgsCoordinateReferenceSystem, QgsFeature, QgsVectorFileWriter, QgsFields, QgsField,
-                       QgsVectorLayer, QgsCoordinateTransformContext, QgsWkbTypes)
+                       QgsVectorLayer, QgsCoordinateTransformContext, QgsWkbTypes, QgsGeometry, QgsPointXY)
 
 
 class PolygonThread(QThread):
@@ -260,6 +261,7 @@ class MorphologyThread(QThread):
 
         # 2 "grass: r.watershed"
         try:
+            print(result_clip['OUTPUT'], self.max_px, self.max_memo * 1024)
             nr_ += 1  # 1
             tool_ = "grass7:r.watershed"
             params = {
@@ -366,13 +368,14 @@ class MorphologyThread(QThread):
             return
 
         # 6 "gdal:buffervectors"
+        print(-round(self.gsd_, 2), self.boudary)
         try:
             nr_ += 1  # 1
             tool_ = "gdal:buffervectors"
             params = {
                 'INPUT': self.boudary,
                 'GEOMETRY':'geom',
-                'DISTANCE':-self.gsd_,
+                'DISTANCE':-round(self.gsd_, 2),
                 'FIELD':'',
                 'DISSOLVE':False,
                 'EXPLODE_COLLECTIONS':False,
@@ -583,6 +586,107 @@ class BufferThread(QThread):
                     for class_ in self.dic_pec_mm['H']:
                         self.nr_procs += 1
 
+    def calc_dm_v(self, scale_, class_, geom_r, geom_t):
+        # create profile geometries with (progressive, elevation) coordinates for ref and test
+        pec_v = self.dic_pec_v[scale_] * self.dic_pec_mm['V'][class_]['pec']
+        # ep_v = self.dic_pec_v[scale_] * self.dic_pec_mm['V'][class_]['ep']
+
+        len_r = geom_r.length()
+        wkbt_ = geom_r.wkbType()
+        # GETTING LIST OF POINTS
+        if wkbt_ == QgsWkbTypes.LineString or wkbt_ == QgsWkbTypes.LineStringZ:
+            ps_r = geom_r.constGet().points()
+        else:
+            ps_r = geom_r.constGet()[0].points()
+
+        gpr0 = QgsGeometry().fromPointXY(QgsPointXY(ps_r[0]))
+        gpr1 = QgsGeometry().fromPointXY(QgsPointXY(ps_r[-1]))
+        list_prof_r = []
+        list_prog_cota_r = []
+        list_cota_r = []
+        for p_ in ps_r:
+            dist_ = round(geom_r.lineLocatePoint(QgsGeometry(p_)), 2)
+            z_ = round(p_.z(), 2)
+            list_prof_r.append(QgsPointXY(dist_ + 10000, z_))
+            list_prog_cota_r.append([dist_ + 10000, z_])
+            list_cota_r.append(z_)
+        geom_prof_r = QgsGeometry().fromPolylineXY(list_prof_r)
+        # print('r-', list_prog_cota_r)
+
+        len_t = geom_t.length()
+
+        if geom_t.wkbType() == QgsWkbTypes.LineString or geom_t.wkbType() == QgsWkbTypes.LineStringZ:
+            ps_t = geom_t.constGet().points()
+        else:
+            ps_t = geom_t.constGet()[0].points()
+        list_prof_t = []
+        list_prog_cota_t = []
+        list_cota_t = []
+        # k_t is used to scale prog
+        k_t = len_r / len_t
+        gpt0 = QgsGeometry().fromPointXY(QgsPointXY(ps_t[0]))
+        if gpt0.distance(gpr0) > gpt0.distance(gpr1):
+            ci = True
+        else:
+            ci = False
+        for p_ in ps_t:
+            # if feat_r.id() == 8:
+            #     print(p_)
+            # # print(p_)
+            z_ = round(p_.z(), 2)
+
+            # DIST FROM SCALE METHOD OR FROM LESS DISTANCE METHOD
+            if self.norm_type == 0: # Apply a scalar (k_t) to compatibility the progressives
+                dist_ = geom_t.lineLocatePoint(QgsGeometry(p_))
+                if ci: # Need to invert,
+                    dist_ = round((len_t - dist_) * k_t, 2)
+                else:
+                    dist_ = round(dist_ * k_t, 2)
+            elif self.norm_type == 1: # Apply value from reference less distance to compatibility the progressives
+                dist_ = geom_r.lineLocatePoint(QgsGeometry(p_))
+                if ci:
+                    dist_ = round((len_r - dist_) * k_t, 2)
+                else:
+                    dist_ = round(dist_, 2)
+            else: # No compatibility
+                dist_ = geom_t.lineLocatePoint(QgsGeometry(p_))
+                if ci:
+                    dist_ = round(len_t - dist_, 2)
+                else:
+                    dist_ = round(dist_, 2)
+
+            # list_prof_t.append(QgsPointXY(dist_, z_))
+            if not list_prog_cota_t:
+                list_prog_cota_t.append([dist_ + 10000, z_])
+                list_cota_t.append(z_)
+            elif dist_ != list_prog_cota_t[-1][0]:
+                list_prog_cota_t.append([dist_ + 10000, z_])
+                list_cota_t.append(z_)
+        list_prog_cota_t = sorted(list_prog_cota_t)
+        # print('t-', list_prog_cota_t)
+        list_prof_t = []
+
+        for vet_ in list_prog_cota_t:
+            list_prof_t.append(QgsPointXY(float(vet_[0]), float(vet_[1])))
+        geom_prof_t = QgsGeometry().fromPolylineXY(list_prof_t)
+        cm_r = statistics.mean(list_cota_r)
+        cm_t = statistics.mean(list_cota_t)
+        # with open(path_txt_profile, 'a') as prof_file:
+        #     prof_file.write(f'\n {l_ref_name} - {feat_r.id()} | len(r) = {len_r} | len(t) {len_t}\n'
+        #                     f'Cota_Media_r {cm_r} | Cota_Media_t {cm_t}\n')
+        #     for r_, t_ in zip_longest(list_prog_cota_r, list_prog_cota_t):
+        #         prof_file.write(
+        #             f'{round(r_[0], 2) if r_ else ""}; {round(r_[1], 2) if r_ else ""}; {round(t_[0], 2) if t_ else ""}; {round(t_[1], 2) if t_ else ""}; \n')
+        geom_prof_br = geom_prof_r.buffer(pec_v, 20)
+        geom_prof_bt = geom_prof_t.buffer(pec_v, 20)
+        # print('geom_prof_bt=', geom_prof_bt)
+
+        geom_prof_i = geom_prof_bt.intersection(geom_prof_br)
+        # print('pec_v =', pec_v, geom_prof_br.area(), geom_prof_i.area(), geom_prof_bt.area())
+        dm_prof = math.pi * pec_v * (
+                geom_prof_br.area() - geom_prof_i.area()) / geom_prof_bt.area() if geom_prof_bt.area() else 1
+        return dm_prof
+
     def run(self):
         for i in [0, 1]:
             self.sig_status.emit({'key': i, 'quant': self.nr_procs})
@@ -596,7 +700,7 @@ class BufferThread(QThread):
                 print('layer_r', layer_r)
                 print('layer_t', layer_t)
                 for i, vet_ in enumerate(self.dic_match[tag_]):
-                    print('vet_', vet_)
+                    # print('vet_', vet_)
                     id_r = vet_[0]
                     feat_r = layer_r.getFeature(id_r)
                     geom_r = feat_r.geometry()
@@ -614,7 +718,8 @@ class BufferThread(QThread):
                             count_ += 1
                             self.dic_values[scale_][class_][count_] = {}
                             pec_h = scale_ * self.dic_pec_mm['H'][class_]['pec']
-                            ep_h = scale_ * self.dic_pec_mm['H'][class_]['ep']
+                            # ep_h = scale_ * self.dic_pec_mm['H'][class_]['ep']
+
                             self.dic_values[scale_][class_][count_]['layer_r'] = layer_r.name()
                             self.dic_values[scale_][class_][count_]['fid_r'] = vet_[0]
                             self.dic_values[scale_][class_][count_]['layer_t'] = layer_t.name()
@@ -637,8 +742,12 @@ class BufferThread(QThread):
 
                             dic_feats = { 'feat_br': feat_br, 'feat_bt': feat_bt, 'feat_i': feat_i}
                             # CÁLCULO DO DM HORIZONTAL
-                            dm_ = math.pi * pec_h * (geom_br.area() - geom_i.area()) / geom_bt.area()
-                            self.dic_values[scale_][class_][count_]['dm_h'] = dm_
+                            dm_h = math.pi * pec_h * (geom_br.area() - geom_i.area()) / geom_bt.area()
+                            self.dic_values[scale_][class_][count_]['dm_h'] = dm_h
+                            dm_v = self.calc_dm_v(scale_, class_, geom_r, geom_t)
+                            self.dic_values[scale_][class_][count_]['dm_v'] = dm_v
+
+                            print(scale_, class_, id_r, id_t, round(dm_h, 2), round(dm_v, 2))
 
                             self.sig_status.emit(
                                 {'key': 0,
@@ -651,36 +760,6 @@ class BufferThread(QThread):
                                  'value': count_,
                                  'msg': f'{tag_} {i} {scale_} - {class_}'}
                             )
-                            # feat_bt.setAttributes([
-                            #     len(layer_bt) + 1,
-                            #     feat_r.id(),
-                            #     scale_,
-                            #     class_,
-                            #     f'{tag_}-ref',
-                            #     f'{tag_}-test',
-                            #     geom_bt.area(),
-                            #     geom_br.area(),
-                            #     geom_i.area(),
-                            #         dm_,
-                            #         False,
-                            #     0,
-                            #     0,
-                            #     0,
-                            #     0,
-                            #     False,
-                            #     0,
-                            #     0
-                            # ])
-                            # layer_bt.addFeature(feat_bt)
-                            # layer_bt.commitChanges(stopEditing=False)
-                            # layer_bt.triggerRepaint()
-
-                            # feat_br.setAttributes([
-                            #     len(layer_br) + 1,
-                            #     feat_r.id(),
-                            #     scale_,
-                            #     class_
-                            # ])
 
             self.sig_status.emit({'key': 0, 'dic_values': self.dic_values})
         except Exception as e:
