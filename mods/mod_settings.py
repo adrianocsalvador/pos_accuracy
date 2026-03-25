@@ -95,7 +95,7 @@ class SettingsDlg(QDialog):
                     'fields': {
                         'norm_type': {
                             'label': 'Método para Normalização',
-                            'list':['Escalar', 'Mínima Distância', 'Sem Normalização'],
+                            'list': self.parent.list_norm_type,
                             'value': 0,
                             'default': 0,
                             'obj': None},

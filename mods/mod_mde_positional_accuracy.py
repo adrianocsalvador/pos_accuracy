@@ -289,7 +289,11 @@ class Wd1(QWidget):
         self.threads_running = 0  # Track active threads
         self.active_workers = {}  # Keep track of active workers
 
-        self.dic_lb_texts = {'area': "Área da Interseção dos Modelos: {}", 'ext': "Extensão Mínima da Amostra: {}"}
+        self.dic_lb_texts = {
+            'area': "Área da Interseção dos Modelos: {}",
+            'ext_min': "Extensão Mínima da Amostra: {}",
+            'ext_match': "Extensão da Amostra: {}",
+        }
         self.aux_tools = AuxTools(parent=self)
         lg = self.create_layout()
         self.setLayout(lg)
@@ -343,9 +347,10 @@ class Wd1(QWidget):
             500: 200,
             1000: 200,
         }
+        self.list_norm_type = ['Escalar', 'Mínima Distância', 'Sem Normalização']
         self.settings_dlg = SettingsDlg(main=parent, parent=self)
         self.list_morph = ['Cumeada', 'Hidrografia_Numerica']
-        self.list_norm_type = ['Escalar', 'Mínima Distância', 'Sem Normalização']
+
         self.intersection_name = '__Limit_Intersecao__'
         self.buffer_name = '__Buffers__'
         self.layer_buffers = None
@@ -423,8 +428,11 @@ class Wd1(QWidget):
         self.lb_area = QLabel(self.dic_lb_texts['area'].format(''))
         gl_tool.addWidget(self.lb_area, r_, 0)
         r_ += 1
-        self.lb_ext = QLabel(self.dic_lb_texts['ext'].format(''))
-        gl_tool.addWidget(self.lb_ext, r_, 0)
+        self.lb_ext_min = QLabel(self.dic_lb_texts['ext_min'].format(''))
+        gl_tool.addWidget(self.lb_ext_min, r_, 0)
+        r_ += 1
+        self.lb_ext_match = QLabel(self.dic_lb_texts['ext_match'].format(''))
+        gl_tool.addWidget(self.lb_ext_match, r_, 0)
         # r_ += 1
         # lb_title_ = QLabel(f"Buffers:")
         # gl_tool.addWidget(lb_title_, r_, 0)
@@ -472,14 +480,6 @@ class Wd1(QWidget):
         self.pb_clear_prj_folder.clicked.connect(self.clear_prj_folder)
         for key_ in self.dic_prj['dems']:
             self.dic_prj['dems'][key_]['obj_pb'].clicked.connect(partial(self.log_mde_inf, key_=key_))
-
-        # self.cb_db.highlighted.connect(self.start_cb)
-        # self.cb_db.activated.connect(self.update_parameters)
-        # self.pb_conn.clicked.connect(self.connect_db)
-        #
-        # self.cb_add_tool.activated.connect(self.cb_add_activated)
-        # self.tw_data.cellClicked.connect(self.tw_cell_clicked)
-        # self.pb_server_folder.clicked.connect(self.get_folder_out)z
         self.pb_proc.clicked.connect(self.exec_analyze)
         self.pb_config.clicked.connect(self.open_settings)
 
@@ -626,6 +626,10 @@ class Wd1(QWidget):
         self.threads_running += 1
 
     def exec_analyze(self):
+        for step_ in self.settings_dlg.dic_param:
+            for field_ in self.settings_dlg.dic_param[step_]['fields']:
+                print(f'{step_} - {field_} : {self.settings_dlg.dic_param[step_]['fields'][field_]['value']}')
+
         layer_ref = self.dic_prj['dems'][0]['obj_cbx'].currentLayer()
 
         self.crs_epsg = layer_ref.crs().authid()
@@ -668,7 +672,7 @@ class Wd1(QWidget):
             self.lb_area.setText(self.dic_lb_texts['area'].format(round(sum_area, 1)))
             ext_ = round(2.0176*sum_area**0.5478, 1)
             dist_units = QgsProject.instance().distanceUnits()
-            self.lb_ext.setText(self.dic_lb_texts['ext'].format(ext_))
+            self.lb_ext_min.setText(self.dic_lb_texts['ext_min'].format(ext_))
             mss_ = f'AREA DE INTERSEÇÃO DOS MDEs DEFINIDA\n'
             mss_ += f'=======================================\n'
             self.log_message(mss_, 'INFO')
@@ -879,6 +883,7 @@ class Wd1(QWidget):
         """
         result_ = curs.execute(sql_)
         result_fa = result_.fetchall()
+        self.dic_match = {}
         for row_ in result_fa:
             for j, col_ in enumerate(row_):
                 if j == 0:
@@ -898,9 +903,10 @@ class Wd1(QWidget):
         for key_ in self.dic_match:
             print(f'------{key_}')
             for vet_ in self.dic_match[key_]:
-                print(vet_)
+                # print(vet_)
                 ext_sum += vet_[-1]
         print('Extensão Total da Amostra:', ext_sum)
+        self.lb_ext_match.setText(self.dic_lb_texts['ext_match'].format(round(ext_sum, 1)))
         # print('dic_match', self.dic_match)
         self.define_buffers()
 
@@ -1005,17 +1011,18 @@ class Wd1(QWidget):
         for scale_ in dic_values:
             dic_vectors[scale_] = {}
             for class_ in dic_values[scale_]:
-                dic_vectors[scale_][class_] = []
+                dic_vectors[scale_][class_] = {'H': [], 'V': []}
                 for count_ in dic_values[scale_][class_]:
                     if not dic_values[scale_][class_][count_].get('outlier',False):
-                        dic_vectors[scale_][class_].append(dic_values[scale_][class_][count_]['dm_h'])
+                        dic_vectors[scale_][class_]['H'].append(dic_values[scale_][class_][count_]['dm_h'])
+                        dic_vectors[scale_][class_]['V'].append(dic_values[scale_][class_][count_]['dm_v'])
         return dic_vectors
 
     def check_outliers(self, dic_values):
         dic_stats = self.update_dic_vectors(dic_values)
         for scale_ in dic_values:
             for class_ in dic_values[scale_]:
-                quant_ = statistics.quantiles(data=dic_stats[scale_][class_])
+                quant_ = statistics.quantiles(data=dic_stats[scale_][class_]['H'])
                 iqr_ = quant_[2] - quant_[0]
                 ls_ = quant_[2] + 1.5 * iqr_
                 li_ = quant_[0] - 1.5 * iqr_
@@ -1027,27 +1034,53 @@ class Wd1(QWidget):
                         dic_values[scale_][class_][count_]['outlier'] = False
 
     def calc_pec(self, dic_values):
+        dic_vectors = self.update_dic_vectors(dic_values)
         mss_ = f'=======================================\n'
         mss_ += f'CALCULANDO PEC PLANIMÉTRICO'
         self.log_message(mss_, 'INFO')
-        dic_vectors = self.update_dic_vectors(dic_values)
+
+        print(mss_)
         for scale_ in dic_vectors:
             for class_ in dic_vectors[scale_]:
                 pec_h = round(scale_ * self.dic_pec_mm['H'][class_]['pec'], 2)
                 ep_h = round(scale_ * self.dic_pec_mm['H'][class_]['ep'], 2)
-                list_ = dic_vectors[scale_][class_]
+                list_ = dic_vectors[scale_][class_]['H']
                 perc_pec_ = self.perc_pec(vet_=list_, pec_=pec_h)
                 if perc_pec_ >= 0.90:
-                    str_ = f"1:{scale_}.000-{class_}= {round(perc_pec_ * 100)}% < {pec_h} PEC - OK    , "
+                    str_ = f"1:{scale_}.000-{class_}= {round(perc_pec_ * 100)}% < {pec_h} PEC - OK,"
                 else:
                     str_ = f"1:{scale_}.000-{class_}= {round(perc_pec_ * 100)}% < {pec_h} PEC - FALHOU,"
 
                 rms_ = self.rms(list_)
                 if rms_ <= ep_h:
-                    str_ += f'| {round(rms_, 2)} < {ep_h} EP -     OK, {len(list_)}'
+                    str_ += f'| {round(rms_, 2)} < {ep_h} EP - OK, {len(list_)}'
 
                 else:
                     str_ += f'| {round(rms_, 2)} > {ep_h} EP - FALHOU, {len(list_)}'
+                print(str_)
+                self.log_message(str_, 'INFO')
+
+        mss_ = f'=======================================\n'
+        mss_ += f'CALCULANDO PEC ALTIMÉTRICO'
+        self.log_message(mss_, 'INFO')
+        print(mss_)
+        for scale_ in dic_vectors:
+            for class_ in dic_vectors[scale_]:
+                pec_v = round(self.dic_pec_v[scale_] * self.dic_pec_mm['V'][class_]['pec'], 2)
+                ep_v = round(self.dic_pec_v[scale_] *  self.dic_pec_mm['V'][class_]['ep'], 2)
+                list_ = dic_vectors[scale_][class_]['V']
+                perc_pec_ = self.perc_pec(vet_=list_, pec_=pec_v)
+                if perc_pec_ >= 0.90:
+                    str_ = f"1:{scale_}.000-{class_}= {round(perc_pec_ * 100)}% < {pec_v} PEC - OK, "
+                else:
+                    str_ = f"1:{scale_}.000-{class_}= {round(perc_pec_ * 100)}% < {pec_v} PEC - FALHOU,"
+
+                rms_ = self.rms(list_)
+                if rms_ <= ep_v:
+                    str_ += f'| {round(rms_, 2)} < {ep_v} EP - OK, {len(list_)}'
+
+                else:
+                    str_ += f'| {round(rms_, 2)} > {ep_v} EP - FALHOU, {len(list_)}'
                 print(str_)
                 self.log_message(str_, 'INFO')
 
@@ -1065,75 +1098,6 @@ class Wd1(QWidget):
             if v_ < pec_:
                 count_ += 1
         return count_ / len(vet_)
-
-    # def create_buffers(self):
-    #     list_layer_buffer = self.create_buffers_layer()
-    #     layer_bt.startEditing()
-    #     layer_br.startEditing()
-    #     list_scale = self.get_list_scale()
-    #     for tag_ in self.dic_match:
-    #         layer_r_name = f'__{tag_}_Z_{self.dic_prj["dems"][0]["type"]}__'
-    #         layer_r = self.get_gpkg_layer(layer_r_name)
-    #         layer_t_name = f'__{tag_}_Z_{self.dic_prj["dems"][1]["type"]}__'
-    #         layer_t = self.get_gpkg_layer(layer_t_name)
-    #
-    #         for vet_ in self.dic_match[tag_]:
-    #             id_r = vet_[0]
-    #             feat_r = layer_r.getFeature(id_r)
-    #             geom_r = feat_r.geometry()
-    #             id_t = vet_[1]
-    #             feat_t = layer_t.getFeature(id_t)
-    #             geom_t = feat_t.geometry()
-    #             for scale_ in list_scale:
-    #                 for class_ in self.dic_pec_mm['H']:
-    #                     pec_h = scale_ * self.dic_pec_mm['H'][class_]['pec']
-    #                     ep_h = scale_ * self.dic_pec_mm['H'][class_]['ep']
-    #                     geom_bt = geom_t.buffer(pec_h, 20)
-    #                     feat_bt = QgsFeature()
-    #                     feat_bt.setGeometry(geom_bt)
-    #
-    #                     geom_br = geom_r.buffer(pec_h, 20)
-    #                     feat_br = QgsFeature()
-    #                     feat_br.setGeometry(geom_br)
-    #
-    #                     geom_i = geom_bt.intersection(geom_br)
-    #                     # CÁLCULO DO DM HORIZONTAL
-    #                     dm_ = math.pi * pec_h * (geom_br.area() - geom_i.area()) / geom_bt.area()
-    #                     feat_bt.setAttributes([
-    #                         len(layer_bt) + 1,
-    #                         feat_r.id(),
-    #                         scale_,
-    #                         class_,
-    #                         layer_r_name,
-    #                         layer_t_name,
-    #                         geom_bt.area(),
-    #                         geom_br.area(),
-    #                         geom_i.area(),
-    #                             dm_,
-    #                             False,
-    #                         0,
-    #                         0,
-    #                         0,
-    #                         0,
-    #                         False,
-    #                         0,
-    #                         0
-    #                     ])
-    #                     layer_bt.addFeature(feat_bt)
-    #                     layer_bt.commitChanges(stopEditing=False)
-    #                     layer_bt.triggerRepaint()
-    #
-    #                     feat_br.setAttributes([
-    #                         len(layer_br) + 1,
-    #                         feat_r.id(),
-    #                         scale_,
-    #                         class_
-    #                     ])
-    #                     layer_br.addFeature(feat_br)
-    #                     layer_br.commitChanges(stopEditing=False)
-    #                     layer_br.triggerRepaint()
-    #     layer_bt.commitChanges()
-    #     layer_br.commitChanges()
 
     def update_bar(self, dic_):
         key_ = dic_['key']
@@ -1228,6 +1192,7 @@ class Wd1(QWidget):
         elif 'dic_values' in dic_:
             self.check_outliers(dic_['dic_values'])
             self.calc_pec(dic_['dic_values'])
+            # print(dic_['dic_values'])
 
         elif 'end' in dic_:
             palette.setColor(QPalette.Highlight, QColor(Qt.darkGreen))
