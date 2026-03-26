@@ -12,8 +12,8 @@ email=adriano.caliman@ufv.br; adrianocsalvador@gmail.com
 
 about=This plugin is used as base for a new docK plugin.
 
-tracker=https:https://github.com/adrianocsalvador/vsession_accuracy
-repository=https:https://github.com/adrianocsalvador/vsession_accuracy
+tracker=https://github.com/adrianocsalvador/pos_accuracy
+repository=https://github.com/adrianocsalvador/pos_accuracy
 # End of mandatory metadata
 
 # Recommended items:
@@ -25,7 +25,7 @@ hasProcessingProvider=yes
 # Tags are comma separated with spaces allowed
 tags=MDE, accuracy, linear features
 
-homepage=https://github.com/adrianocsalvador/vsession_accuracy
+homepage=https://github.com/adrianocsalvador/pos_accuracy
 category=Plugins
 icon=icons/icon_bfn.png
 # experimental flag
