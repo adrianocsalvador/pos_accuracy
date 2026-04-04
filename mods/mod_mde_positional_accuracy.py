@@ -354,6 +354,13 @@ class Wd1(QWidget):
         self.intersection_name = '__Limit_Intersecao__'
         self.buffer_name = '__Buffers__'
         self.layer_buffers = None
+        # self.dic_thread_tool = {
+        #     'grass7':{
+        #         'polygon': {},
+        #         'morphology': {},
+        #         'buffers': {},
+        #
+        #     }}
 
     def create_layout(self):
         gl_tool = QGridLayout()
@@ -1100,6 +1107,9 @@ class Wd1(QWidget):
         return count_ / len(vet_)
 
     def update_bar(self, dic_):
+        if dic_.get('logonly', None):
+            self.log_message(dic_['logonly'])
+            return
         key_ = dic_['key']
         prog_bar = self.dic_prj['dems'][key_]['obj_prog_bar']
         palette = QPalette()
