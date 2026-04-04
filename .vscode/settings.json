@@ -1,0 +1,13 @@
+{
+  "files.associations": {
+    "**/i18n/*.ts": "xml"
+  },
+  "terminal.integrated.profiles.windows": {
+    "OSGeo4W": {
+      "path": "C:\\Windows\\System32\\cmd.exe",
+      "args": ["/k", "C:\\Program Files\\QGIS 3.34.9\\OSGeo4W.bat"],
+      "icon": "terminal-cmd"
+    }
+  },
+  "terminal.integrated.defaultProfile.windows": "OSGeo4W"
+}

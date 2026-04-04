@@ -6,11 +6,11 @@
 name=MDE-Positional Accuracy
 qgisMinimumVersion=3.30
 description=Used to evaluate the three-dimensional positional accuracy of DEMs.
-version=1.0
+version=1.0.1
 author=Adriano Caliman Salvador
 email=adriano.caliman@ufv.br; adrianocsalvador@gmail.com
 
-about=This plugin is used as base for a new docK plugin.
+about=This plugin is used to analyze the positional accuracy of DEMs.
 
 tracker=https://github.com/adrianocsalvador/pos_accuracy
 repository=https://github.com/adrianocsalvador/pos_accuracy

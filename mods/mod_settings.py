@@ -17,6 +17,8 @@ from qgis.core import QgsVectorFileWriter, QgsWkbTypes, QgsCoordinateTransformCo
     QgsFeature, QgsVectorLayer, QgsFields, QgsField, QgsProject, QgsMapLayerProxyModel, QgsLayerTreeLayer
 from qgis.gui import QgsMapLayerComboBox
 from .mod_aux_tools import AuxTools
+from .plugin_i18n import tr_ui
+
 plugin_path = os.path.dirname(os.path.dirname(__file__))
 
 class SettingsDlg(QDialog):
@@ -28,7 +30,7 @@ class SettingsDlg(QDialog):
         self.main = main
         self.parent = parent
         # self.parent_dlg = parent
-        self.setWindowTitle('Parâmetros')
+        self.setWindowTitle(tr_ui('Parâmetros'))
         self.setWindowIcon(QIcon(":/plugins/mod_cut_pan/icons/icon_cut.png")) ##
         self.dic_param = None
         self.aux_tools = AuxTools(parent=self)
@@ -42,47 +44,47 @@ class SettingsDlg(QDialog):
         self.dic_param = \
             {
                 'step_morfologia': {
-                    'label': 'Definições para Geração de Morfologia',
+                    'label': tr_ui('Definições para Geração de Morfologia'),
                     'fields': {
                         'max_basin_area': {
-                            'label': 'Máxima Área das Bacias (m²)',
+                            'label': tr_ui('Máxima Área das Bacias (m²)'),
                             'value': '675000',
                             'default': '675000',
                             'obj': None},
                         'max_memo_grass': {
-                            'label': 'Limite de Memória para Grass GIS (GB)',
+                            'label': tr_ui('Limite de Memória para Grass GIS (GB)'),
                             'value': '4',
                             'default': '4',
                             'obj': None},
                     },
                 },
-                'step_match':{
-                    'label': 'Definições para Seleção dos Pares',
+                'step_match': {
+                    'label': tr_ui('Definições para Seleção dos Pares'),
                     'fields': {
                         'dist_max': {
-                            'label': 'Distância Máxima entre Centróides',
+                            'label': tr_ui('Distância Máxima entre Centróides'),
                             'value': '150',
                             'default': '150',
                             'obj': None},
                         'percent_area': {
-                            'label': 'Deferença % entre área dos mínimos envelopes',
+                            'label': tr_ui('Diferença % entre área dos mínimos envelopes'),
                             'value': '30',
                             'default': '30',
                             'obj': None},
                     },
                 },
-                'step_buffers':{
-                    'label': 'Definições para Geração Buffers',
+                'step_buffers': {
+                    'label': tr_ui('Definições para Geração Buffers'),
                     'fields': {
                         'max_scale': {
-                            'label': 'Máxima Escala',
-                            'list':self.list_scale,
+                            'label': tr_ui('Máxima Escala'),
+                            'list': self.list_scale,
                             'string': '1:{}.000',
                             'value': 10,
                             'default': 10,
                             'obj': None},
                         'min_scale': {
-                            'label': 'Mínima Escala',
+                            'label': tr_ui('Mínima Escala'),
                             'list': self.list_scale,
                             'string': '1:{}.000',
                             'value': 10,
@@ -90,11 +92,11 @@ class SettingsDlg(QDialog):
                             'obj': None},
                     },
                 },
-                'step_normalize_prog':{
-                    'label': 'Definições para Normalização de Progressivas',
+                'step_normalize_prog': {
+                    'label': tr_ui('Definições para Normalização de Progressivas'),
                     'fields': {
                         'norm_type': {
-                            'label': 'Método para Normalização',
+                            'label': tr_ui('Método para Normalização'),
                             'list': self.parent.list_norm_type,
                             'value': 0,
                             'default': 0,
@@ -114,6 +116,45 @@ class SettingsDlg(QDialog):
                     if key_j in self.dic_param[key_i]['fields']:
                         value_ = dic_from_settings[key_i][key_j]
                         self.dic_param[key_i]['fields'][key_j]['value'] = value_
+
+    def apply_defaults_to_values(self):
+        """Copia 'default' → 'value' em cada field dos step_* (sem tocar nos widgets)."""
+        for item_i, block in self.dic_param.items():
+            if not isinstance(item_i, str) or not item_i.startswith('step_'):
+                continue
+            if not isinstance(block, dict) or 'fields' not in block:
+                continue
+            for item_j, meta in block['fields'].items():
+                if isinstance(meta, dict) and 'default' in meta:
+                    meta['value'] = meta['default']
+
+    def sync_widgets_from_dic_param(self):
+        """Atualiza QComboBox/QLineEdit a partir de dic_param (após carregar do .mdepa.gpkg)."""
+        for item_i, block in self.dic_param.items():
+            if not isinstance(item_i, str) or not item_i.startswith('step_'):
+                continue
+            if not isinstance(block, dict) or 'fields' not in block:
+                continue
+            for item_j, meta in block['fields'].items():
+                if not isinstance(meta, dict):
+                    continue
+                obj = meta.get('obj')
+                if obj is None:
+                    continue
+                val = meta.get('value')
+                if 'list' in meta:
+                    try:
+                        idx = int(val)
+                    except (TypeError, ValueError):
+                        try:
+                            idx = int(float(val))
+                        except (TypeError, ValueError):
+                            idx = 0
+                    n = obj.count()
+                    if n > 0:
+                        obj.setCurrentIndex(max(0, min(idx, n - 1)))
+                else:
+                    obj.setText('' if val is None else str(val))
 
     def create_layout(self):
         print("create_layout_db")
@@ -233,11 +274,11 @@ class SettingsDlg(QDialog):
         # self.pb_imp.setEnabled(False)
         # hl_.addWidget(self.pb_imp)
 
-        self.pb_rest = QPushButton("Restaurar", self)
+        self.pb_rest = QPushButton(tr_ui('Restaurar'), self)
         # self.pb_remove.setEnabled(False)
         hl_.addWidget(self.pb_rest)
 
-        self.pb_save = QPushButton("Salvar", self)
+        self.pb_save = QPushButton(tr_ui('Salvar'), self)
         # self.pb_save.setEnabled(False)
         hl_.addWidget(self.pb_save)
 
@@ -277,22 +318,26 @@ class SettingsDlg(QDialog):
         self.pb_save.clicked.connect(self.set_dic_param)
         self.pb_rest.clicked.connect(self.rest_default)
 
-    def set_dic_param(self):
-        dic_save = {}
-        for i, item_i in enumerate(self.dic_param):
-            dic_save[item_i] = {}
-            if item_i.startswith('step_'):
-                for j, item_j in enumerate(self.dic_param[item_i]['fields']):
-                    if 'list' in self.dic_param[item_i]['fields'][item_j]:
-                        QComboBox().currentIndex()
-                        value_ = self.dic_param[item_i]['fields'][item_j]['obj'].currentIndex()
-                    else:
-                        value_ = self.dic_param[item_i]['fields'][item_j]['obj'].text()
-                    dic_save[item_i][item_j] = value_
+    def flush_widgets_to_dic_param(self, log_values: bool = False):
+        """Copia o estado atual dos widgets para dic_param[*]['fields'][*]['value']."""
+        for item_i in self.dic_param:
+            if not item_i.startswith('step_'):
+                continue
+            for item_j in self.dic_param[item_i]['fields']:
+                meta = self.dic_param[item_i]['fields'][item_j]
+                obj = meta.get('obj')
+                if obj is None:
+                    continue
+                if 'list' in meta:
+                    value_ = obj.currentIndex()
+                else:
+                    value_ = obj.text()
+                meta['value'] = value_
+                if log_values:
                     self.parent.log_message(f'{item_i} - {item_j} : "{value_}"')
-                    self.dic_param[item_i]['fields'][item_j]['value'] = value_
 
-        self.aux_tools.save_dic(dic_=dic_save,key_='dic_param')
+    def set_dic_param(self):
+        self.parent.persist_project_config_from_widgets(log_values=True)
         list_scale = self.parent.get_list_scale()
         print('list_scale:', list_scale)
 

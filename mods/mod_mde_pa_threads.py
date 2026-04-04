@@ -737,10 +737,10 @@ class BufferThread(QThread):
                     # print('vet_', vet_)
                     id_r = vet_[0]
                     feat_r = layer_r.getFeature(id_r)
-                    geom_r = feat_r.geometry()
+                    geom_r = QgsGeometry(feat_r.geometry())
                     id_t = vet_[1]
                     feat_t = layer_t.getFeature(id_t)
-                    geom_t = feat_t.geometry()
+                    geom_t = QgsGeometry(feat_t.geometry())
                     self.sig_status.emit(
                         {'logonly': f' \n-- {tag_} - idr {id_r} - idt {id_t} --'}
                     )
@@ -846,4 +846,15 @@ class Worker(QObject):
         self.process_thread.sig_status.connect(self.dic_['parent'].update_bar)
         self.process_thread.finished.connect(lambda: self.finished.emit(self.key_))  # Notify when done
         self.process_thread.start()
+
+    def stop(self, wait_ms=8000):
+        """Para o thread de processamento (Plugin Reloader / unload)."""
+        th = self.process_thread
+        if not th:
+            return
+        if th.isRunning():
+            th.requestInterruption()
+            if not th.wait(wait_ms):
+                th.terminate()
+                th.wait(2000)
 
