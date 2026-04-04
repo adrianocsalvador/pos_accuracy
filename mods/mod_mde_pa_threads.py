@@ -418,8 +418,23 @@ class MorphologyThread(QThread):
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
             return
+        # 9 "native:densifygeometriesgivenaninterval"
+        try:
+            nr_ += 1  # 1
+            tool_ = "native:densifygeometriesgivenaninterval"
+            result_densified_gpkg = os.path.join(caminho_temp_morph, f'densified_cm{morph_type_idx}.gpkg')
+            params = {
+                'INPUT': result_single['OUTPUT'],
+                'INTERVAL': self.gsd_,
+                'OUTPUT': result_densified_gpkg
+            }
+            result_densified = processing.run(tool_, params)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            return
 
-        # 9 'native:setzfromraster - cm'
+        # 10 'native:setzfromraster - cm'
         try:
             nr_ += 1
 
@@ -427,7 +442,7 @@ class MorphologyThread(QThread):
             result_setz_gpkg = os.path.join(caminho_temp_morph, f'setzgeometries{morph_type_idx}.gpkg')
             print(tool_, self.key_, self.file_path)
             params = {
-                'INPUT': result_single['OUTPUT'],
+                'INPUT': result_densified['OUTPUT'],
                 'RASTER': result_clip['OUTPUT'],
                 'BAND': 1,
                 'NODATA': 0,
@@ -447,7 +462,7 @@ class MorphologyThread(QThread):
             return
 
         morph_type_idx = 1  # HN
-        # 10 "grass: r.thin"
+        # 11 "grass: r.thin"
         try:
             nr_ += 1  # 1
             tool_ = "grass7:r.thin"
@@ -465,7 +480,7 @@ class MorphologyThread(QThread):
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
             return
 
-        # 11 "grass: r.to.vect"
+        # 12 "grass: r.to.vect"
         try:
             nr_ += 1  # 1
             tool_ = "grass7:r.to.vect"
@@ -492,7 +507,7 @@ class MorphologyThread(QThread):
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
             return
 
-        # 12 "native:clip"
+        # 13 "native:clip"
         try:
             nr_ += 1  # 1
             tool_ = "native:clip"
@@ -508,7 +523,7 @@ class MorphologyThread(QThread):
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
             return
 
-        # 13 "native:multiparttosingleparts"
+        # 14 "native:multiparttosingleparts"
         try:
             nr_ += 1  # 1
             tool_ = "native:multiparttosingleparts"
@@ -523,14 +538,30 @@ class MorphologyThread(QThread):
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
             return
 
-        # 14 'native:setzfromraster - hn'
+        # 15 "native:densifygeometriesgivenaninterval"
+        try:
+            nr_ += 1  # 1
+            tool_ = "native:densifygeometriesgivenaninterval"
+            result_densified_gpkg = os.path.join(caminho_temp_morph, f'densified_hn{morph_type_idx}.gpkg')
+            params = {
+                'INPUT': result_single1['OUTPUT'],
+                'INTERVAL': self.gsd_,
+                'OUTPUT': result_densified_gpkg
+            }
+            result_densified = processing.run(tool_, params)
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
+        except Exception as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            return
+
+        # 16 'native:setzfromraster - hn'
         try:
             nr_ += 1
             tool_ = 'native:setzfromraster'
             result_setz_gpkg = os.path.join(caminho_temp_morph, f'setzgeometries{morph_type_idx}.gpkg')
             print(tool_, self.key_, self.file_path)
             params = {
-                'INPUT': result_single1['OUTPUT'],
+                'INPUT': result_densified['OUTPUT'],
                 'RASTER': result_clip['OUTPUT'],
                 'BAND': 1,
                 'NODATA': 0,
@@ -699,6 +730,9 @@ class BufferThread(QThread):
                 layer_t = self.dic_layers_line[tag_][1]
                 print('layer_r', layer_r)
                 print('layer_t', layer_t)
+                self.sig_status.emit(
+                    {'logonly': f'---{tag_}---{layer_r.name()}---{layer_t.name()}---'}
+                )
                 for i, vet_ in enumerate(self.dic_match[tag_]):
                     # print('vet_', vet_)
                     id_r = vet_[0]
@@ -707,6 +741,9 @@ class BufferThread(QThread):
                     id_t = vet_[1]
                     feat_t = layer_t.getFeature(id_t)
                     geom_t = feat_t.geometry()
+                    self.sig_status.emit(
+                        {'logonly': f' \n-- {tag_} - idr {id_r} - idt {id_t} --'}
+                    )
                     for scale_ in self.list_scale:
                         if scale_ not in self.dic_values:
                             self.dic_values[scale_] = {}
