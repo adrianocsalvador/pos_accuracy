@@ -3,7 +3,7 @@
 from qgis.PyQt.QtCore import QCoreApplication
 
 # Deve coincidir com <name> no ficheiro .ts do Qt Linguist
-PLUGIN_I18N_CONTEXT = 'MDEPositionalAccuracy'
+PLUGIN_I18N_CONTEXT = 'PositionalAccuracyPlugin'
 
 
 def tr_ui(text: str) -> str:

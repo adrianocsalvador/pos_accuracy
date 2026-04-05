@@ -30,5 +30,5 @@ def classFactory(iface):  # pylint: disable=invalid-name
     """
     #
 
-    from .mods.mod_mde_positional_accuracy import MDEPositionalAccuracy
-    return MDEPositionalAccuracy(iface)
+    from .mods.mod_positional_accuracy import PositionalAccuracyPlugin
+    return PositionalAccuracyPlugin(iface)
