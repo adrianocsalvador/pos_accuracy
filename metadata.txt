@@ -3,14 +3,14 @@
 # This file should be included when you package your plugin.# Mandatory items:
 
 [general]
-name=MDE-Positional Accuracy
+name=AP Acuracia Posicional
 qgisMinimumVersion=3.30
-description=Used to evaluate the three-dimensional positional accuracy of DEMs.
-version=1.0.1
+description=Evaluates three-dimensional positional accuracy using elevation rasters (AP) and workflow (PA).
+version=1.1.0
 author=Adriano Caliman Salvador
 email=adriano.caliman@ufv.br; adrianocsalvador@gmail.com
 
-about=This plugin is used to analyze the positional accuracy of DEMs.
+about=Analyzes positional accuracy from reference and test elevation rasters (AP) within the PA workflow.
 
 tracker=https://github.com/adrianocsalvador/pos_accuracy
 repository=https://github.com/adrianocsalvador/pos_accuracy
@@ -23,7 +23,7 @@ hasProcessingProvider=yes
 # changelog=
 
 # Tags are comma separated with spaces allowed
-tags=MDE, accuracy, linear features
+tags=AP, PA, accuracy, elevation, linear features
 
 homepage=https://github.com/adrianocsalvador/pos_accuracy
 category=Plugins

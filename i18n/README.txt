@@ -1,14 +1,14 @@
-Traduções do plugin MDE-Positional Accuracy
+Traduções do plugin AP Acuracia Posicional (textos fonte em pt_BR; traduções via Qt Linguist)
 ==========================================
 
 Editor (VS Code / Cursor): ficheiros em i18n/*.ts são XML Qt, não TypeScript.
 O repositório inclui .vscode/settings.json para associar **/i18n/*.ts ao formato XML.
 
-Contexto Qt (obrigatório em todos os .ts): MDEPositionalAccuracy
+Contexto Qt (obrigatório em todos os .ts): PositionalAccuracyPlugin
 
 No código Python:
-  - tr_ui("texto") ou self.tr("texto") no painel (Wd1)
-  - self.tr("texto") na classe MDEPositionalAccuracy (menu, etc.)
+  - tr_ui("texto") ou self.tr("texto") no painel (Wd1) — strings visíveis em pt_BR por defeito
+  - self.tr("texto") na classe PositionalAccuracyPlugin (menu, etc.)
 
 O QTranslator carrega pos_accuracy_<locale>.qm a partir da pasta i18n/
 (p.ex. pos_accuracy_en.qm para inglês, pos_accuracy_pt_BR.qm para português do Brasil).

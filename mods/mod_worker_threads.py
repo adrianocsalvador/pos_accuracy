@@ -7,7 +7,7 @@ import math
 import statistics
 
 from osgeo.ogr import wkbTIN
-from qgis.PyQt.QtCore import QThread, pyqtSignal, QRunnable, QObject
+from qgis.PyQt.QtCore import QThread, pyqtSignal, QObject
 from qgis import processing
 from qgis.core import (QgsCoordinateReferenceSystem, QgsFeature, QgsVectorFileWriter, QgsFields, QgsField,
                        QgsVectorLayer, QgsCoordinateTransformContext, QgsWkbTypes, QgsGeometry, QgsPointXY)
@@ -219,6 +219,22 @@ class MorphologyThread(QThread):
         self.cur = None
         self.conn = None
 
+    @staticmethod
+    def _processing_raster_path(val) -> str:
+        if not val:
+            return ''
+        s = str(val).strip()
+        pipe = s.find('|')
+        return s[:pipe].strip() if pipe >= 0 else s
+
+    def _watershed_basin_stream_exist(self, result_watershed) -> bool:
+        if not result_watershed:
+            return False
+        for k in ('basin', 'stream'):
+            p = self._processing_raster_path(result_watershed.get(k))
+            if not p or not os.path.isfile(p):
+                return False
+        return True
 
     def run(self):
         self.sig_status.emit({'key': self.key_, 'quant': self.nr_procs})
@@ -273,21 +289,21 @@ class MorphologyThread(QThread):
                 'threshold':self.max_px,
                 'max_slope_length':None,
                 'convergence':5,
-                'memory':self.max_memo * 1024,
+                'memory': int(round(self.max_memo * 1024)),
                 '-s':True,
                 '-m':False,
                 '-4':False,
                 '-a':False,
                 '-b':False,
-                'accumulation':'TEMPORARY_OUTPUT',
-                'drainage':'TEMPORARY_OUTPUT',
-                'basin':'TEMPORARY_OUTPUT',
-                'stream':'TEMPORARY_OUTPUT',
-                'half_basin':'TEMPORARY_OUTPUT',
-                'length_slope':'TEMPORARY_OUTPUT',
-                'slope_steepness':'TEMPORARY_OUTPUT',
-                'tci':'TEMPORARY_OUTPUT',
-                'spi':'TEMPORARY_OUTPUT',
+                'accumulation': 'TEMPORARY_OUTPUT',
+                'drainage': 'TEMPORARY_OUTPUT',
+                'basin': 'TEMPORARY_OUTPUT',
+                'stream': 'TEMPORARY_OUTPUT',
+                'half_basin': 'TEMPORARY_OUTPUT',
+                'length_slope': 'TEMPORARY_OUTPUT',
+                'slope_steepness': 'TEMPORARY_OUTPUT',
+                'tci': 'TEMPORARY_OUTPUT',
+                'spi': 'TEMPORARY_OUTPUT',
                 'GRASS_REGION_PARAMETER':None,
                 'GRASS_REGION_CELLSIZE_PARAMETER':0,
                 'GRASS_RASTER_FORMAT_OPT':'',
@@ -295,7 +311,34 @@ class MorphologyThread(QThread):
             }
 
             result_watershed = processing.run(tool_, params)
-            # print('result_calc', result_watershed)
+            # max_memo (config) = GB; parâmetro GRASS memory = MB. Retentativas: −1024 MB (−1 GB) por passo.
+            grass_mem_mb = int(round(self.max_memo * 1024))
+            min_grass_mem_mb = 256
+            while not self._watershed_basin_stream_exist(result_watershed) and grass_mem_mb > min_grass_mem_mb:
+                prev_mb = grass_mem_mb
+                grass_mem_mb = max(min_grass_mem_mb, grass_mem_mb - 1024)
+                params['memory'] = grass_mem_mb
+                self.sig_status.emit({
+                    'key': self.key_,
+                    'warn': f'{tool_} {grass_mem_mb} MB',
+                    'log_warning': (
+                        f'grass7:r.watershed: ficheiros basin/stream em falta após execução '
+                        f'(memory Grass={prev_mb} MB). Nova tentativa com memory={grass_mem_mb} MB.'
+                    ),
+                })
+                result_watershed = processing.run(tool_, params)
+            if not self._watershed_basin_stream_exist(result_watershed):
+                b = self._processing_raster_path((result_watershed or {}).get('basin'))
+                s = self._processing_raster_path((result_watershed or {}).get('stream'))
+                self.sig_status.emit({
+                    'key': self.key_,
+                    'value': nr_,
+                    'error': (
+                        f'grass7:r.watershed não gerou basin/stream no disco (basin={b!r}, stream={s!r}) '
+                        f'após retentativas até memory={grass_mem_mb} MB.'
+                    ),
+                })
+                return
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
@@ -380,7 +423,7 @@ class MorphologyThread(QThread):
                 'DISSOLVE':False,
                 'EXPLODE_COLLECTIONS':False,
                 'OPTIONS':'',
-                'OUTPUT':'TEMPORARY_OUTPUT'
+                'OUTPUT': 'TEMPORARY_OUTPUT',
             }
             result_buffer = processing.run(tool_, params)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
@@ -493,7 +536,7 @@ class MorphologyThread(QThread):
                 '-z':False,
                 '-b':False,
                 '-t':False,
-                'output':'TEMPORARY_OUTPUT',
+                'output': 'TEMPORARY_OUTPUT',
                 'GRASS_REGION_PARAMETER':None,
                 'GRASS_REGION_CELLSIZE_PARAMETER':0,
                 'GRASS_OUTPUT_TYPE_PARAMETER':0,
@@ -778,8 +821,21 @@ class BufferThread(QThread):
                             feat_i.setAttributes([count_ + 30000, scale_, class_, None, 'Intersecao'])
 
                             dic_feats = { 'feat_br': feat_br, 'feat_bt': feat_bt, 'feat_i': feat_i}
-                            # CÁLCULO DO DM HORIZONTAL
-                            dm_h = math.pi * pec_h * (geom_br.area() - geom_i.area()) / geom_bt.area()
+                            # CÁLCULO DO DM HORIZONTAL (área do buffer teste nula → divisão indefinida / explosão numérica)
+                            area_bt = geom_bt.area()
+                            area_br = geom_br.area()
+                            area_i = geom_i.area()
+                            if (
+                                not math.isfinite(area_bt)
+                                or area_bt <= 0
+                                or not math.isfinite(area_br)
+                                or not math.isfinite(area_i)
+                            ):
+                                dm_h = float('nan')
+                            else:
+                                dm_h = math.pi * pec_h * (area_br - area_i) / area_bt
+                                if not math.isfinite(dm_h) or abs(dm_h) > 1e12:
+                                    dm_h = float('nan')
                             self.dic_values[scale_][class_][count_]['dm_h'] = dm_h
                             dm_v = self.calc_dm_v(scale_, class_, geom_r, geom_t)
                             self.dic_values[scale_][class_][count_]['dm_v'] = dm_v

@@ -2,14 +2,14 @@
 <!DOCTYPE TS>
 <TS version="2.0" language="en_US">
 <context>
-    <name>MDEPositionalAccuracy</name>
+    <name>PositionalAccuracyPlugin</name>
     <message>
         <source><![CDATA[]]></source>
         <translation><![CDATA[]]></translation>
     </message>
     <message>
-        <source><![CDATA[&T MDE-Positional Accuracy]]></source>
-        <translation><![CDATA[&T MDE-Positional Accuracy]]></translation>
+        <source><![CDATA[&T AP Acuracia Posicional]]></source>
+        <translation><![CDATA[&T PA Positional Accuracy]]></translation>
     </message>
     <message>
         <source><![CDATA[1:{0}.000-{1}= {2}% < {3} PEC - FALHOU,]]></source>
@@ -28,8 +28,8 @@
         <translation><![CDATA[Open project]]></translation>
     </message>
     <message>
-        <source><![CDATA[Abrir projeto existente ou criar novo (.mdepa.gpkg)]]></source>
-        <translation><![CDATA[Open an existing project or create a new one (.mdepa.gpkg)]]></translation>
+        <source><![CDATA[Abrir projeto existente ou criar novo (.pa.gpkg)]]></source>
+        <translation><![CDATA[Open an existing project or create a new one (.pa.gpkg)]]></translation>
     </message>
     <message>
         <source><![CDATA[Abrir projeto…]]></source>
@@ -42,8 +42,8 @@
 ]]></translation>
     </message>
     <message>
-        <source><![CDATA[Arquivo .mdepa.gpkg ausente]]></source>
-        <translation><![CDATA[Missing .mdepa.gpkg file]]></translation>
+        <source><![CDATA[Arquivo .pa.gpkg ausente]]></source>
+        <translation><![CDATA[Missing .pa.gpkg file]]></translation>
     </message>
     <message>
         <source><![CDATA[Arquivo não encontrado: {0}]]></source>
@@ -54,8 +54,8 @@
         <translation><![CDATA[Wait for the current analysis to finish before starting a new evaluation.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Parâmetros e MDEs inalterados desde a última avaliação concluída.]]></source>
-        <translation><![CDATA[Parameters and DEMs are unchanged since the last completed evaluation.]]></translation>
+        <source><![CDATA[Parâmetros e APs inalterados desde a última avaliação concluída.]]></source>
+        <translation><![CDATA[Parameters and elevation rasters (AP) are unchanged since the last completed evaluation.]]></translation>
     </message>
     <message>
         <source><![CDATA[Reprocessamento completo desde polígonos de limite e interseção.]]></source>
@@ -74,13 +74,13 @@
         <translation><![CDATA[Resuming from buffers (parameters changed).]]></translation>
     </message>
     <message>
-        <source><![CDATA[Área da Interseção dos Modelos: {}]]></source>
-        <translation><![CDATA[Models intersection area: {}]]></translation>
+        <source><![CDATA[Área da Interseção dos APs: {}]]></source>
+        <translation><![CDATA[AP intersection area: {}]]></translation>
     </message>
     <message>
-        <source><![CDATA[ÁREA DE INTERSEÇÃO DOS MDEs DEFINIDA
+        <source><![CDATA[ÁREA DE INTERSEÇÃO DOS APs DEFINIDA
 ]]></source>
-        <translation><![CDATA[DEM INTERSECTION AREA DEFINED
+        <translation><![CDATA[AP INTERSECTION AREA DEFINED
 ]]></translation>
     </message>
     <message>
@@ -92,8 +92,8 @@
         <translation><![CDATA[Buffer - {0}]]></translation>
     </message>
     <message>
-        <source><![CDATA[CALCULANDO ÁREA DE INTERSEÇÃO DOS MDEs]]></source>
-        <translation><![CDATA[COMPUTING DEM INTERSECTION AREA]]></translation>
+        <source><![CDATA[CALCULANDO ÁREA DE INTERSEÇÃO DOS APs]]></source>
+        <translation><![CDATA[COMPUTING AP INTERSECTION AREA]]></translation>
     </message>
     <message>
         <source><![CDATA[CALCULANDO PEC ALTIMÉTRICO]]></source>
@@ -110,8 +110,8 @@
 ]]></translation>
     </message>
     <message>
-        <source><![CDATA[Caminho do projeto (.mdepa.gpkg) indefinido.]]></source>
-        <translation><![CDATA[Project path (.mdepa.gpkg) is undefined.]]></translation>
+        <source><![CDATA[Caminho do projeto (.pa.gpkg) indefinido.]]></source>
+        <translation><![CDATA[Project path (.pa.gpkg) is undefined.]]></translation>
     </message>
     <message>
         <source><![CDATA[Camada de limite indisponível: {0}]]></source>
@@ -122,8 +122,8 @@
         <translation><![CDATA[Settings]]></translation>
     </message>
     <message>
-        <source><![CDATA[Defina o projeto (.mdepa.gpkg): menu ⋯ → Abrir ou Novo.]]></source>
-        <translation><![CDATA[Define the project (.mdepa.gpkg): menu ⋯ → Open or New.]]></translation>
+        <source><![CDATA[Defina o projeto (.pa.gpkg): menu ⋯ → Abrir ou Novo.]]></source>
+        <translation><![CDATA[Define the project (.pa.gpkg): menu ⋯ → Open or New.]]></translation>
     </message>
     <message>
         <source><![CDATA[Definições para Geração Buffers]]></source>
@@ -162,16 +162,20 @@
         <translation><![CDATA[Invalid directory to save the project.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Distância Máxima entre Centróides]]></source>
-        <translation><![CDATA[Maximum distance between centroids]]></translation>
+        <source><![CDATA[Distância máxima entre centróides (pixels do MDE de teste)]]></source>
+        <translation><![CDATA[Maximum distance between centroids (pixels of the test DEM)]]></translation>
     </message>
     <message>
         <source><![CDATA[Escalar]]></source>
         <translation><![CDATA[Scale]]></translation>
     </message>
     <message>
-        <source><![CDATA[Extensão da Amostra: {}]]></source>
-        <translation><![CDATA[Sample extent: {}]]></translation>
+        <source><![CDATA[Extensão da Amostra: {} km]]></source>
+        <translation><![CDATA[Sample extent: {} km]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Número de pares homólogos: {}]]></source>
+        <translation><![CDATA[Number of homologous pairs: {}]]></translation>
     </message>
     <message>
         <source><![CDATA[  Extensão: {0}
@@ -184,8 +188,12 @@
         <translation><![CDATA[Minimum sample extent: {}]]></translation>
     </message>
     <message>
-        <source><![CDATA[Falha ao garantir tabelas auxiliares no .mdepa.gpkg.]]></source>
-        <translation><![CDATA[Failed to ensure auxiliary tables in the .mdepa.gpkg file.]]></translation>
+        <source><![CDATA[Extensão mínima da amostra: {} km]]></source>
+        <translation><![CDATA[Minimum sample extent: {} km]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Falha ao garantir tabelas auxiliares no .pa.gpkg.]]></source>
+        <translation><![CDATA[Failed to ensure auxiliary tables in the .pa.gpkg file.]]></translation>
     </message>
     <message>
         <source><![CDATA[Falha ao preparar camadas de limite no projeto.]]></source>
@@ -196,9 +204,9 @@
         <translation><![CDATA[info]]></translation>
     </message>
     <message>
-        <source><![CDATA[  INFORMAÇÕES DO MODELO DE {0}
+        <source><![CDATA[  INFORMAÇÕES DO AP — {0}
 ]]></source>
-        <translation><![CDATA[  MODEL INFORMATION ({0})
+        <translation><![CDATA[  AP INFORMATION — {0}
 ]]></translation>
     </message>
     <message>
@@ -240,16 +248,16 @@
         <translation><![CDATA[Minimum scale]]></translation>
     </message>
     <message>
-        <source><![CDATA[MODELO DE {0} NÃO DEFINIDO]]></source>
-        <translation><![CDATA[MODEL FOR {0} IS NOT DEFINED]]></translation>
+        <source><![CDATA[AP ({0}) NÃO DEFINIDO]]></source>
+        <translation><![CDATA[AP ({0}) IS NOT DEFINED]]></translation>
     </message>
     <message>
-        <source><![CDATA[Modelo de referência:]]></source>
-        <translation><![CDATA[Reference model:]]></translation>
+        <source><![CDATA[AP de referência:]]></source>
+        <translation><![CDATA[Reference AP:]]></translation>
     </message>
     <message>
-        <source><![CDATA[Modelo de teste:]]></source>
-        <translation><![CDATA[Test model:]]></translation>
+        <source><![CDATA[AP de teste:]]></source>
+        <translation><![CDATA[Test AP:]]></translation>
     </message>
     <message>
         <source><![CDATA[Não definido]]></source>
@@ -296,16 +304,16 @@
         <translation><![CDATA[Parameters]]></translation>
     </message>
     <message>
-        <source><![CDATA[Projeto (.mdepa.gpkg):]]></source>
-        <translation><![CDATA[Project (.mdepa.gpkg):]]></translation>
+        <source><![CDATA[Projeto (.pa.gpkg):]]></source>
+        <translation><![CDATA[Project (.pa.gpkg):]]></translation>
     </message>
     <message>
         <source><![CDATA[Projeto aberto: {0}]]></source>
         <translation><![CDATA[Project opened: {0}]]></translation>
     </message>
     <message>
-        <source><![CDATA[Projeto MDE-PA (*.mdepa.gpkg *.mdepa)]]></source>
-        <translation><![CDATA[MDE-PA project (*.mdepa.gpkg *.mdepa)]]></translation>
+        <source><![CDATA[Projeto AP-PA (*.pa.gpkg)]]></source>
+        <translation><![CDATA[PA-AP project (*.pa.gpkg)]]></translation>
     </message>
     <message>
         <source><![CDATA[Projeto OK]]></source>
@@ -316,20 +324,20 @@
         <translation><![CDATA[Restore defaults]]></translation>
     </message>
     <message>
-        <source><![CDATA[O arquivo .mdepa.gpkg do projeto não existe.]]></source>
-        <translation><![CDATA[The project .mdepa.gpkg file does not exist.]]></translation>
+        <source><![CDATA[O arquivo .pa.gpkg do projeto não existe.]]></source>
+        <translation><![CDATA[The project .pa.gpkg file does not exist.]]></translation>
     </message>
     <message>
         <source><![CDATA[Salvar]]></source>
         <translation><![CDATA[Save]]></translation>
     </message>
     <message>
-        <source><![CDATA[Selecione o modelo de referência (raster válido).]]></source>
-        <translation><![CDATA[Select the reference model (valid raster).]]></translation>
+        <source><![CDATA[Selecione o AP de referência (raster válido).]]></source>
+        <translation><![CDATA[Select the reference AP (valid raster).]]></translation>
     </message>
     <message>
-        <source><![CDATA[Selecione o modelo de teste (raster válido).]]></source>
-        <translation><![CDATA[Select the test model (valid raster).]]></translation>
+        <source><![CDATA[Selecione o AP de teste (raster válido).]]></source>
+        <translation><![CDATA[Select the test AP (valid raster).]]></translation>
     </message>
     <message>
         <source><![CDATA[Sem Normalização]]></source>
@@ -386,8 +394,12 @@
         <translation><![CDATA[Study area:]]></translation>
     </message>
     <message>
-        <source><![CDATA[Calcular pela interseção dos MDEs]]></source>
-        <translation><![CDATA[Compute from DEM intersection]]></translation>
+        <source><![CDATA[Área de estudo: {} km²]]></source>
+        <translation><![CDATA[Study area: {} km²]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Calcular pela interseção dos APs]]></source>
+        <translation><![CDATA[Compute from PA (AP) intersection]]></translation>
     </message>
     <message>
         <source><![CDATA[Editar após interseção]]></source>
@@ -466,8 +478,8 @@
         <translation><![CDATA[The study area layer must be polygonal.]]></translation>
     </message>
     <message>
-        <source><![CDATA[CRS do modelo de referência inválido.]]></source>
-        <translation><![CDATA[Invalid reference model CRS.]]></translation>
+        <source><![CDATA[CRS do AP de referência inválido.]]></source>
+        <translation><![CDATA[Invalid reference AP CRS.]]></translation>
     </message>
     <message>
         <source><![CDATA[Falha ao reprojetar geometrias para o CRS do projeto.]]></source>
@@ -488,6 +500,30 @@
     <message>
         <source><![CDATA[Foram identificados {0} valores atípicos (excluídos do cálculo PEC). Prima OK para continuar.]]></source>
         <translation><![CDATA[{0} outlier values were identified (excluded from ACC calculation). Click OK to continue.]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Não há pares homólogos válidos. O processamento foi interrompido antes dos buffers.
+
+Sugestões:
+• Diminuir a área máxima das bacias (morfologia) para gerar mais linhas.
+• Afrouxar a correspondência: aumentar a distância máxima entre centróides (pixels do MDE de teste) e o percentual de diferença de área entre os envelopes mínimos.]]></source>
+        <translation><![CDATA[There are no valid homologous pairs. Processing was stopped before buffers.
+
+Suggestions:
+• Reduce the maximum basin area (morphology) to generate more lines.
+• Loosen matching: increase the maximum distance between centroids (pixels of the test DEM) and the percentage difference in area between minimum bounding rectangles.]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[A extensão total da amostra ({0} km) é menor que a extensão mínima recomendada ({1} km). O processamento foi interrompido antes dos buffers.
+
+Sugestões:
+• Diminuir a área máxima das bacias (morfologia) para gerar mais linhas e maior extensão acumulada.
+• Afrouxar a correspondência: aumentar a distância máxima entre centróides (pixels do MDE de teste) e o percentual de diferença de área entre os envelopes mínimos.]]></source>
+        <translation><![CDATA[Total sample extent ({0} km) is less than the recommended minimum extent ({1} km). Processing was stopped before buffers.
+
+Suggestions:
+• Reduce the maximum basin area (morphology) to generate more lines and more accumulated extent.
+• Loosen matching: increase the maximum distance between centroids (pixels of the test DEM) and the percentage difference in area between minimum bounding rectangles.]]></translation>
     </message>
 </context>
 </TS>

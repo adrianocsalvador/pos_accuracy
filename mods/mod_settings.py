@@ -62,14 +62,14 @@ class SettingsDlg(QDialog):
                     'label': tr_ui('Definições para Seleção dos Pares'),
                     'fields': {
                         'dist_max': {
-                            'label': tr_ui('Distância Máxima entre Centróides'),
-                            'value': '150',
-                            'default': '150',
+                            'label': tr_ui('Distância máxima entre centróides (pixels do MDE de teste)'),
+                            'value': '3',
+                            'default': '3',
                             'obj': None},
                         'percent_area': {
                             'label': tr_ui('Diferença % entre área dos mínimos envelopes'),
-                            'value': '30',
-                            'default': '30',
+                            'value': '10',
+                            'default': '10',
                             'obj': None},
                     },
                 },
@@ -129,7 +129,7 @@ class SettingsDlg(QDialog):
                     meta['value'] = meta['default']
 
     def sync_widgets_from_dic_param(self):
-        """Atualiza QComboBox/QLineEdit a partir de dic_param (após carregar do .mdepa.gpkg)."""
+        """Atualiza QComboBox/QLineEdit a partir de dic_param (após carregar do .pa.gpkg)."""
         for item_i, block in self.dic_param.items():
             if not isinstance(item_i, str) or not item_i.startswith('step_'):
                 continue
@@ -169,53 +169,10 @@ class SettingsDlg(QDialog):
                 lb_.setObjectName(item_i.replace('sch', 'lb'))
                 lb_.setMinimumWidth(25)
                 gl_.addWidget(lb_, r_, 0, 1, 3)
-                # if 'chk' in self.dic_param[item_i]:
-                #     chk_ = QCheckBox(self.dic_param[item_i]['chk']['label'])
-                #     chk_.setCheckState(self.dic_param[item_i]['chk']['status'])
-                #     chk_.setObjectName('chk_' + item_i.lower())
-                #     chk_.setTristate(False)
-                #     gl_.addWidget(chk_, r_, 2, 1, 1)
-                #
-                # r_ += 1
-                # lb_ = QLabel('Esquema:')
-                # lb_.setObjectName('lb_' + item_i.lower())
-                # # self.dic_obj.update({'lb_' + name_.lower(): lb_})
-                # gl_.addWidget(lb_, r_, 0)
-                # cbx_sch = QComboBox(self)
-                # cbx_sch.setMinimumWidth(25)
-                # cbx_name = 'cbx_' + item_i.lower()
-                # cbx_sch.setObjectName(cbx_name)
-                # # self.update_cbx(cbx_=cbx_sch, alias=self.dic_param[item_i]['alias'])
-                # gl_.addWidget(cbx_sch, r_, 1)
-                #
-                # r_ += 1
-                # lb_ = QLabel('Tabela:')
-                # lb_.setObjectName('lb_' + item_i.lower().replace('sch', 'tab'))
-                # # self.dic_obj.update({'lb_' + name_.lower(): lb_})
-                # gl_.addWidget(lb_, r_, 0)
-                # cbx_tab = QComboBox(self)
-                # cbx_tab.setMinimumWidth(25)
-                # cbx_name = 'cbx_' + item_i.lower().replace('sch', 'tab')
-                # cbx_tab.setObjectName(cbx_name)
-                # # self.update_cbx(sch_=cbx_sch, cbx_=cbx_tab, alias=self.dic_param[item_i]['tab']['alias'])
-                # gl_.addWidget(cbx_tab, r_, 1)
-                #
-                # cbx_sch.currentIndexChanged.connect(partial(self.update_cbx,
-                #                                             sch_=cbx_sch,
-                #                                             cbx_=cbx_tab,
-                #                                             alias=self.dic_param[item_i]['tab']['alias']))
-
+                
                 for j, item_j in enumerate(self.dic_param[item_i]['fields']):
                     r_ += 1
-                    # if 'status' in self.dic_param[item_i]['fields'][item_j]:
-                    #     cb_ = QCheckBox(self.dic_param[item_i]['fields'][item_j]['label'], self)
-                    #     cb_.setObjectName(item_j.replace('fld', 'cb'))
-                    #     cb_.setChecked(bool(self.dic_param[item_i]['fields'][item_j]['status']))
-                    #     gl_.addWidget(cb_, r_, 0, 1, 1)
-                    #     if self.dic_param[item_i]['fields'][item_j]['status']:
-                    #         cb_ = self.findChild(QCheckBox, item_j.replace('fld', 'cb'))
-                    #         cb_.setChecked(True)
-                    # else:
+
                     lb_ = QLabel(self.dic_param[item_i]['fields'][item_j]['label'])
                     lb_.setObjectName('lb_' + item_j.lower())
                     gl_.addWidget(lb_, r_, 1)
@@ -241,19 +198,7 @@ class SettingsDlg(QDialog):
                         le_.setObjectName('le_' + item_j.lower())
                         self.dic_param[item_i]['fields'][item_j]['obj'] = le_
                         gl_.addWidget(le_, r_, 2)
-                    # cbx_ = QComboBox(self)
-                    # cbx_.setMinimumWidth(25)
-                    # cbx_name = 'cbx_' + item_j.lower()
-                    # cbx_.setObjectName(cbx_name)
-                    # # self.update_cbx(tab_=cbx_tab, sch_=cbx_sch, cbx_=cbx_,
-                    # #                 alias=self.dic_param[item_i]['fields'][item_j]['alias'])
-                    # gl_.addWidget(cbx_, r_, 1)
-                    # cbx_tab.currentIndexChanged.connect(partial(self.update_cbx,
-                    #                                             tab_=cbx_tab,
-                    #                                             sch_=cbx_sch,
-                    #                                             cbx_=cbx_,
-                    #                                             alias=self.dic_param[item_i]['fields'][item_j][
-                    #                                                 'alias']))
+   
 
         r_ += 1
         frame2 = QFrame(self)
@@ -266,13 +211,6 @@ class SettingsDlg(QDialog):
         r_ += 1
         hl_ = QHBoxLayout()
 
-        # self.pb_exp = QPushButton("Exportar", self)
-        # self.pb_exp.setEnabled(False)
-        # hl_.addWidget(self.pb_exp)
-        #
-        # self.pb_imp = QPushButton("Importar", self)
-        # self.pb_imp.setEnabled(False)
-        # hl_.addWidget(self.pb_imp)
 
         self.pb_rest = QPushButton(tr_ui('Restaurar'), self)
         # self.pb_remove.setEnabled(False)
@@ -284,17 +222,6 @@ class SettingsDlg(QDialog):
 
         gl_.addLayout(hl_, r_, 1, 1, 2)
 
-        # r_ += 1
-        # self.lb_topo_logo = QLabel()
-        # self.lb_topo_logo.setMinimumSize(QSize(100, 30))
-        # self.lb_topo_logo.setMaximumSize(QSize(100, 30))
-        # self.lb_topo_logo.setText("")
-        # icon_path = os.path.join(plugin_path, 'icons/topo_logo.png')
-        # self.lb_topo_logo.setPixmap(QPixmap(icon_path))
-        # self.lb_topo_logo.setScaledContents(True)
-        # self.lb_topo_logo.setAlignment(Qt.AlignBottom | Qt.AlignLeading | Qt.AlignLeft)
-        # self.lb_topo_logo.setObjectName("lb_topo_logo")
-        # gl_.addWidget(self.lb_topo_logo, r_, 0, 1, 1)
 
         base_widget = QWidget()
         base_widget.setLayout(gl_)
@@ -446,43 +373,6 @@ class SettingsDlg(QDialog):
                 self.update_cbx(tab_=cbx_tab, sch_=cbx_sch, cbx_=cbx_field,
                                 alias=self.dic_param[tag_0]['fields'][tag_1]['alias'])
 
-    # def export_inf(self):
-    #     print('export_inf')
-    #     le_obj = self.findChild(QLineEdit, 'le_name')
-    #     le_text = le_obj.text()
-    #     if not le_text:
-    #         return
-    #     self.w = QWidget()
-    #     filter = "DBs inf (*.idb)"
-    #     str_dir_ = self.aux_tools.get_(key_='dir_exp')
-    #
-    #     if str_dir_:
-    #         file_ = os.path.join(str_dir_, le_text)
-    #     else:
-    #         file_ = le_text
-    #     path_file = QFileDialog.getSaveFileName(self.w, 'Exportar Arquivo', file_, filter)
-    #     if path_file and path_file[0]:
-    #         self.aux_tools.save_(key_='dir_exp', value_=os.path.dirname(path_file[0]))
-    #         str_ = json.dumps(self.dic_param)
-    #         bin_ = Obs2().str_encode(str_)
-    #         with open(path_file[0], "wb") as outfile:
-    #             outfile.write(bin_)
-    #
-    # def import_inf(self):
-    #     print('import_db_inf')
-    #     self.w = QWidget()
-    #     filter = "DBs inf (*.idb)"
-    #     str_dir_ = self.aux_tools.get_(key_='dir_exp')
-    #     # Get filename using QFileDialog
-    #     path_db_inf, _ = QFileDialog.getOpenFileName(self.w, 'Abrir Informações', str_dir_, filter)
-    #     if not os.path.exists(path_db_inf):
-    #         return
-    #     with open(path_db_inf, 'rb') as infile:
-    #         bin_ = infile.read()
-    #         infile.close()
-    #     str_ = Obs2().str_decode(bin_)
-    #     self.dic_param = json.loads(str_)
-    #     self.fill_inf()
 
     def closeEvent(self, evt):
         print('closeEvent')

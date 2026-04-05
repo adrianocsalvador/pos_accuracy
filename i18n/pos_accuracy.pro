@@ -7,7 +7,7 @@
 
 CODECFORTR = UTF-8
 
-SOURCES = ../mods/mod_mde_positional_accuracy.py \
+SOURCES = ../mods/mod_positional_accuracy.py \
           ../mods/mod_settings.py
 
 TRANSLATIONS = pos_accuracy_en.ts
