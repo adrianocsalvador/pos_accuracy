@@ -117,6 +117,25 @@ def _pipeline_etapa_order_index():
     return {name: i for i, (_, name) in enumerate(PIPELINE_ETAPAS_DEF)}
 
 
+def pipeline_has_completed_any_etapa(mdepa_path: str) -> bool:
+    """True se alguma linha de pa_pipeline_etapas tem `fim` preenchido (a cadeia já avançou alguma vez)."""
+    if not mdepa_path or not os.path.isfile(mdepa_path):
+        return False
+    try:
+        conn = sqlite3.connect(mdepa_path)
+        try:
+            cur = conn.execute(
+                f'''SELECT 1 FROM {PIPELINE_ETAPAS_TABLE}
+                    WHERE fim IS NOT NULL AND TRIM(fim) != ''
+                    LIMIT 1'''
+            )
+            return cur.fetchone() is not None
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+
+
 def load_pipeline_last_ok_snapshot(mdepa_path: str) -> dict:
     """Último estado de parâmetros + DEMs após uma avaliação concluída com sucesso."""
     if not mdepa_path or not os.path.isfile(mdepa_path):
@@ -2125,13 +2144,17 @@ class Wd1(QWidget):
                 flat_was = {}
         restart, _reason = compute_restart_etapa_from_snapshots(flat_now, flat_was)
         if restart == '__noop__':
-            self.persist_project_config_from_widgets(log_values=False)
-            self.log_message(
-                self.tr(
-                    'Parâmetros e MDEs inalterados (última avaliação concluída ou configuração gravada no projeto).'),
-                'INFO',
-            )
-            return
+            # Projeto novo: defaults gravados no .pa.gpkg coincidem com os widgets → diff vazio, mas
+            # não há PEC concluído nem etapa terminada: há que arrancar a cadeia, não mostrar «inalterado».
+            if flat_was_pec or pipeline_has_completed_any_etapa(pf):
+                self.persist_project_config_from_widgets(log_values=False)
+                self.log_message(
+                    self.tr(
+                        'Parâmetros e MDEs inalterados (última avaliação concluída ou configuração gravada no projeto).'),
+                    'INFO',
+                )
+                return
+            restart = None
 
         self.persist_project_config_from_widgets(log_values=False)
 

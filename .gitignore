@@ -1,1 +1,3 @@
 /.idea/.name
+*.pyc
+/mods/__pycache__
