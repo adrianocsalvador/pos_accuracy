@@ -12,6 +12,9 @@ from qgis import processing
 from qgis.core import (QgsCoordinateReferenceSystem, QgsFeature, QgsVectorFileWriter, QgsFields, QgsField,
                        QgsVectorLayer, QgsCoordinateTransformContext, QgsWkbTypes, QgsGeometry, QgsPointXY)
 
+# |dm_h| ou |dm_v| acima disto é tratado como erro numérico / geometria; → NaN e WARNING no log.
+DM_ABS_MAX_SANE = 1000.0
+
 
 class PolygonThread(QThread):
     sig_status = pyqtSignal(dict, name='Status for processing bar')
@@ -660,7 +663,46 @@ class BufferThread(QThread):
                     for class_ in self.dic_pec_mm['H']:
                         self.nr_procs += 1
 
-    def calc_dm_v(self, scale_, class_, geom_r, geom_t):
+    def _warn_dm_absurd(
+        self,
+        which: str,
+        dm_raw: float,
+        tag_: str,
+        scale_,
+        class_,
+        layer_r_name: str,
+        id_r,
+        layer_t_name: str,
+        id_t,
+        detail_lines: list,
+    ):
+        parent = self.parent
+        tr = getattr(parent, 'tr', lambda s: s)
+        head = tr(
+            '[Buffers] {0} fora do limite (|valor| ≤ {1}): {2} → NaN'
+        ).format(which, int(DM_ABS_MAX_SANE), f'{dm_raw:.6g}')
+        body = tr(
+            '• morfologia: {0}  escala: {1}  classe: {2}\n'
+            '• camada ref: {3}  fid_r: {4}\n'
+            '• camada teste: {5}  fid_t: {6}\n'
+        ).format(tag_, scale_, class_, layer_r_name, id_r, layer_t_name, id_t)
+        extra = '\n'.join('• ' + ln for ln in detail_lines if ln)
+        msg = head + '\n' + body + (extra + '\n' if extra else '')
+        self.sig_status.emit({'key': 0, 'warn': which, 'log_warning': msg})
+
+    def calc_dm_v(
+        self,
+        scale_,
+        class_,
+        geom_r,
+        geom_t,
+        *,
+        tag_: str,
+        layer_r_name: str,
+        layer_t_name: str,
+        id_r,
+        id_t,
+    ):
         # create profile geometries with (progressive, elevation) coordinates for ref and test
         pec_v = self.dic_pec_v[scale_] * self.dic_pec_mm['V'][class_]['pec']
         # ep_v = self.dic_pec_v[scale_] * self.dic_pec_mm['V'][class_]['ep']
@@ -688,6 +730,13 @@ class BufferThread(QThread):
         # print('r-', list_prog_cota_r)
 
         len_t = geom_t.length()
+        if (
+            not math.isfinite(len_r)
+            or not math.isfinite(len_t)
+            or len_r <= 0
+            or len_t <= 0
+        ):
+            return float('nan')
 
         if geom_t.wkbType() == QgsWkbTypes.LineString or geom_t.wkbType() == QgsWkbTypes.LineStringZ:
             ps_t = geom_t.constGet().points()
@@ -698,6 +747,8 @@ class BufferThread(QThread):
         list_cota_t = []
         # k_t is used to scale prog
         k_t = len_r / len_t
+        if not math.isfinite(k_t) or abs(k_t) > 1e12:
+            return float('nan')
         gpt0 = QgsGeometry().fromPointXY(QgsPointXY(ps_t[0]))
         if gpt0.distance(gpr0) > gpt0.distance(gpr1):
             ci = True
@@ -756,9 +807,31 @@ class BufferThread(QThread):
         # print('geom_prof_bt=', geom_prof_bt)
 
         geom_prof_i = geom_prof_bt.intersection(geom_prof_br)
-        # print('pec_v =', pec_v, geom_prof_br.area(), geom_prof_i.area(), geom_prof_bt.area())
-        dm_prof = math.pi * pec_v * (
-                geom_prof_br.area() - geom_prof_i.area()) / geom_prof_bt.area() if geom_prof_bt.area() else 1
+        area_br_p = geom_prof_br.area()
+        area_i_p = geom_prof_i.area()
+        area_bt = geom_prof_bt.area()
+        if not math.isfinite(area_bt) or area_bt <= 0:
+            return float('nan')
+        dm_prof = math.pi * pec_v * (area_br_p - area_i_p) / area_bt
+        if not math.isfinite(dm_prof):
+            return float('nan')
+        if abs(dm_prof) > DM_ABS_MAX_SANE:
+            self._warn_dm_absurd(
+                'dm_v',
+                dm_prof,
+                tag_,
+                scale_,
+                class_,
+                layer_r_name,
+                id_r,
+                layer_t_name,
+                id_t,
+                [
+                    f'pec_v={pec_v!r} len_ref={len_r!r} len_teste={len_t!r} k_t={k_t!r}',
+                    f'áreas perfil (ref/teste/inter): {area_br_p!r} / {area_bt!r} / {area_i_p!r}',
+                ],
+            )
+            return float('nan')
         return dm_prof
 
     def run(self):
@@ -834,10 +907,37 @@ class BufferThread(QThread):
                                 dm_h = float('nan')
                             else:
                                 dm_h = math.pi * pec_h * (area_br - area_i) / area_bt
-                                if not math.isfinite(dm_h) or abs(dm_h) > 1e12:
+                                if not math.isfinite(dm_h):
+                                    dm_h = float('nan')
+                                elif abs(dm_h) > DM_ABS_MAX_SANE:
+                                    self._warn_dm_absurd(
+                                        'dm_h',
+                                        dm_h,
+                                        tag_,
+                                        scale_,
+                                        class_,
+                                        layer_r.name(),
+                                        id_r,
+                                        layer_t.name(),
+                                        id_t,
+                                        [
+                                            f'pec_h={pec_h!r}',
+                                            f'áreas buffer ref/teste/inter: {area_br!r} / {area_bt!r} / {area_i!r}',
+                                        ],
+                                    )
                                     dm_h = float('nan')
                             self.dic_values[scale_][class_][count_]['dm_h'] = dm_h
-                            dm_v = self.calc_dm_v(scale_, class_, geom_r, geom_t)
+                            dm_v = self.calc_dm_v(
+                                scale_,
+                                class_,
+                                geom_r,
+                                geom_t,
+                                tag_=tag_,
+                                layer_r_name=layer_r.name(),
+                                layer_t_name=layer_t.name(),
+                                id_r=id_r,
+                                id_t=id_t,
+                            )
                             self.dic_values[scale_][class_][count_]['dm_v'] = dm_v
 
                             print(scale_, class_, id_r, id_t, round(dm_h, 2), round(dm_v, 2))
