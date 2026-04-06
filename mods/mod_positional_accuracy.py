@@ -32,7 +32,7 @@ from qgis.core import (QgsVectorFileWriter, QgsWkbTypes, QgsCoordinateTransformC
 from qgis.gui import QgsMapLayerComboBox
 from .mod_aux_tools import AuxTools#, Obs2, Logger
 from .mod_login import Database
-from .mod_worker_threads import Worker
+from .mod_worker_threads import DM_ABS_MAX_SANE, Worker
 from .mod_settings import SettingsDlg
 from .plugin_i18n import PLUGIN_I18N_CONTEXT, tr_ui
 
@@ -40,6 +40,22 @@ plugin_path = os.path.dirname(os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.join(plugin_path, 'libs')))
 # Arquivo de projeto: GeoPackage com extensão composta (conteúdo GPKG)
 PROJECT_EXT = '.pa.gpkg'
+
+# Mesmo limite que BufferThread (|dm_h|/|dm_v| acima → NaN + WARNING no log).
+_MAX_PEC_MEASUREMENT_ABS = DM_ABS_MAX_SANE
+
+
+def _coerce_finite_measurement_scalar(x):
+    """float finito para estatísticas PEC; aceita escalares numpy; None se inválido ou fora do limite."""
+    if x is None:
+        return None
+    try:
+        v = float(x)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+    if not math.isfinite(v) or abs(v) > _MAX_PEC_MEASUREMENT_ABS:
+        return None
+    return v
 
 
 def geometry_area_square_meters(geom: QgsGeometry, crs: QgsCoordinateReferenceSystem) -> float:
@@ -3031,11 +3047,13 @@ class Wd1(QWidget):
                 dic_vectors[scale_][class_] = {'H': [], 'V': []}
                 for count_ in dic_values[scale_][class_]:
                     if not dic_values[scale_][class_][count_].get('outlier', False):
-                        dh = dic_values[scale_][class_][count_]['dm_h']
-                        dv = dic_values[scale_][class_][count_]['dm_v']
-                        if isinstance(dh, (int, float)) and math.isfinite(dh):
+                        dh = _coerce_finite_measurement_scalar(
+                            dic_values[scale_][class_][count_].get('dm_h'))
+                        dv = _coerce_finite_measurement_scalar(
+                            dic_values[scale_][class_][count_].get('dm_v'))
+                        if dh is not None:
                             dic_vectors[scale_][class_]['H'].append(dh)
-                        if isinstance(dv, (int, float)) and math.isfinite(dv):
+                        if dv is not None:
                             dic_vectors[scale_][class_]['V'].append(dv)
         return dic_vectors
 
@@ -3419,15 +3437,28 @@ class Wd1(QWidget):
         return out_path
 
     def rms(self, vet_):
-        vals = [v for v in vet_ if isinstance(v, (int, float)) and math.isfinite(v)]
+        vals = []
+        for v in vet_:
+            x = _coerce_finite_measurement_scalar(v)
+            if x is not None:
+                vals.append(x)
         n = len(vals)
         if n < 2:
             return float('nan')
-        sun_ = sum(v ** 2 for v in vals)
-        return (sun_ / (n - 1)) ** 0.5
+        try:
+            sun_ = math.fsum(x * x for x in vals)
+            if not math.isfinite(sun_) or sun_ < 0:
+                return float('nan')
+            return math.sqrt(sun_ / (n - 1))
+        except (OverflowError, OSError, ValueError, ArithmeticError):
+            return float('nan')
 
     def perc_pec(self, vet_, pec_):
-        vals = [v for v in vet_ if isinstance(v, (int, float)) and math.isfinite(v)]
+        vals = []
+        for v in vet_:
+            x = _coerce_finite_measurement_scalar(v)
+            if x is not None:
+                vals.append(x)
         if not vals:
             return 0.0
         count_ = sum(1 for v_ in vals if v_ < pec_)
