@@ -58,6 +58,32 @@ def _coerce_finite_measurement_scalar(x):
     return v
 
 
+def pec_test_limit(pec_):
+    """Arredonda o limiar PEC para inteiro antes do teste."""
+    try:
+        return int(round(float(pec_)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def perc_pec_quant(values, pec_):
+    """Percentual de amostras com DM <= PEC (limiar inteiro)."""
+    if not values:
+        return 0.0
+    pec_lim = pec_test_limit(pec_)
+    return sum(1 for v in values if v <= pec_lim) / len(values)
+
+
+def perc_pec_ext(values, extents, pec_):
+    """Percentual da extensão total com DM <= PEC."""
+    pec_lim = pec_test_limit(pec_)
+    total_ext = sum(extents)
+    if total_ext <= 0:
+        return 0.0
+    ok_ext = sum(ext for v, ext in zip(values, extents) if v <= pec_lim)
+    return ok_ext / total_ext
+
+
 def geometry_area_square_meters(geom: QgsGeometry, crs: QgsCoordinateReferenceSystem) -> float:
     """Área no elipsoide em m² (independente das unidades planas do CRS da camada)."""
     if geom is None or geom.isEmpty():
@@ -3095,77 +3121,120 @@ class Wd1(QWidget):
         self._pec_report_pec_intro = self.tr('Tratamento de outliers (PEC): {0}').format(
             om_names[om] if 0 <= om < len(om_names) else str(om))
 
-        dic_vectors = self.update_dic_vectors(dic_values)
         mss_ = self.tr('=======================================\n')
         mss_ += self.tr('CALCULANDO PEC PLANIMÉTRICO')
         self.log_message(mss_, 'INFO')
-
         print(mss_)
-        for scale_ in dic_vectors:
-            for class_ in dic_vectors[scale_]:
+
+        for scale_ in sorted(dic_values):
+            for class_ in dic_values[scale_]:
                 pec_h = round(scale_ * self.dic_pec_mm['H'][class_]['pec'], 2)
                 ep_h = round(scale_ * self.dic_pec_mm['H'][class_]['ep'], 2)
-                list_ = dic_vectors[scale_][class_]['H']
-                perc_pec_ = self.perc_pec(vet_=list_, pec_=pec_h)
-                pec_ok = perc_pec_ >= 0.90
-                if pec_ok:
-                    str_ = self.tr('1:{0}.000-{1}= {2}% < {3} PEC - OK,').format(
-                        scale_, class_, round(perc_pec_ * 100), pec_h)
-                else:
-                    str_ = self.tr('1:{0}.000-{1}= {2}% < {3} PEC - FALHOU,').format(
-                        scale_, class_, round(perc_pec_ * 100), pec_h)
-
-                rms_ = self.rms(list_)
-                ep_ok = math.isfinite(rms_) and rms_ <= ep_h
-                rms_show = round(rms_, 2) if math.isfinite(rms_) else self.tr('n/d')
-                if ep_ok:
-                    str_ += self.tr('| {0} < {1} EP - OK, {2}').format(
-                        rms_show, ep_h, len(list_))
-
-                else:
-                    str_ += self.tr('| {0} > {1} EP - FALHOU, {2}').format(
-                        rms_show, ep_h, len(list_))
+                row, str_ = self._calc_pec_group_report(
+                    dic_values, scale_, class_, 'dm_h', pec_h, ep_h, dimension='H')
                 print(str_)
                 self.log_message(str_, 'INFO')
-                self._pec_report_plan_rows.append(
-                    (scale_, class_, round(perc_pec_ * 100), pec_h, pec_ok,
-                     round(rms_, 2) if math.isfinite(rms_) else float('nan'),
-                     ep_h, ep_ok, len(list_)))
+                self._pec_report_plan_rows.append(row)
 
         mss_ = self.tr('=======================================\n')
         mss_ += self.tr('CALCULANDO PEC ALTIMÉTRICO')
         self.log_message(mss_, 'INFO')
         print(mss_)
-        for scale_ in dic_vectors:
-            for class_ in dic_vectors[scale_]:
+        for scale_ in sorted(dic_values):
+            for class_ in dic_values[scale_]:
                 pec_v = round(self.dic_pec_v[scale_] * self.dic_pec_mm['V'][class_]['pec'], 2)
                 ep_v = round(self.dic_pec_v[scale_] * self.dic_pec_mm['V'][class_]['ep'], 2)
-                list_ = dic_vectors[scale_][class_]['V']
-                perc_pec_ = self.perc_pec(vet_=list_, pec_=pec_v)
-                pec_ok = perc_pec_ >= 0.90
-                if pec_ok:
-                    str_ = self.tr('1:{0}.000-{1}= {2}% < {3} PEC - OK, ').format(
-                        scale_, class_, round(perc_pec_ * 100), pec_v)
-                else:
-                    str_ = self.tr('1:{0}.000-{1}= {2}% < {3} PEC - FALHOU,').format(
-                        scale_, class_, round(perc_pec_ * 100), pec_v)
-
-                rms_ = self.rms(list_)
-                ep_ok = math.isfinite(rms_) and rms_ <= ep_v
-                rms_show = round(rms_, 2) if math.isfinite(rms_) else self.tr('n/d')
-                if ep_ok:
-                    str_ += self.tr('| {0} < {1} EP - OK, {2}').format(
-                        rms_show, ep_v, len(list_))
-
-                else:
-                    str_ += self.tr('| {0} > {1} EP - FALHOU, {2}').format(
-                        rms_show, ep_v, len(list_))
+                row, str_ = self._calc_pec_group_report(
+                    dic_values, scale_, class_, 'dm_v', pec_v, ep_v,
+                    dimension='V', eq=self.dic_pec_v.get(scale_))
                 print(str_)
                 self.log_message(str_, 'INFO')
-                self._pec_report_alt_rows.append(
-                    (scale_, class_, round(perc_pec_ * 100), pec_v, pec_ok,
-                     round(rms_, 2) if math.isfinite(rms_) else float('nan'),
-                     ep_v, ep_ok, len(list_)))
+                self._pec_report_alt_rows.append(row)
+
+    def _pec_samples_group(self, dic_values, scale_, class_, dm_key):
+        """Amostras válidas, outliers e listas auxiliares por escala/classe."""
+        samples = []
+        outlier_ids = set()
+        for count_ in dic_values[scale_][class_]:
+            rec = dic_values[scale_][class_][count_]
+            fid_r = rec.get('fid_r')
+            if rec.get('outlier'):
+                if fid_r is not None:
+                    try:
+                        outlier_ids.add(int(fid_r))
+                    except (TypeError, ValueError):
+                        pass
+                continue
+            dm = _coerce_finite_measurement_scalar(rec.get(dm_key))
+            if dm is None:
+                continue
+            ext = _coerce_finite_measurement_scalar(rec.get('extent_ref'))
+            samples.append({
+                'dm': dm,
+                'fid_r': int(fid_r) if fid_r is not None else None,
+                'extent': ext if ext is not None and ext > 0 else 0.0,
+            })
+        return samples, sorted(outlier_ids)
+
+    def _calc_pec_group_report(
+        self, dic_values, scale_, class_, dm_key, pec_raw, ep_raw, *,
+        dimension='H', eq=None,
+    ):
+        samples, outlier_ids = self._pec_samples_group(
+            dic_values, scale_, class_, dm_key)
+        values = [s['dm'] for s in samples]
+        extents = [s['extent'] for s in samples]
+        pec_lim = pec_test_limit(pec_raw)
+        reprov_ids = sorted({
+            s['fid_r'] for s in samples
+            if s['fid_r'] is not None and s['dm'] > pec_lim
+        })
+
+        perc_q = perc_pec_quant(values, pec_raw)
+        perc_e = perc_pec_ext(values, extents, pec_raw)
+        pec_ok_q = perc_q >= 0.90
+        pec_ok_e = perc_e >= 0.90
+        rms_ = self.rms(values)
+        ep_ok = math.isfinite(rms_) and rms_ <= ep_raw
+        rms_show = round(rms_, 2) if math.isfinite(rms_) else float('nan')
+        cmp_ep = '<=' if ep_ok else '>'
+
+        row = {
+            'scale': scale_,
+            'class': class_,
+            'eq': eq,
+            'n_outliers': len(outlier_ids),
+            'n_valid': len(values),
+            'ext_km': int(round(sum(extents) / 1000.0)) if extents else 0,
+            'perc_q': round(perc_q * 100),
+            'pec_lim': pec_lim,
+            'result_q': self.tr('PASSOU') if pec_ok_q else self.tr('FALHOU'),
+            'perc_e': round(perc_e * 100),
+            'result_e': self.tr('PASSOU') if pec_ok_e else self.tr('FALHOU'),
+            'teste_ep': (
+                f'{rms_show} {cmp_ep} {ep_raw} EP'
+                if math.isfinite(rms_show) else ''
+            ),
+            'result_ep': self.tr('PASSOU') if ep_ok else self.tr('FALHOU'),
+            'outlier_ids': ', '.join(str(i) for i in outlier_ids),
+            'reprovados_ids': ', '.join(str(i) for i in reprov_ids),
+        }
+
+        if dimension == 'V':
+            str_ = self.tr('EQ {0} — 1:{1}.000-{2}= {3}% <= {4} PEC - {5},').format(
+                eq, scale_, class_, row['perc_q'], pec_lim, row['result_q'])
+        else:
+            str_ = self.tr('1:{0}.000-{1}= {2}% <= {3} PEC - {4},').format(
+                scale_, class_, row['perc_q'], pec_lim, row['result_q'])
+        if ep_ok:
+            str_ += self.tr('| {0} <= {1} EP - PASSOU, {2}').format(
+                rms_show if math.isfinite(rms_show) else self.tr('n/d'),
+                ep_raw, len(values))
+        else:
+            str_ += self.tr('| {0} > {1} EP - FALHOU, {2}').format(
+                rms_show if math.isfinite(rms_show) else self.tr('n/d'),
+                ep_raw, len(values))
+        return row, str_
 
     def _format_param_value_for_report(self, meta):
         if not isinstance(meta, dict):
@@ -3225,74 +3294,105 @@ class Wd1(QWidget):
         return '<br/>'.join(rows)
 
     def _build_pec_results_tables_html(self) -> str:
-        """Duas tabelas (planimétrico / altimétrico), mesmo estilo que o resto do relatório."""
+        """Tabelas planimétrica / altimétrica com estatísticas detalhadas de PEC/EP."""
         intro = (getattr(self, '_pec_report_pec_intro', '') or '').strip()
         plan_rows = getattr(self, '_pec_report_plan_rows', None) or []
         alt_rows = getattr(self, '_pec_report_alt_rows', None) or []
 
-        def ok_txt(ok):
-            return self.tr('OK') if ok else self.tr('FALHOU')
-
-        hdrs = [
+        hdrs_plan = [
             self.tr('Escala'),
             self.tr('Classe'),
-            self.tr('% < lim. PEC'),
-            self.tr('Lim. PEC (m)'),
-            self.tr('PEC'),
-            self.tr('RMS (m)'),
-            self.tr('Lim. EP (m)'),
-            self.tr('EP'),
-            self.tr('n'),
+            self.tr('Outliers'),
+            self.tr('Quant. Amostras Válidas'),
+            self.tr('Extensão Amostras Válidas'),
+            self.tr('Teste PEC quant'),
+            self.tr('Resultado quant'),
+            self.tr('Teste PEC ext'),
+            self.tr('Resultado ext'),
+            self.tr('Teste EP'),
+            self.tr('Resultado EP'),
+            self.tr('array outliers'),
+            self.tr('array_reprovados'),
         ]
-        th = ''.join(
-            '<th>{}</th>'.format(html.escape(h)) for h in hdrs)
+        hdrs_alt = [
+            self.tr('Escala'),
+            self.tr('EQ'),
+            self.tr('Classe'),
+            self.tr('Outliers'),
+            self.tr('Quant. Amostras Válidas'),
+            self.tr('Extensão Amostras Válidas'),
+            self.tr('Teste PEC quant'),
+            self.tr('Resultado quant'),
+            self.tr('Teste PEC ext'),
+            self.tr('Resultado ext'),
+            self.tr('Teste EP'),
+            self.tr('Resultado EP'),
+            self.tr('array outliers'),
+            self.tr('array_reprovados'),
+        ]
 
-        def rows_html(rows):
-            parts = []
-            for (
-                scale_, class_, perc_pct, lim_pec, pec_ok, rms_, lim_ep, ep_ok, n_,
-            ) in rows:
-                escala = self.tr('1:{0}.000').format(scale_)
-                parts.append(
-                    '<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td>'
-                    '<td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>'.format(
-                        html.escape(escala),
-                        html.escape(str(class_)),
-                        html.escape(str(int(perc_pct))),
-                        html.escape(str(lim_pec)),
-                        html.escape(ok_txt(pec_ok)),
-                        html.escape(str(rms_) if math.isfinite(rms_) else '—'),
-                        html.escape(str(lim_ep)),
-                        html.escape(ok_txt(ep_ok)),
-                        html.escape(str(n_)),
-                    ))
-            return ''.join(parts)
+        def cell(v):
+            return html.escape('' if v is None else str(v))
+
+        def row_cells_plan(row):
+            return [
+                self.tr('1:{0}.000').format(row['scale']),
+                row['class'],
+                row['n_outliers'],
+                row['n_valid'],
+                row['ext_km'],
+                f"{row['perc_q']} % <= {row['pec_lim']}",
+                row['result_q'],
+                f"{row['perc_e']} % <= {row['pec_lim']}",
+                row['result_e'],
+                row['teste_ep'],
+                row['result_ep'],
+                row['outlier_ids'],
+                row['reprovados_ids'],
+            ]
+
+        def row_cells_alt(row):
+            return [
+                self.tr('1:{0}.000').format(row['scale']),
+                row.get('eq', ''),
+                row['class'],
+                row['n_outliers'],
+                row['n_valid'],
+                row['ext_km'],
+                f"{row['perc_q']} % <= {row['pec_lim']}",
+                row['result_q'],
+                f"{row['perc_e']} % <= {row['pec_lim']}",
+                row['result_e'],
+                row['teste_ep'],
+                row['result_ep'],
+                row['outlier_ids'],
+                row['reprovados_ids'],
+            ]
+
+        def table_html(title, hdrs, rows, row_fn):
+            th = ''.join('<th>{}</th>'.format(html.escape(h)) for h in hdrs)
+            body = ''
+            for row in rows:
+                tds = ''.join('<td>{}</td>'.format(cell(c)) for c in row_fn(row))
+                body += f'<tr>{tds}</tr>'
+            return (
+                f'<h3>{html.escape(title)}</h3>\n'
+                f'<table>\n<tr>{th}</tr>\n{body}</table>'
+            )
 
         chunks = []
         if intro:
-            chunks.append('<p>{}</p>'.format(html.escape(intro)))
-
+            chunks.append(f'<p>{html.escape(intro)}</p>')
         if plan_rows:
-            chunks.append(
-                '<h3>{}</h3>\n<table>\n<tr>{}</tr>\n{}</table>'.format(
-                    html.escape(self.tr('PEC planimétrico')),
-                    th,
-                    rows_html(plan_rows),
-                ))
+            chunks.append(table_html(
+                self.tr('PEC planimétrico'), hdrs_plan, plan_rows, row_cells_plan))
         if alt_rows:
-            chunks.append(
-                '<h3>{}</h3>\n<table>\n<tr>{}</tr>\n{}</table>'.format(
-                    html.escape(self.tr('PEC altimétrico')),
-                    th,
-                    rows_html(alt_rows),
-                ))
-
+            chunks.append(table_html(
+                self.tr('PEC altimétrico'), hdrs_alt, alt_rows, row_cells_alt))
         if not plan_rows and not alt_rows:
-            chunks.append(
-                '<p>{}</p>'.format(html.escape(
-                    self.tr(
-                        '(ainda não há resultados de PEC nesta sessão — execute a análise até ao fim.)'))))
-
+            msg = self.tr(
+                '(ainda não há resultados de PEC nesta sessão — execute a análise até ao fim.)')
+            chunks.append(f'<p>{html.escape(msg)}</p>')
         return '\n'.join(chunks)
 
     def _build_pdf_report_html(self) -> str:
@@ -3459,10 +3559,7 @@ class Wd1(QWidget):
             x = _coerce_finite_measurement_scalar(v)
             if x is not None:
                 vals.append(x)
-        if not vals:
-            return 0.0
-        count_ = sum(1 for v_ in vals if v_ < pec_)
-        return count_ / len(vals)
+        return perc_pec_quant(vals, pec_)
 
     def _resolve_limit_layer_for_editing(self, layer_name: str):
         """Camada de limite no projeto (válida) ou carregada do .pa.gpkg; remove stubs inválidos."""

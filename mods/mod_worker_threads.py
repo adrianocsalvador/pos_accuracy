@@ -9,11 +9,33 @@ import statistics
 from osgeo.ogr import wkbTIN
 from qgis.PyQt.QtCore import QThread, pyqtSignal, QObject
 from qgis import processing
-from qgis.core import (QgsCoordinateReferenceSystem, QgsFeature, QgsVectorFileWriter, QgsFields, QgsField,
-                       QgsVectorLayer, QgsCoordinateTransformContext, QgsWkbTypes, QgsGeometry, QgsPointXY)
+from qgis.core import (QgsApplication, QgsCoordinateReferenceSystem, QgsFeature, QgsVectorFileWriter,
+                       QgsFields, QgsField, QgsVectorLayer, QgsCoordinateTransformContext, QgsWkbTypes,
+                       QgsGeometry, QgsPointXY)
 
 # |dm_h| ou |dm_v| acima disto é tratado como erro numérico / geometria; → NaN e WARNING no log.
 DM_ABS_MAX_SANE = 1000.0
+
+_GRASS_PROVIDER_IDS = ('grass', 'grass7')
+_MORPHOLOGY_GRASS_ALGORITHMS = ('r.watershed', 'r.to.vect', 'v.to.lines', 'r.thin')
+
+
+def resolve_grass_algorithm(tool_name: str) -> str:
+    """Resolve grass:tool vs grass7:tool depending on the installed QGIS version."""
+    registry = QgsApplication.processingRegistry()
+    for provider_id in _GRASS_PROVIDER_IDS:
+        algo_id = f'{provider_id}:{tool_name}'
+        if registry.algorithmById(algo_id):
+            return algo_id
+    raise RuntimeError(
+        f'Algoritmo GRASS não disponível: {tool_name}. '
+        'Instale ou ative o provider GRASS em Configurações → Processamento → Providers.'
+    )
+
+
+def resolve_morphology_grass_tools():
+    """Return dict short_name -> full algorithm id; raises if any tool is missing."""
+    return {name: resolve_grass_algorithm(name) for name in _MORPHOLOGY_GRASS_ALGORITHMS}
 
 
 class PolygonThread(QThread):
@@ -243,6 +265,12 @@ class MorphologyThread(QThread):
         self.sig_status.emit({'key': self.key_, 'quant': self.nr_procs})
         nr_ = 0
 
+        try:
+            grass_tools = resolve_morphology_grass_tools()
+        except RuntimeError as e:
+            self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
+            return
+
         # Temp dir for native:* outputs (GPKG) — avoid layer objects in thread
         caminho_temp_morph = os.path.join(tempfile.gettempdir(), f'QGIS3-{str(uuid.uuid4())[:8]}')
         os.makedirs(caminho_temp_morph, exist_ok=True)
@@ -282,7 +310,7 @@ class MorphologyThread(QThread):
         try:
             print(result_clip['OUTPUT'], self.max_px, self.max_memo * 1024)
             nr_ += 1  # 1
-            tool_ = "grass7:r.watershed"
+            tool_ = grass_tools['r.watershed']
             params = {
                 'elevation':result_clip['OUTPUT'],
                 'depression':None,
@@ -325,7 +353,7 @@ class MorphologyThread(QThread):
                     'key': self.key_,
                     'warn': f'{tool_} {grass_mem_mb} MB',
                     'log_warning': (
-                        f'grass7:r.watershed: ficheiros basin/stream em falta após execução '
+                        f'{tool_}: ficheiros basin/stream em falta após execução '
                         f'(memory Grass={prev_mb} MB). Nova tentativa com memory={grass_mem_mb} MB.'
                     ),
                 })
@@ -337,7 +365,7 @@ class MorphologyThread(QThread):
                     'key': self.key_,
                     'value': nr_,
                     'error': (
-                        f'grass7:r.watershed não gerou basin/stream no disco (basin={b!r}, stream={s!r}) '
+                        f'{tool_} não gerou basin/stream no disco (basin={b!r}, stream={s!r}) '
                         f'após retentativas até memory={grass_mem_mb} MB.'
                     ),
                 })
@@ -352,7 +380,7 @@ class MorphologyThread(QThread):
         # 3 "grass: r.to.vect"
         try:
             nr_ += 1  # 1
-            tool_ = "grass7:r.to.vect"
+            tool_ = grass_tools['r.to.vect']
             params = {
                 'input': result_watershed['basin'],
                 'type': 2,
@@ -391,10 +419,10 @@ class MorphologyThread(QThread):
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
             return
 
-        # 5 "grass7:v.to.lines"
+        # 5 "grass: v.to.lines"
         try:
             nr_ += 1  # 1
-            tool_ = "grass7:v.to.lines"
+            tool_ = grass_tools['v.to.lines']
             params = {
                 'input': result_fix_gpkg,
                 'method': None,
@@ -511,7 +539,7 @@ class MorphologyThread(QThread):
         # 11 "grass: r.thin"
         try:
             nr_ += 1  # 1
-            tool_ = "grass7:r.thin"
+            tool_ = grass_tools['r.thin']
             params = {
                 'input': result_watershed['stream'],
                 'iterations': 200,
@@ -529,7 +557,7 @@ class MorphologyThread(QThread):
         # 12 "grass: r.to.vect"
         try:
             nr_ += 1  # 1
-            tool_ = "grass7:r.to.vect"
+            tool_ = grass_tools['r.to.vect']
             params = {
                 'input': result_stream_thin['output'],
                 'type':0,
@@ -877,6 +905,10 @@ class BufferThread(QThread):
                             self.dic_values[scale_][class_][count_]['fid_r'] = vet_[0]
                             self.dic_values[scale_][class_][count_]['layer_t'] = layer_t.name()
                             self.dic_values[scale_][class_][count_]['fid_t'] = vet_[1]
+                            len_r = geom_r.length()
+                            self.dic_values[scale_][class_][count_]['extent_ref'] = (
+                                float(len_r) if math.isfinite(len_r) and len_r > 0 else 0.0
+                            )
 
                             geom_br = geom_r.buffer(pec_h, 20)
                             feat_br = QgsFeature()
