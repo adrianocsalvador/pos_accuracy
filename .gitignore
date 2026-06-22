@@ -72,3 +72,6 @@ symbology-style.db
 
 # Arquivos compactados locais (resultados de teste)
 *.zip
+
+# Scripts auxiliares locais (exportação de relatórios, etc.)
+scripts_aux/

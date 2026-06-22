@@ -166,8 +166,8 @@
         <translation><![CDATA[Maximum distance between centroids (pixels of the test DEM)]]></translation>
     </message>
     <message>
-        <source><![CDATA[Escalar]]></source>
-        <translation><![CDATA[Scale]]></translation>
+        <source><![CDATA[Linear]]></source>
+        <translation><![CDATA[Linear]]></translation>
     </message>
     <message>
         <source><![CDATA[Extensão da Amostra: {} km]]></source>
@@ -240,8 +240,8 @@
         <translation><![CDATA[Normalization method]]></translation>
     </message>
     <message>
-        <source><![CDATA[Mínima Distância]]></source>
-        <translation><![CDATA[Minimum distance]]></translation>
+        <source><![CDATA[Por Proximidade]]></source>
+        <translation><![CDATA[By proximity]]></translation>
     </message>
     <message>
         <source><![CDATA[Mínima Escala]]></source>

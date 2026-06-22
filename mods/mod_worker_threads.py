@@ -11,7 +11,8 @@ from qgis.PyQt.QtCore import QThread, pyqtSignal, QObject
 from qgis import processing
 from qgis.core import (QgsApplication, QgsCoordinateReferenceSystem, QgsFeature, QgsVectorFileWriter,
                        QgsFields, QgsField, QgsVectorLayer, QgsCoordinateTransformContext, QgsWkbTypes,
-                       QgsGeometry, QgsPointXY)
+                       QgsGeometry, QgsPointXY, QgsProcessingContext, QgsProcessingFeedback, QgsMapLayer,
+                       QgsProject)
 
 # |dm_h| ou |dm_v| acima disto é tratado como erro numérico / geometria; → NaN e WARNING no log.
 DM_ABS_MAX_SANE = 1000.0
@@ -36,6 +37,189 @@ def resolve_grass_algorithm(tool_name: str) -> str:
 def resolve_morphology_grass_tools():
     """Return dict short_name -> full algorithm id; raises if any tool is missing."""
     return {name: resolve_grass_algorithm(name) for name in _MORPHOLOGY_GRASS_ALGORITHMS}
+
+
+def inspect_grass_processing():
+    """Diagnóstico do provider GRASS no Processing (instalação, ativação, algoritmos de morfologia)."""
+    registry = QgsApplication.processingRegistry()
+    info = {
+        'ok': False,
+        'provider_id': '',
+        'provider_long_name': '',
+        'provider_active': False,
+        'provider_can_activate': False,
+        'algorithms': {name: None for name in _MORPHOLOGY_GRASS_ALGORITHMS},
+    }
+    provider = None
+    for provider_id in _GRASS_PROVIDER_IDS:
+        provider = registry.providerById(provider_id)
+        if provider is not None:
+            info['provider_id'] = provider_id
+            break
+    if provider is None:
+        return info
+    try:
+        info['provider_long_name'] = provider.longName() or provider_id
+    except Exception:
+        info['provider_long_name'] = info['provider_id']
+    try:
+        info['provider_can_activate'] = bool(provider.canBeActivated())
+    except Exception:
+        info['provider_can_activate'] = False
+    try:
+        info['provider_active'] = bool(provider.isActive())
+    except Exception:
+        info['provider_active'] = False
+    if info['provider_active']:
+        for name in _MORPHOLOGY_GRASS_ALGORITHMS:
+            for pid in _GRASS_PROVIDER_IDS:
+                algo_id = f'{pid}:{name}'
+                if registry.algorithmById(algo_id):
+                    info['algorithms'][name] = algo_id
+                    break
+        info['ok'] = all(info['algorithms'].values())
+    return info
+
+
+def _recommend_grass_memory_gb(mem_status) -> float:
+    """Valor sugerido para max_memo_grass (GB) conforme RAM total do PC."""
+    if not mem_status:
+        return 1.0
+    total = mem_status['total_mb']
+    if total <= 8192:
+        return 0.5
+    if total <= 12288:
+        return 1.0
+    if total <= 16384:
+        return 1.5
+    if total <= 32768:
+        return 3.0
+    return 4.0
+
+
+def _grass_memory_advice(mem_status, configured_gb: float) -> str:
+    """Texto de recomendação para o log do plugin."""
+    if not mem_status:
+        return ''
+    rec = _recommend_grass_memory_gb(mem_status)
+    lines = [
+        f'RAM total: {mem_status["total_mb"]} MB (~{mem_status["total_mb"] / 1024:.1f} GB).',
+        f'Recomendação para «Limite de Memória Grass GIS»: {rec:g} GB '
+        f'(definição atual: {configured_gb:g} GB).',
+    ]
+    if configured_gb > rec:
+        lines.append(
+            f'A definição atual ({configured_gb:g} GB) é alta para este PC — '
+            f'risco de falha no r.watershed com RAM já em {mem_status["load_pct"]}%.'
+        )
+    if mem_status['load_pct'] >= 80:
+        need_free = max(2048, int(mem_status['total_mb'] * 0.35))
+        lines.append(
+            f'Antes da morfologia, liberte RAM até ter pelo menos ~{need_free} MB livres '
+            f'(agora: {mem_status["avail_mb"]} MB).'
+        )
+    return ' '.join(lines)
+
+
+def _windows_memory_status():
+    """RAM livre e % em uso (Windows). Retorna None se indisponível."""
+    if os.name != 'nt':
+        return None
+    try:
+        import ctypes
+
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ('dwLength', ctypes.c_ulong),
+                ('dwMemoryLoad', ctypes.c_ulong),
+                ('ullTotalPhys', ctypes.c_ulonglong),
+                ('ullAvailPhys', ctypes.c_ulonglong),
+                ('ullTotalPageFile', ctypes.c_ulonglong),
+                ('ullAvailPageFile', ctypes.c_ulonglong),
+                ('ullTotalVirtual', ctypes.c_ulonglong),
+                ('ullAvailVirtual', ctypes.c_ulonglong),
+                ('ullAvailExtendedVirtual', ctypes.c_ulonglong),
+            ]
+
+        stat = MEMORYSTATUSEX()
+        stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+            return None
+        return {
+            'load_pct': int(stat.dwMemoryLoad),
+            'total_mb': int(stat.ullTotalPhys // (1024 * 1024)),
+            'avail_mb': int(stat.ullAvailPhys // (1024 * 1024)),
+        }
+    except Exception:
+        return None
+
+
+def _cap_grass_memory_mb(configured_mb, mem_status):
+    """
+    Limita o parâmetro GRASS memory à RAM livre (o GRASS também usa RAM fora desse valor).
+    Retorna (mb_ajustado, mensagem_aviso ou '').
+    """
+    if not mem_status:
+        return configured_mb, ''
+    avail = mem_status['avail_mb']
+    load = mem_status['load_pct']
+    # Reservar margem para QGIS/GDAL/SO; usar até ~55% da RAM livre reportada.
+    safe_cap = max(512, int(avail * 0.55))
+    capped = min(configured_mb, safe_cap)
+    capped = max(512, (capped // 256) * 256)
+    notes = []
+    if load >= 85:
+        notes.append(
+            f'RAM do sistema em {load}% ({avail} MB livres de {mem_status["total_mb"]} MB). '
+            f'O r.watershed pode falhar — feche outras aplicações e tente de novo.'
+        )
+    if capped < configured_mb:
+        notes.append(
+            f'Parâmetro GRASS memory ajustado de {configured_mb} para {capped} MB '
+            f'(RAM livre: {avail} MB).'
+        )
+    return capped, '\n'.join(notes)
+
+
+def _grass_watershed_memory_efficient(configured_mb, effective_mb, mem_status) -> bool:
+    """Modo -m (mais lento, menos RAM) quando a carga do sistema é elevada."""
+    if not mem_status:
+        return False
+    if mem_status['load_pct'] >= 75:
+        return True
+    if configured_mb >= 2048 and effective_mb < configured_mb * 0.65:
+        return True
+    return False
+
+
+class _ProcessingFeedbackCapture(QgsProcessingFeedback):
+    """Captura mensagens do Processing/GRASS para diagnóstico em falhas silenciosas."""
+
+    def __init__(self):
+        super().__init__()
+        self.lines = []
+
+    def pushWarning(self, warning, *args, **kwargs):
+        self.lines.append(('WARNING', str(warning)))
+        super().pushWarning(warning)
+
+    def pushInfo(self, info, *args, **kwargs):
+        # QGIS 3.34: pushInfo(info) — sem parâmetro detailed (QGIS 4.2+).
+        self.lines.append(('INFO', str(info)))
+        super().pushInfo(info)
+
+    def reportError(self, error, fatal=False, *args, **kwargs):
+        self.lines.append(('ERROR', str(error)))
+        try:
+            super().reportError(error, fatal)
+        except TypeError:
+            super().reportError(error)
+
+    def summary(self, max_lines=12) -> str:
+        if not self.lines:
+            return ''
+        tail = self.lines[-max_lines:]
+        return '\n  '.join(f'[{lvl}] {txt}' for lvl, txt in tail)
 
 
 class PolygonThread(QThread):
@@ -245,18 +429,33 @@ class MorphologyThread(QThread):
         self.conn = None
 
     @staticmethod
-    def _processing_raster_path(val) -> str:
+    def _processing_raster_path(val, context=None) -> str:
         if not val:
             return ''
-        s = str(val).strip()
+        if isinstance(val, QgsMapLayer):
+            s = val.source()
+        else:
+            s = str(val).strip()
+            if context is not None:
+                layer = context.getMapLayer(s)
+                if layer is not None:
+                    s = layer.source()
+                else:
+                    layer = QgsProject.instance().mapLayer(s)
+                    if layer is not None:
+                        s = layer.source()
+        s = s.strip()
         pipe = s.find('|')
-        return s[:pipe].strip() if pipe >= 0 else s
+        path = s[:pipe].strip() if pipe >= 0 else s
+        if path.startswith('file://'):
+            path = path[7:]
+        return os.path.normpath(path) if path else ''
 
-    def _watershed_basin_stream_exist(self, result_watershed) -> bool:
+    def _watershed_basin_stream_exist(self, result_watershed, context=None) -> bool:
         if not result_watershed:
             return False
         for k in ('basin', 'stream'):
-            p = self._processing_raster_path(result_watershed.get(k))
+            p = self._processing_raster_path(result_watershed.get(k), context)
             if not p or not os.path.isfile(p):
                 return False
         return True
@@ -311,6 +510,21 @@ class MorphologyThread(QThread):
             print(result_clip['OUTPUT'], self.max_px, self.max_memo * 1024)
             nr_ += 1  # 1
             tool_ = grass_tools['r.watershed']
+            basin_path = os.path.join(caminho_temp_morph, 'watershed_basin.tif')
+            stream_path = os.path.join(caminho_temp_morph, 'watershed_stream.tif')
+            proc_context = QgsProcessingContext()
+            proc_feedback = _ProcessingFeedbackCapture()
+            configured_grass_mb = int(round(self.max_memo * 1024))
+            mem_status = _windows_memory_status()
+            grass_mem_mb, mem_warn = _cap_grass_memory_mb(configured_grass_mb, mem_status)
+            memory_efficient = _grass_watershed_memory_efficient(
+                configured_grass_mb, grass_mem_mb, mem_status)
+            if mem_warn:
+                self.sig_status.emit({
+                    'key': self.key_,
+                    'warn': f'RAM {mem_status["load_pct"]}%' if mem_status else 'RAM',
+                    'log_warning': mem_warn,
+                })
             params = {
                 'elevation':result_clip['OUTPUT'],
                 'depression':None,
@@ -320,16 +534,16 @@ class MorphologyThread(QThread):
                 'threshold':self.max_px,
                 'max_slope_length':None,
                 'convergence':5,
-                'memory': int(round(self.max_memo * 1024)),
+                'memory': grass_mem_mb,
                 '-s':True,
-                '-m':False,
+                '-m': memory_efficient,
                 '-4':False,
                 '-a':False,
                 '-b':False,
                 'accumulation': 'TEMPORARY_OUTPUT',
                 'drainage': 'TEMPORARY_OUTPUT',
-                'basin': 'TEMPORARY_OUTPUT',
-                'stream': 'TEMPORARY_OUTPUT',
+                'basin': basin_path,
+                'stream': stream_path,
                 'half_basin': 'TEMPORARY_OUTPUT',
                 'length_slope': 'TEMPORARY_OUTPUT',
                 'slope_steepness': 'TEMPORARY_OUTPUT',
@@ -341,33 +555,73 @@ class MorphologyThread(QThread):
                 'GRASS_RASTER_FORMAT_META':''
             }
 
-            result_watershed = processing.run(tool_, params)
-            # max_memo (config) = GB; parâmetro GRASS memory = MB. Retentativas: −1024 MB (−1 GB) por passo.
-            grass_mem_mb = int(round(self.max_memo * 1024))
-            min_grass_mem_mb = 256
-            while not self._watershed_basin_stream_exist(result_watershed) and grass_mem_mb > min_grass_mem_mb:
+            result_watershed = processing.run(
+                tool_, params, context=proc_context, feedback=proc_feedback)
+            # Retentativas: modo -m, depois menos memory (atualiza RAM a cada tentativa).
+            min_grass_mem_mb = 512
+            attempt = 0
+            while (
+                not self._watershed_basin_stream_exist(result_watershed, proc_context)
+                and attempt < 6
+            ):
+                attempt += 1
                 prev_mb = grass_mem_mb
-                grass_mem_mb = max(min_grass_mem_mb, grass_mem_mb - 1024)
+                prev_m = memory_efficient
+                mem_status = _windows_memory_status()
+                if not memory_efficient:
+                    memory_efficient = True
+                    grass_mem_mb, _ = _cap_grass_memory_mb(configured_grass_mb, mem_status)
+                elif grass_mem_mb > min_grass_mem_mb:
+                    grass_mem_mb = max(min_grass_mem_mb, grass_mem_mb - 512)
+                else:
+                    break
                 params['memory'] = grass_mem_mb
+                params['-m'] = memory_efficient
+                proc_feedback = _ProcessingFeedbackCapture()
+                ram_hint = ''
+                if mem_status and mem_status['load_pct'] >= 85:
+                    ram_hint = (
+                        f' RAM do sistema em {mem_status["load_pct"]}% '
+                        f'({mem_status["avail_mb"]} MB livres) — provável causa.'
+                    )
+                mode_hint = ' -m' if memory_efficient and not prev_m else ''
                 self.sig_status.emit({
                     'key': self.key_,
                     'warn': f'{tool_} {grass_mem_mb} MB',
                     'log_warning': (
-                        f'{tool_}: ficheiros basin/stream em falta após execução '
-                        f'(memory Grass={prev_mb} MB). Nova tentativa com memory={grass_mem_mb} MB.'
+                        f'{tool_}: basin/stream em falta (tentativa {attempt}, '
+                        f'memory={prev_mb} MB{mode_hint}).{ram_hint} '
+                        f'Nova tentativa: memory={grass_mem_mb} MB'
+                        f'{", modo -m" if memory_efficient else ""}.'
                     ),
                 })
-                result_watershed = processing.run(tool_, params)
-            if not self._watershed_basin_stream_exist(result_watershed):
-                b = self._processing_raster_path((result_watershed or {}).get('basin'))
-                s = self._processing_raster_path((result_watershed or {}).get('stream'))
+                result_watershed = processing.run(
+                    tool_, params, context=proc_context, feedback=proc_feedback)
+            if not self._watershed_basin_stream_exist(result_watershed, proc_context):
+                b = self._processing_raster_path(
+                    (result_watershed or {}).get('basin'), proc_context)
+                s = self._processing_raster_path(
+                    (result_watershed or {}).get('stream'), proc_context)
+                grass_log = proc_feedback.summary()
+                detail = (
+                    f'{tool_} não gerou basin/stream no disco (basin={b!r}, stream={s!r}) '
+                    f'após retentativas até memory={grass_mem_mb} MB.'
+                )
+                if mem_status:
+                    detail += (
+                        f'\nRAM ao iniciar: {mem_status["load_pct"]}% em uso, '
+                        f'{mem_status["avail_mb"]} MB livres de {mem_status["total_mb"]} MB.'
+                    )
+                if grass_log:
+                    detail += f'\nÚltimas mensagens GRASS/Processing:\n  {grass_log}'
+                detail += (
+                    '\nSe a RAM estava acima de ~85%, feche outras aplicações e reinicie o QGIS. '
+                    'Verifique também provider GRASS ativo e espaço em disco em %TEMP%.'
+                )
                 self.sig_status.emit({
                     'key': self.key_,
                     'value': nr_,
-                    'error': (
-                        f'{tool_} não gerou basin/stream no disco (basin={b!r}, stream={s!r}) '
-                        f'após retentativas até memory={grass_mem_mb} MB.'
-                    ),
+                    'error': detail,
                 })
                 return
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
@@ -789,19 +1043,19 @@ class BufferThread(QThread):
             z_ = round(p_.z(), 2)
 
             # DIST FROM SCALE METHOD OR FROM LESS DISTANCE METHOD
-            if self.norm_type == 0: # Apply a scalar (k_t) to compatibility the progressives
+            if self.norm_type == 0:  # Linear — fator escalar k_t nas progressivas
                 dist_ = geom_t.lineLocatePoint(QgsGeometry(p_))
                 if ci: # Need to invert,
                     dist_ = round((len_t - dist_) * k_t, 2)
                 else:
                     dist_ = round(dist_ * k_t, 2)
-            elif self.norm_type == 1: # Apply value from reference less distance to compatibility the progressives
+            elif self.norm_type == 1:  # Por Proximidade — progressiva da ref. no ponto mais próximo
                 dist_ = geom_r.lineLocatePoint(QgsGeometry(p_))
                 if ci:
                     dist_ = round((len_r - dist_) * k_t, 2)
                 else:
                     dist_ = round(dist_, 2)
-            else: # No compatibility
+            else:  # Sem Normalização
                 dist_ = geom_t.lineLocatePoint(QgsGeometry(p_))
                 if ci:
                     dist_ = round(len_t - dist_, 2)
@@ -905,7 +1159,12 @@ class BufferThread(QThread):
                             self.dic_values[scale_][class_][count_]['fid_r'] = vet_[0]
                             self.dic_values[scale_][class_][count_]['layer_t'] = layer_t.name()
                             self.dic_values[scale_][class_][count_]['fid_t'] = vet_[1]
-                            len_r = geom_r.length()
+                            try:
+                                len_r = float(vet_[4]) if len(vet_) > 4 else geom_r.length()
+                            except (TypeError, ValueError, IndexError):
+                                len_r = geom_r.length()
+                            if not math.isfinite(len_r) or len_r <= 0:
+                                len_r = geom_r.length()
                             self.dic_values[scale_][class_][count_]['extent_ref'] = (
                                 float(len_r) if math.isfinite(len_r) and len_r > 0 else 0.0
                             )

@@ -6,7 +6,7 @@
 name=AP Acuracia Posicional
 qgisMinimumVersion=3.30
 description=Evaluates three-dimensional positional accuracy using elevation rasters (AP) and workflow (PA).
-version=1.1.3
+version=1.1.5
 author=Adriano Caliman Salvador
 email=adriano.caliman@ufv.br; adrianocsalvador@gmail.com
 
@@ -27,7 +27,7 @@ tags=AP, PA, accuracy, elevation, linear features
 
 homepage=https://github.com/adrianocsalvador/pos_accuracy
 category=Plugins
-icon=icons/icon_bfn.png
+icon=icons/icon_bfn.svg
 # experimental flag
 experimental=False
 
