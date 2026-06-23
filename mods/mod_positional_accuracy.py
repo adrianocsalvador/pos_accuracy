@@ -3508,8 +3508,8 @@ class Wd1(QWidget):
             sum_area_km2 = sum_area_m2 / 1_000_000.0
             area_disp = round(sum_area_km2, 4)
             self.lb_area.setText(self.dic_lb_texts['area'].format(area_disp))
-            ext_m = 2.0176 * (sum_area_m2 ** 0.5478)
-            ext_km = round(ext_m / 1000.0, 1)
+            # ext_m = 2.0176 * (sum_area_m2 ** 0.5478)
+            ext_km = round((2.0176 * (sum_area_km2 ** 0.5478)), 1)
             self.lb_ext_min.setText(self.dic_lb_texts['ext_min'].format(ext_km))
             self._panel_stats_cache['area'] = str(area_disp)
             self._panel_stats_cache['ext_min'] = str(ext_km)
@@ -5159,7 +5159,7 @@ class Wd1(QWidget):
 
         return {
             'meta': {
-                'title': self.tr('Relatório — MDE Acuracia Posicional'),
+                'title': self.tr('Relatório — MDE Acurácia Posicional'),
                 'datetime': when,
                 'project_file': proj_path,
                 'crs': crs_,

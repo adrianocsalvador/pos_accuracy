@@ -1,4 +1,4 @@
-Traduções do plugin AP Acuracia Posicional (textos fonte em pt_BR; traduções via Qt Linguist)
+Traduções do plugin MDE Acurácia Posicional (textos fonte em pt_BR; traduções via Qt Linguist)
 ==========================================
 
 Editor (VS Code / Cursor): ficheiros em i18n/*.ts são XML Qt, não TypeScript.

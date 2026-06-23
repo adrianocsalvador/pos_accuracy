@@ -8,7 +8,7 @@
         <translation><![CDATA[]]></translation>
     </message>
     <message>
-        <source><![CDATA[&T AP Acuracia Posicional]]></source>
+        <source><![CDATA[&T AP Acurácia Posicional]]></source>
         <translation><![CDATA[&T PA Positional Accuracy]]></translation>
     </message>
     <message>
