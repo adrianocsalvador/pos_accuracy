@@ -251,9 +251,12 @@ REPORT_PDF_MARGIN_MM = 10
 # Planimétrica: escala, classe, outliers, nº válidas, ext.(km), PEC quant., PEC ext., EP.
 REPORT_PEC_NCOL_PLAN = 11
 REPORT_PEC_NCOL_ALT = 12
-REPORT_PEC_COL_WIDTHS_PLAN = (10, 5, 6, 6, 6, 12, 7, 12, 7, 14, 8)
+REPORT_PEC_COL_WIDTHS_PLAN = (8, 5, 6, 6, 7, 8, 8, 8, 8, 9, 8)
 # Altimétrica: escala, EQ, classe, outliers, nº válidas, ext.(km), PEC quant., PEC ext., EP.
-REPORT_PEC_COL_WIDTHS_ALT = (9, 6, 5, 6, 5, 6, 11, 7, 11, 7, 13, 9)
+REPORT_PEC_COL_WIDTHS_ALT = (8, 5, 5, 6, 6, 7, 8, 8, 8, 8, 9, 8)
+# Envelope oficial no relatório (SIRGAS2000 geodésico, Brasil).
+REPORT_ENVELOPE_OFFICIAL_CRS_AUTH = 'EPSG:4674'
+REPORT_ENVELOPE_OFFICIAL_LABEL = 'SIRGAS2000 / EPSG:4674'
 # Ao alterar: manter exatamente REPORT_PEC_NCOL_* valores; width só nas células <td> do corpo.
 
 
@@ -274,9 +277,14 @@ def _normalize_col_widths_pct(widths_pct):
     return tuple(round(100.0 * x / total, 2) for x in xs)
 
 
-def _pec_report_col_widths(altimetric: bool):
+def _pec_report_col_widths(altimetric: bool, col_widths: dict = None):
     """Larguras normalizadas; ignora tuplas com contagem errada (evita PDF em branco)."""
     n = REPORT_PEC_NCOL_ALT if altimetric else REPORT_PEC_NCOL_PLAN
+    if col_widths:
+        key = 'alt' if altimetric else 'plan'
+        override = col_widths.get(key)
+        if override and len(override) == n:
+            return _normalize_col_widths_pct(override)
     raw = REPORT_PEC_COL_WIDTHS_ALT if altimetric else REPORT_PEC_COL_WIDTHS_PLAN
     if not raw or len(raw) != n:
         return tuple(round(100.0 / n, 2) for _ in range(n))
@@ -329,16 +337,33 @@ def _configure_report_pdf_printer(printer, margin_mm: float = REPORT_PDF_MARGIN_
         )
 
 
-def _print_html_to_pdf(printer, html_doc: str, *, font_size: int = 10) -> None:
+def _printer_page_rect_points(printer) -> QRectF:
+    """Área imprimível em pontos (1 pt = 1/72 pol)."""
+    rect = printer.pageRect(QPrinter.Point)
+    if rect.isEmpty() or rect.width() < 10 or rect.height() < 10:
+        rect = printer.paperRect(QPrinter.Point)
+    return rect
+
+
+def _apply_painter_page_point_scale(painter, printer, page_rect_pt: QRectF) -> None:
+    """HighResolution usa pixels de dispositivo; o documento está em pontos."""
+    dev = printer.pageRect(QPrinter.DevicePixel)
+    if dev.isEmpty() or page_rect_pt.isEmpty():
+        return
+    sx = dev.width() / page_rect_pt.width()
+    sy = dev.height() / page_rect_pt.height()
+    if sx > 0.01 and sy > 0.01:
+        painter.scale(sx, sy)
+
+
+def _print_html_to_pdf(printer, html_doc: str, *, font_size: int = 11) -> None:
     """
     Imprime HTML no PDF respeitando as margens do QPrinter.
 
-    Usa drawContents por página quando o layout é válido; se falhar (PDF em branco),
-    recorre a print_() (mais tolerante a tabelas PEC complexas).
+    No QGIS/PyQt5 o layout do QTextDocument nem sempre expõe pageRect();
+    nesse caso usa print_() (com resolução em pontos) ou paginação manual escalada.
     """
-    page_rect = printer.pageRect(QPrinter.Point)
-    if page_rect.isEmpty() or page_rect.width() < 10 or page_rect.height() < 10:
-        page_rect = printer.paperRect(QPrinter.Point)
+    page_rect = _printer_page_rect_points(printer)
 
     doc = QTextDocument()
     doc.setDefaultFont(QFont('Segoe UI', font_size))
@@ -347,16 +372,25 @@ def _print_html_to_pdf(printer, html_doc: str, *, font_size: int = 10) -> None:
     doc.setHtml(html_doc)
 
     layout = doc.documentLayout()
-    page_count = layout.pageCount()
-    doc_h = doc.size().height()
+    page_rect_fn = getattr(layout, 'pageRect', None)
+    page_count_fn = getattr(layout, 'pageCount', None)
+
+    if page_rect_fn is None or page_count_fn is None:
+        doc.print_(printer)
+        return
+
+    page_h = float(page_rect.height())
+    doc_h = float(doc.size().height())
 
     drew_any = False
-    if page_count > 0 and doc_h > 1.0:
+    if doc_h > 1.0 and page_h > 1.0:
         painter = QPainter()
         if painter.begin(printer):
             try:
+                _apply_painter_page_point_scale(painter, printer, page_rect)
+                page_count = page_count_fn()
                 for page_idx in range(page_count):
-                    rect = layout.pageRect(page_idx)
+                    rect = page_rect_fn(page_idx)
                     if rect.isEmpty():
                         continue
                     if page_idx > 0:
@@ -366,6 +400,8 @@ def _print_html_to_pdf(printer, html_doc: str, *, font_size: int = 10) -> None:
                     doc.drawContents(painter, rect)
                     painter.restore()
                     drew_any = True
+            except Exception:
+                drew_any = False
             finally:
                 painter.end()
 
@@ -378,17 +414,25 @@ def write_pdf_from_html_doc(
     pdf_path: str,
     *,
     margin_mm: float = None,
+    font_size: int = None,
 ) -> str:
     """Grava PDF a partir de HTML (mesma pipeline do relatório no plugin)."""
     if margin_mm is None:
         margin_mm = REPORT_PDF_MARGIN_MM
+    if font_size is None:
+        font_size = REPORT_PDF_FONTS_DEFAULT['doc_default']
     pdf_path = os.path.normpath(os.path.abspath(pdf_path))
     os.makedirs(os.path.dirname(pdf_path) or '.', exist_ok=True)
     printer = QPrinter(QPrinter.HighResolution)
     printer.setOutputFormat(QPrinter.PdfFormat)
     printer.setOutputFileName(pdf_path)
+    # 72 dpi → coordenadas do QTextDocument em pontos coincidem com o QPrinter.
+    try:
+        printer.setResolution(72)
+    except Exception:
+        pass
     _configure_report_pdf_printer(printer, margin_mm)
-    _print_html_to_pdf(printer, html_doc)
+    _print_html_to_pdf(printer, html_doc, font_size=font_size)
     return pdf_path
 
 
@@ -422,9 +466,11 @@ def _parse_project_path_from_report_txt(txt: str) -> str:
         stripped = line.strip()
         for prefix in prefixes:
             if stripped.startswith(prefix):
-                path = stripped[len(prefix):].strip()
-                if path:
-                    return os.path.normpath(os.path.abspath(path))
+                rest = stripped[len(prefix):].strip()
+                if rest.startswith('\t'):
+                    rest = rest[1:].strip()
+                if rest:
+                    return os.path.normpath(os.path.abspath(_report_txt_unescape_cell(rest)))
     return ''
 
 
@@ -433,36 +479,597 @@ def _companion_report_path(txt_path: str, ext: str) -> str:
     return root + ext
 
 
+# Formato TXT v1: parseável para regenerar PDF sem correr o pipeline.
+REPORT_TX_V1_MARKER = '=== MDE-PA-REPORT v1 ==='
+# Tamanhos de fonte do PDF/HTML (pt); o plugin usa estes valores por defeito.
+REPORT_PDF_FONTS_DEFAULT = {
+    'body': 7,
+    'h1': 11,
+    'h2': 9,
+    'h3': 8,
+    'pec': 6,
+    'doc_default': 7,
+}
+_REPORT_TX_SECTION_IDS = (
+    'location', 'workflow', 'dems', 'params', 'stats', 'pec',
+)
+
+
+def _report_txt_escape_cell(value) -> str:
+    if value is None:
+        return ''
+    s = str(value)
+    return s.replace('\\', '\\\\').replace('\t', '\\t').replace('\n', '\\n').replace('\r', '')
+
+
+def _report_txt_unescape_cell(value: str) -> str:
+    if not value:
+        return ''
+    out = []
+    i = 0
+    while i < len(value):
+        if value[i] == '\\' and i + 1 < len(value):
+            nxt = value[i + 1]
+            if nxt == 't':
+                out.append('\t')
+                i += 2
+                continue
+            if nxt == 'n':
+                out.append('\n')
+                i += 2
+                continue
+            if nxt == '\\':
+                out.append('\\')
+                i += 2
+                continue
+        out.append(value[i])
+        i += 1
+    return ''.join(out)
+
+
+def _report_txt_split_row(line: str) -> list:
+    parts = line.split('\t')
+    return [_report_txt_unescape_cell(p) for p in parts]
+
+
+def _report_txt_join_row(parts) -> str:
+    return '\t'.join(_report_txt_escape_cell(p) for p in parts)
+
+
+def format_full_report_txt(snapshot: dict) -> str:
+    """Serializa snapshot completo (mesmo conteúdo lógico do PDF)."""
+    lines = [REPORT_TX_V1_MARKER, '']
+    meta = snapshot.get('meta') or {}
+    lines.append('[META]')
+    lines.append(f'Título:\t{_report_txt_escape_cell(meta.get("title", ""))}')
+    lines.append(f'Data/hora:\t{_report_txt_escape_cell(meta.get("datetime", ""))}')
+    lines.append(f'Ficheiro de projeto:\t{_report_txt_escape_cell(meta.get("project_file", ""))}')
+    lines.append(f'CRS de referência (análise):\t{_report_txt_escape_cell(meta.get("crs", ""))}')
+    lines.append('')
+
+    sections = snapshot.get('sections') or {}
+    for sid in _REPORT_TX_SECTION_IDS:
+        sec = sections.get(sid)
+        if not sec:
+            continue
+        lines.append(f'[SECTION {sid}]')
+        lines.append(f'TITLE\t{_report_txt_escape_cell(sec.get("title", ""))}')
+        if sid == 'location':
+            for ln in sec.get('lines') or []:
+                lines.append(f'LINE\t{_report_txt_escape_cell(ln)}')
+        elif sid == 'workflow':
+            lines.append(f'HEADER\t{_report_txt_join_row(sec.get("header") or ["Opção", "Valor"])}')
+            for row in sec.get('rows') or []:
+                lines.append(f'ROW\t{_report_txt_join_row([row.get("option", ""), row.get("value", "")])}')
+        elif sid == 'dems':
+            lines.append(f'HEADER\t{_report_txt_join_row(sec.get("header") or ["Papel", "Nome", "Fonte (início)"])}')
+            for row in sec.get('rows') or []:
+                lines.append(f'ROW\t{_report_txt_join_row([row.get("role", ""), row.get("name", ""), row.get("source", "")])}')
+        elif sid == 'params':
+            lines.append(f'HEADER\t{_report_txt_join_row(sec.get("header") or ["Parâmetro", "Valor"])}')
+            for grp in sec.get('groups') or []:
+                lines.append(f'GROUP\t{_report_txt_escape_cell(grp.get("label", ""))}')
+                for fld in grp.get('fields') or []:
+                    lines.append(f'PARAM\t{_report_txt_join_row([fld.get("label", ""), fld.get("value", "")])}')
+        elif sid == 'stats':
+            for ln in sec.get('lines') or []:
+                lines.append(f'STAT\t{_report_txt_escape_cell(ln)}')
+        elif sid == 'pec':
+            intro = (sec.get('intro') or '').strip()
+            if intro:
+                lines.append(f'INTRO\t{_report_txt_escape_cell(intro)}')
+            for k, v in (sec.get('header_labels') or {}).items():
+                lines.append(f'LABEL\t{k}\t{_report_txt_escape_cell(v)}')
+            for block_key, table_key in (('plan', 'plan'), ('alt', 'alt')):
+                block = sec.get(table_key) or {}
+                title = block.get('title', '')
+                if title:
+                    lines.append(f'SUBSECTION\t{_report_txt_escape_cell(title)}')
+                for i, hdr in enumerate(block.get('header_rows') or []):
+                    lines.append(f'PEC_HEADER\t{block_key}\t{i}\t{_report_txt_join_row(hdr)}')
+                for row in block.get('data_rows') or []:
+                    lines.append(f'PEC_ROW\t{block_key}\t{_report_txt_join_row(row)}')
+            if sec.get('empty_message'):
+                lines.append(f'EMPTY\t{_report_txt_escape_cell(sec["empty_message"])}')
+        lines.append('')
+
+    return '\n'.join(lines).rstrip() + '\n'
+
+
+def _default_pec_results_header_labels() -> dict:
+    """Rótulos PEC (PT); no plugin usa-se `Wd1._pec_results_header_labels()` traduzido."""
+    return {
+        'escala': 'Escala',
+        'eq': 'EQ (m)',
+        'classe': 'Classe',
+        'outliers': 'Outliers',
+        'amostras': 'Amostras Válidas',
+        'quant': 'Quant.',
+        'ext_km': 'Ext. (km)',
+        'pec_group': 'PEC (90% d_i ≤ PEC-PCD)',
+        'pec_quant': 'Quantitativo',
+        'pec_ext': 'Extensão',
+        'teste': 'Teste',
+        'resultado': 'Resultado',
+        'ep_group': 'EP (RMS ≤ EP)',
+    }
+
+
+def _pec_results_table_head_html(
+    altimetric: bool = False,
+    header_labels: dict = None,
+    widths_pct=None,
+) -> str:
+    """Cabeçalho HTML em 3 níveis (colspan/rowspan; sem width no thead — compatível QTextDocument)."""
+    lb = header_labels or _default_pec_results_header_labels()
+    esc = html.escape
+    _ = widths_pct
+
+    def th(label, **attrs):
+        attr_s = ' '.join(f'{k}="{v}"' for k, v in attrs.items())
+        return f'<th {attr_s}>{esc(label)}</th>' if attr_s else f'<th>{esc(label)}</th>'
+
+    if altimetric:
+        row1 = (
+            th(lb['escala'], rowspan='3')
+            + th(lb['eq'], rowspan='3')
+            + th(lb['classe'], rowspan='3')
+            + th(lb['outliers'], rowspan='3')
+            + f'<th colspan="2" rowspan="2">{esc(lb["amostras"])}</th>'
+            + f'<th colspan="4">{esc(lb["pec_group"])}</th>'
+            + f'<th colspan="2" rowspan="2">{esc(lb["ep_group"])}</th>'
+        )
+        row3 = (
+            th(lb['quant'])
+            + th(lb['ext_km'])
+            + th(lb['teste'])
+            + th(lb['resultado'])
+            + th(lb['teste'])
+            + th(lb['resultado'])
+            + th(lb['teste'])
+            + th(lb['resultado'])
+        )
+    else:
+        row1 = (
+            th(lb['escala'], rowspan='3')
+            + th(lb['classe'], rowspan='3')
+            + th(lb['outliers'], rowspan='3')
+            + f'<th colspan="2" rowspan="2">{esc(lb["amostras"])}</th>'
+            + f'<th colspan="4">{esc(lb["pec_group"])}</th>'
+            + f'<th colspan="2" rowspan="2">{esc(lb["ep_group"])}</th>'
+        )
+        row3 = (
+            th(lb['quant'])
+            + th(lb['ext_km'])
+            + th(lb['teste'])
+            + th(lb['resultado'])
+            + th(lb['teste'])
+            + th(lb['resultado'])
+            + th(lb['teste'])
+            + th(lb['resultado'])
+        )
+    row2 = (
+        f'<th colspan="2">{esc(lb["pec_quant"])}</th>'
+        f'<th colspan="2">{esc(lb["pec_ext"])}</th>'
+    )
+    return f'<thead class="pec-thead">\n<tr>{row1}</tr>\n<tr>{row2}</tr>\n<tr>{row3}</tr>\n</thead>'
+
+
+def _build_pec_results_tables_html_blocks(
+    *,
+    intro: str = '',
+    plan_title: str = '6.1 PEC Planimétrico',
+    alt_title: str = '6.2 PEC Altimétrico',
+    plan_data_rows=None,
+    alt_data_rows=None,
+    empty_message: str = '',
+    header_labels: dict = None,
+    col_widths: dict = None,
+    plan_page_break: bool = True,
+    alt_page_break: bool = True,
+) -> str:
+    """HTML das tabelas PEC (plugin e script TXT→PDF usam a mesma função)."""
+    plan_data_rows = plan_data_rows or []
+    alt_data_rows = alt_data_rows or []
+
+    def cell(v):
+        return html.escape('' if v is None else str(v))
+
+    def table_html(title, altimetric, rows, *, page_break=False):
+        if not rows:
+            return ''
+        widths = _pec_report_col_widths(altimetric, col_widths)
+        thead = _pec_results_table_head_html(
+            altimetric=altimetric, header_labels=header_labels)
+        body = ''
+        for row in rows:
+            tds = _pec_row_tds_html(row, widths, cell)
+            body += f'<tr>{tds}</tr>'
+        pb_cls = ' class="pec-section page-break"' if page_break else ' class="pec-section"'
+        return (
+            f'<h3{pb_cls}>{html.escape(title)}</h3>\n'
+            f'<table class="pec-results">\n{thead}\n<tbody>\n{body}</tbody></table>'
+        )
+
+    chunks = []
+    if (intro or '').strip():
+        chunks.append(f'<p>{html.escape(intro.strip())}</p>')
+    if plan_data_rows:
+        chunks.append(table_html(plan_title, False, plan_data_rows, page_break=plan_page_break))
+    if alt_data_rows:
+        chunks.append(table_html(alt_title, True, alt_data_rows, page_break=alt_page_break))
+    if not plan_data_rows and not alt_data_rows and empty_message:
+        chunks.append(f'<p>{html.escape(empty_message)}</p>')
+    return '\n'.join(chunks)
+
+
+def _normalize_report_meta_key(key: str) -> str:
+    kl = (key or '').strip().lower()
+    return {
+        'título': 'title',
+        'data/hora': 'datetime',
+        'ficheiro de projeto': 'project_file',
+        'crs de referência (análise)': 'crs',
+    }.get(kl, (key or '').strip())
+
+
+def parse_full_report_txt(txt: str) -> dict:
+    """Lê relatório TXT v1; devolve snapshot para `render_pdf_report_html`."""
+    if REPORT_TX_V1_MARKER not in txt:
+        raise ValueError(
+            f'Formato de relatório não reconhecido (esperado marcador {REPORT_TX_V1_MARKER!r}).')
+
+    snapshot = {
+        'meta': {},
+        'sections': {
+            sid: {'title': ''} for sid in _REPORT_TX_SECTION_IDS
+        },
+    }
+    current = None
+    pec_sub = None
+
+    for raw_line in txt.splitlines():
+        line = raw_line.strip()
+        if not line or line == REPORT_TX_V1_MARKER:
+            continue
+        if line == '[META]':
+            current = 'meta'
+            continue
+        if line.startswith('[SECTION '):
+            sid = line[len('[SECTION '):].rstrip(']').strip()
+            if sid in snapshot['sections']:
+                current = sid
+                pec_sub = None
+            else:
+                current = None
+            continue
+        if current == 'meta':
+            if ':' in line:
+                k, v = line.split(':', 1)
+                nk = _normalize_report_meta_key(k)
+                snapshot['meta'][nk] = _report_txt_unescape_cell(v.strip().lstrip('\t'))
+            continue
+        if current is None:
+            continue
+
+        sec = snapshot['sections'][current]
+        if line.startswith('TITLE\t'):
+            sec['title'] = _report_txt_unescape_cell(line.split('\t', 1)[1])
+            continue
+
+        if current == 'location' and line.startswith('LINE\t'):
+            sec.setdefault('lines', []).append(_report_txt_unescape_cell(line.split('\t', 1)[1]))
+        elif current == 'workflow':
+            if line.startswith('HEADER\t'):
+                sec['header'] = _report_txt_split_row(line.split('\t', 1)[1])
+            elif line.startswith('ROW\t'):
+                cells = _report_txt_split_row(line.split('\t', 1)[1])
+                sec.setdefault('rows', []).append({
+                    'option': cells[0] if cells else '',
+                    'value': cells[1] if len(cells) > 1 else '',
+                })
+        elif current == 'dems':
+            if line.startswith('HEADER\t'):
+                sec['header'] = _report_txt_split_row(line.split('\t', 1)[1])
+            elif line.startswith('ROW\t'):
+                cells = _report_txt_split_row(line.split('\t', 1)[1])
+                sec.setdefault('rows', []).append({
+                    'role': cells[0] if cells else '',
+                    'name': cells[1] if len(cells) > 1 else '',
+                    'source': cells[2] if len(cells) > 2 else '',
+                })
+        elif current == 'params':
+            if line.startswith('HEADER\t'):
+                sec['header'] = _report_txt_split_row(line.split('\t', 1)[1])
+            elif line.startswith('GROUP\t'):
+                sec.setdefault('groups', []).append({
+                    'label': _report_txt_unescape_cell(line.split('\t', 1)[1]),
+                    'fields': [],
+                })
+            elif line.startswith('PARAM\t'):
+                cells = _report_txt_split_row(line.split('\t', 1)[1])
+                groups = sec.setdefault('groups', [])
+                if not groups:
+                    groups.append({'label': '', 'fields': []})
+                groups[-1]['fields'].append({
+                    'label': cells[0] if cells else '',
+                    'value': cells[1] if len(cells) > 1 else '',
+                })
+        elif current == 'stats' and line.startswith('STAT\t'):
+            sec.setdefault('lines', []).append(_report_txt_unescape_cell(line.split('\t', 1)[1]))
+        elif current == 'pec':
+            if line.startswith('INTRO\t'):
+                sec['intro'] = _report_txt_unescape_cell(line.split('\t', 1)[1])
+            elif line.startswith('LABEL\t'):
+                parts = line.split('\t')
+                if len(parts) >= 3:
+                    sec.setdefault('header_labels', {})[parts[1]] = _report_txt_unescape_cell(
+                        '\t'.join(parts[2:]))
+            elif line.startswith('SUBSECTION\t'):
+                title = _report_txt_unescape_cell(line.split('\t', 1)[1])
+                pec_sub = 'alt' if 'altim' in title.lower() else 'plan'
+                sec.setdefault(pec_sub, {'title': title, 'header_rows': [], 'data_rows': []})
+                sec[pec_sub]['title'] = title
+            elif line.startswith('PEC_HEADER\t'):
+                parts = line.split('\t')
+                if len(parts) >= 4:
+                    block_key = parts[1]
+                    sec.setdefault(block_key, {'title': '', 'header_rows': [], 'data_rows': []})
+                    sec[block_key]['header_rows'].append(_report_txt_split_row('\t'.join(parts[3:])))
+            elif line.startswith('PEC_ROW\t'):
+                parts = line.split('\t')
+                if len(parts) >= 3:
+                    block_key = parts[1]
+                    sec.setdefault(block_key, {'title': '', 'header_rows': [], 'data_rows': []})
+                    sec[block_key]['data_rows'].append(_report_txt_split_row('\t'.join(parts[2:])))
+            elif line.startswith('EMPTY\t'):
+                sec['empty_message'] = _report_txt_unescape_cell(line.split('\t', 1)[1])
+
+    return snapshot
+
+
+def _render_pec_tables_html_from_snapshot(pec_sec: dict, *, col_widths: dict = None) -> str:
+    """Tabelas PEC a partir do snapshot TXT (cabeçalho mesclado igual ao plugin)."""
+    if not pec_sec:
+        return ''
+    plan = pec_sec.get('plan') or {}
+    alt = pec_sec.get('alt') or {}
+    return _build_pec_results_tables_html_blocks(
+        intro=pec_sec.get('intro', ''),
+        plan_title=plan.get('title', '6.1 PEC Planimétrico'),
+        alt_title=alt.get('title', '6.2 PEC Altimétrico'),
+        plan_data_rows=plan.get('data_rows'),
+        alt_data_rows=alt.get('data_rows'),
+        empty_message=pec_sec.get('empty_message', ''),
+        header_labels=pec_sec.get('header_labels'),
+        col_widths=col_widths,
+        plan_page_break=True,
+        alt_page_break=True,
+    )
+
+
+def _merge_report_pdf_fonts(fonts: dict = None) -> dict:
+    out = dict(REPORT_PDF_FONTS_DEFAULT)
+    if fonts:
+        out.update(fonts)
+    return out
+
+
+def _report_pdf_css(fonts: dict = None) -> str:
+    f = _merge_report_pdf_fonts(fonts)
+    return (
+        '@page { margin: 0; } '
+        f'body {{ font-family: Segoe UI, Arial, sans-serif; font-size: {f["body"]}pt; '
+        f'margin: 0; padding: 0; }} '
+        f'h1 {{ font-size: {f["h1"]}pt; margin: 0 0 4px 0; }} '
+        f'h2 {{ font-size: {f["h2"]}pt; margin-top: 14px; border-bottom: 1px solid #444; }} '
+        f'h3.pec-section {{ font-size: {f["h3"]}pt; margin-top: 10px; }} '
+        'h3.page-break { page-break-before: always; } '
+        'table.report-header { border: none; margin: 0 0 8px 0; width: 100%; } '
+        'table.report-header td { border: none; padding: 0; vertical-align: middle; } '
+        'td.report-header-icon { width: 72px; padding-right: 10px; } '
+        'table { border-collapse: collapse; width: 100%; margin: 6px 0; } '
+        f'table.pec-results {{ table-layout: auto; width: 100%; font-size: {f["pec"]}pt; }} '
+        'table.pec-results th, table.pec-results td { text-align: center; } '
+        'td, th { border: 1px solid #ccc; padding: 4px 6px; vertical-align: middle; } '
+        'th { background: #f0f0f0; } '
+        'table.pec-results thead th { background: #e8e8e8; font-weight: 600; }'
+    )
+
+
+def render_pdf_report_html(
+    snapshot: dict, *, icon_uri: str = None, fonts: dict = None, col_widths: dict = None,
+) -> str:
+    """Gera HTML do relatório a partir do snapshot (plugin ou TXT parseado)."""
+    meta = snapshot.get('meta') or {}
+    sections = snapshot.get('sections') or {}
+    title = html.escape(meta.get('title', ''))
+    when = html.escape(meta.get('datetime', ''))
+    proj_esc = html.escape(meta.get('project_file', ''))
+    crs_ = html.escape(meta.get('crs', ''))
+
+    loc_sec = sections.get('location') or {}
+    loc_block = '<br/>'.join(html.escape(ln) for ln in (loc_sec.get('lines') or []))
+
+    wf_sec = sections.get('workflow') or {}
+    wf_rows = []
+    for row in wf_sec.get('rows') or []:
+        wf_rows.append(
+            '<tr><td>{}</td><td>{}</td></tr>'.format(
+                html.escape(row.get('option', '')),
+                html.escape(row.get('value', '')),
+            ))
+    wf_hdr = wf_sec.get('header') or ['Opção', 'Valor']
+    wf_table = (
+        f'<table><tr><th>{html.escape(wf_hdr[0])}</th>'
+        f'<th>{html.escape(wf_hdr[1] if len(wf_hdr) > 1 else "Valor")}</th></tr>'
+        f'{"".join(wf_rows)}</table>'
+    )
+
+    dem_sec = sections.get('dems') or {}
+    dem_rows = []
+    for row in dem_sec.get('rows') or []:
+        name = row.get('name', '')
+        source = row.get('source', '')
+        if name or source:
+            dem_rows.append(
+                '<tr><td>{}</td><td>{}</td><td>{}</td></tr>'.format(
+                    html.escape(row.get('role', '')),
+                    html.escape(name),
+                    html.escape(source[:500]),
+                ))
+        else:
+            dem_rows.append(
+                '<tr><td>{}</td><td colspan="2">{}</td></tr>'.format(
+                    html.escape(row.get('role', '')),
+                    html.escape(name or source or ''),
+                ))
+    dem_hdr = dem_sec.get('header') or ['Papel', 'Nome', 'Fonte (início)']
+    dem_table = (
+        f'<table><tr><th>{html.escape(dem_hdr[0])}</th>'
+        f'<th>{html.escape(dem_hdr[1] if len(dem_hdr) > 1 else "Nome")}</th>'
+        f'<th>{html.escape(dem_hdr[2] if len(dem_hdr) > 2 else "Fonte")}</th></tr>'
+        f'{"".join(dem_rows)}</table>'
+    )
+
+    par_sec = sections.get('params') or {}
+    param_rows = []
+    for grp in par_sec.get('groups') or []:
+        param_rows.append(
+            f'<tr><td colspan="2" style="background:#eee"><b>{html.escape(grp.get("label", ""))}</b></td></tr>')
+        for fld in grp.get('fields') or []:
+            param_rows.append(
+                f'<tr><td>{html.escape(fld.get("label", ""))}</td>'
+                f'<td>{html.escape(fld.get("value", ""))}</td></tr>')
+    par_hdr = par_sec.get('header') or ['Parâmetro', 'Valor']
+    param_table = (
+        f'<table><tr><th>{html.escape(par_hdr[0])}</th>'
+        f'<th>{html.escape(par_hdr[1] if len(par_hdr) > 1 else "Valor")}</th></tr>'
+        f'{"".join(param_rows)}</table>'
+    )
+
+    stats_sec = sections.get('stats') or {}
+    stats_block = '<br/>'.join(html.escape(ln) for ln in (stats_sec.get('lines') or []))
+
+    pec_body = _render_pec_tables_html_from_snapshot(
+        sections.get('pec') or {}, col_widths=col_widths)
+
+    if icon_uri is None:
+        icon_uri = _plugin_icon_png_data_uri(64)
+    icon_cell = ''
+    if icon_uri:
+        icon_cell = (
+            f'<td class="report-header-icon">'
+            f'<img src="{icon_uri}" width="64" height="64" alt=""/>'
+            f'</td>'
+        )
+
+    css = _report_pdf_css(fonts)
+
+    def h2(sec_key, default_title):
+        sec = sections.get(sec_key) or {}
+        return html.escape(sec.get('title') or default_title)
+
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8"/><style>{css}</style></head><body>
+<table class="report-header"><tr>
+{icon_cell}
+<td><h1>{title}</h1>
+<p><b>Data/hora:</b> {when}</p></td>
+</tr></table>
+<p><b>Ficheiro de projeto:</b> {proj_esc}</p>
+<p><b>CRS de referência (análise):</b> {crs_}</p>
+
+<h2>{h2("location", "1. Localização da área de estudo")}</h2>
+<p>{loc_block}</p>
+
+<h2>{h2("workflow", "2. Fluxo de trabalho")}</h2>
+{wf_table}
+
+<h2>{h2("dems", "3. Modelos digitais de elevação (MDE)")}</h2>
+{dem_table}
+
+<h2>{h2("params", "4. Parâmetros de processamento")}</h2>
+{param_table}
+
+<h2>{h2("stats", "5. Estatísticas do painel")}</h2>
+<p>{stats_block}</p>
+
+<h2>{h2("pec", "6. Resultados PEC")}</h2>
+{pec_body}
+</body></html>'''
+
+
 def export_pdf_from_txt_report(
     txt_path: str,
     out_pdf: str = None,
     *,
     margin_mm: float = None,
-    recompute_pec: bool = True,
+    recompute_pec: bool = False,
+    fonts: dict = None,
+    col_widths: dict = None,
 ) -> str:
     """
     Gera PDF a partir de um relatório .txt exportado pelo plugin.
 
-    Por defeito relê o .pa.gpkg indicado no TXT, recalcula PEC e usa
-    `_build_pdf_report_html()` + `write_pdf_from_html_doc()` (mesmo fluxo do plugin).
+    Por defeito (`recompute_pec=False`) interpreta o TXT v1 e gera o PDF
+    (ideal para iterar formatação sem correr o pipeline).
 
-    Com `recompute_pec=False`, usa o .html homónimo (mesmo nome base que o .txt).
+    Com `recompute_pec=True`, relê o .pa.gpkg, recalcula PEC e exporta de novo.
     """
     txt_path = os.path.normpath(os.path.abspath(txt_path))
     if not os.path.isfile(txt_path):
         raise FileNotFoundError(txt_path)
 
-    if not recompute_pec:
-        html_path = _companion_report_path(txt_path, '.html')
-        if os.path.isfile(html_path):
-            return export_pdf_from_html_file(
-                html_path, out_pdf, margin_mm=margin_mm)
-        raise FileNotFoundError(
-            f'HTML associado não encontrado: {html_path} '
-            f'(use recompute ou exporte de novo a partir do .pa.gpkg).')
-
     with open(txt_path, encoding='utf-8') as f:
         txt_body = f.read()
+
+    if out_pdf:
+        pdf_path = os.path.normpath(os.path.abspath(out_pdf))
+    else:
+        pdf_path = _companion_report_path(txt_path, '.pdf')
+
+    if not recompute_pec:
+        if REPORT_TX_V1_MARKER in txt_body:
+            snapshot = parse_full_report_txt(txt_body)
+            html_doc = render_pdf_report_html(snapshot, fonts=fonts, col_widths=col_widths)
+        else:
+            html_path = _companion_report_path(txt_path, '.html')
+            if os.path.isfile(html_path):
+                return export_pdf_from_html_file(
+                    html_path, out_pdf, margin_mm=margin_mm)
+            raise ValueError(
+                f'Relatório TXT sem marcador {REPORT_TX_V1_MARKER!r} e sem HTML homónimo.')
+        merged = _merge_report_pdf_fonts(fonts)
+        write_pdf_from_html_doc(
+            html_doc, pdf_path, margin_mm=margin_mm, font_size=merged['doc_default'])
+        html_path = _companion_report_path(txt_path, '.html')
+        try:
+            with open(html_path, 'w', encoding='utf-8') as f:
+                f.write(html_doc)
+        except OSError:
+            pass
+        return pdf_path
+
     pa_gpkg = _parse_project_path_from_report_txt(txt_body)
     if not pa_gpkg or not os.path.isfile(pa_gpkg):
         raise FileNotFoundError(
@@ -476,17 +1083,10 @@ def export_pdf_from_txt_report(
     wd.ensure_crs_from_reference_dem()
 
     dv = wd.recompute_dic_values_from_project()
-    om = wd.cbx_workflow_outliers.currentIndex()
-    if om in (0, 1):
-        wd.check_outliers(dv)
+    wd._apply_outlier_workflow(dv)
     wd.calc_pec(dv)
 
     html_doc = wd._build_pdf_report_html()
-    if out_pdf:
-        pdf_path = os.path.normpath(os.path.abspath(out_pdf))
-    else:
-        pdf_path = _companion_report_path(txt_path, '.pdf')
-
     write_pdf_from_html_doc(html_doc, pdf_path, margin_mm=margin_mm)
 
     html_path = _companion_report_path(txt_path, '.html')
@@ -539,11 +1139,7 @@ def export_pdf_report_from_pa_gpkg(
 
     if recompute_pec:
         dv = wd.recompute_dic_values_from_project()
-        om = wd.cbx_workflow_outliers.currentIndex()
-        if om == 0:
-            wd.check_outliers(dv)
-        elif om == 1:
-            wd.check_outliers(dv)
+        wd._apply_outlier_workflow(dv)
         wd.calc_pec(dv)
 
     paths = wd.export_project_reports_to(
@@ -798,11 +1394,21 @@ PA_SETTINGS_TABLE = 'pa_settings'
 SETTINGS_ETAPA_DEM_SOURCES = 'dem_sources'
 SETTINGS_ETAPA_DEM_SOURCES_LEGACY = 'raster_sources'
 
-# Grupo na árvore de camadas: tem de ser estável entre locales e entre sessões (findGroup).
-# Não usar self.tr() aqui — ao mudar o idioma o QGIS procuraria outro nome e criaria um grupo vazio.
+# Grupo na árvore de camadas: prefixo fixo + nome do projeto (stem do .pa.gpkg).
+# Não usar self.tr() no prefixo — ao mudar o idioma o QGIS procuraria outro nome.
 PLUGIN_LAYER_TREE_ROOT_GROUP = '__MDE_AP__'
 # Nome usado em versões anteriores para locale não pt (evitar grupo órfão após correção).
 PLUGIN_LAYER_TREE_ROOT_GROUP_LEGACY = ('__DEM_PA__',)
+
+
+def plugin_layer_tree_group_name(project_file: str = '') -> str:
+    """Nome do grupo na árvore: __MDE_AP__ + stem do ficheiro de projeto (ex.: __MDE_AP__v6z)."""
+    if not project_file:
+        return PLUGIN_LAYER_TREE_ROOT_GROUP
+    stem = os.path.basename(_strip_project_ext(os.path.normpath(project_file)))
+    if not stem:
+        return PLUGIN_LAYER_TREE_ROOT_GROUP
+    return f'{PLUGIN_LAYER_TREE_ROOT_GROUP}{stem}'
 
 
 def _ensure_pa_settings_table_conn(conn: sqlite3.Connection) -> None:
@@ -2089,9 +2695,28 @@ class Wd1(QWidget):
             for class_ in dic_values[scale_]:
                 for count_ in dic_values[scale_][class_]:
                     rec = dic_values[scale_][class_][count_]
-                    if rec.get('outlier_h') or rec.get('outlier_v') or rec.get('outlier'):
+                    if self._is_statistical_outlier_rec(rec, 'outlier_h', 'dm_h'):
+                        n += 1
+                    elif self._is_statistical_outlier_rec(rec, 'outlier_v', 'dm_v'):
                         n += 1
         return n
+
+    def _reset_outlier_flags(self, dic_values):
+        for scale_ in dic_values:
+            for class_ in dic_values[scale_]:
+                for count_ in dic_values[scale_][class_]:
+                    rec = dic_values[scale_][class_][count_]
+                    rec['outlier_h'] = False
+                    rec['outlier_v'] = False
+                    rec['outlier'] = False
+
+    def _apply_outlier_workflow(self, dic_values):
+        """Aplica modo de outliers do fluxo (IQR ou usar todos)."""
+        om = self.cbx_workflow_outliers.currentIndex()
+        if om in (0, 1):
+            self.check_outliers(dic_values)
+        else:
+            self._reset_outlier_flags(dic_values)
 
     def apply_study_area_from_map_layer(self) -> bool:
         self.log_message(self.tr('ÁREA DE ESTUDO A PARTIR DA CAMADA'), 'INFO')
@@ -2171,13 +2796,26 @@ class Wd1(QWidget):
             return False
 
     def _plugin_layer_tree_group(self):
-        """Garante o grupo raiz do plugin na árvore (nome técnico fixo; ver PLUGIN_LAYER_TREE_ROOT_GROUP)."""
+        """Garante o grupo raiz do plugin na árvore (__MDE_AP__ + nome do projeto)."""
         root = QgsProject.instance().layerTreeRoot()
+        project_file = self.gpkg_path or self.dic_prj.get('project_file') or ''
+        target = plugin_layer_tree_group_name(project_file)
+
+        grp = root.findGroup(target)
+        if grp:
+            return grp
+
         for gname in (PLUGIN_LAYER_TREE_ROOT_GROUP,) + PLUGIN_LAYER_TREE_ROOT_GROUP_LEGACY:
-            grp = root.findGroup(gname)
-            if grp:
-                return grp
-        return root.insertGroup(0, PLUGIN_LAYER_TREE_ROOT_GROUP)
+            if gname == target:
+                continue
+            legacy = root.findGroup(gname)
+            if legacy is None:
+                continue
+            if target != PLUGIN_LAYER_TREE_ROOT_GROUP:
+                legacy.setName(target)
+            return legacy
+
+        return root.insertGroup(0, target)
 
     def _gpkg_has_any_vector_layer(self) -> bool:
         if not self.gpkg_path or not os.path.isfile(self.gpkg_path):
@@ -3268,6 +3906,30 @@ class Wd1(QWidget):
                     continue
         return s
 
+    def _reference_extent_m_by_fid(self, dm=None) -> dict:
+        """Mapa fid_r → comprimento (m) da linha de referência (fonte: dic_match)."""
+        dm = dm if dm is not None else getattr(self, 'dic_match', None) or {}
+        out = {}
+        for tag_ in dm:
+            for vet_ in dm[tag_]:
+                if not vet_:
+                    continue
+                try:
+                    fid_r = int(vet_[0])
+                    len_m = float(vet_[-1])
+                except (TypeError, ValueError, IndexError):
+                    continue
+                if math.isfinite(len_m) and len_m > 0:
+                    out[fid_r] = len_m
+        return out
+
+    @staticmethod
+    def _is_statistical_outlier_rec(rec, outlier_key, dm_key):
+        """Outlier IQR com medição válida (dm nulo/indefinido não conta como outlier estatístico)."""
+        if not rec.get(outlier_key):
+            return False
+        return _coerce_finite_measurement_scalar(rec.get(dm_key)) is not None
+
     def _resolve_ext_min_km_sample_gate(self):
         """Extensão mínima (km) para o gate antes dos buffers.
 
@@ -3667,9 +4329,7 @@ class Wd1(QWidget):
                 vals = stats[scale_][class_]
                 if len(vals) < 2:
                     for count_ in dic_values[scale_][class_]:
-                        rec = dic_values[scale_][class_][count_]
-                        v_ = _coerce_finite_measurement_scalar(rec.get(dm_key))
-                        rec[outlier_key] = v_ is None
+                        dic_values[scale_][class_][count_][outlier_key] = False
                     continue
                 quant_ = statistics.quantiles(data=vals)
                 iqr_ = quant_[2] - quant_[0]
@@ -3679,13 +4339,14 @@ class Wd1(QWidget):
                     rec = dic_values[scale_][class_][count_]
                     v_ = _coerce_finite_measurement_scalar(rec.get(dm_key))
                     if v_ is None:
-                        rec[outlier_key] = True
+                        rec[outlier_key] = False
                     elif v_ < li_ or v_ > ls_:
                         rec[outlier_key] = True
                     else:
                         rec[outlier_key] = False
 
     def check_outliers(self, dic_values):
+        self._reset_outlier_flags(dic_values)
         self._mark_outliers_iqr(dic_values, 'dm_h', 'outlier_h')
         self._mark_outliers_iqr(dic_values, 'dm_v', 'outlier_v')
         for scale_ in dic_values:
@@ -3815,15 +4476,14 @@ class Wd1(QWidget):
         return sum(s['extent'] for s in samples)
 
     def _sync_panel_extent_after_pec(self, dic_values):
-        """Alinha o painel à extensão das amostras válidas usadas no PEC planimétrico."""
+        """Mantém ext_match = correspondência total; regista extensão PEC válida só no log."""
         ext_valid_m = self._valid_pec_extent_m(dic_values, 'dm_h')
-        if ext_valid_m <= 0:
-            return
         ext_corr_m = self._total_sample_extent_m_from_dic_match()
-        self._panel_stats_cache['ext_match'] = str(round(ext_valid_m, 1))
-        self._refresh_extent_and_pairs_labels()
-        self._persist_panel_stats_to_mdepa()
-        if ext_corr_m > 0 and abs(ext_corr_m - ext_valid_m) > 0.5:
+        if ext_corr_m > 0:
+            self._panel_stats_cache['ext_match'] = str(round(ext_corr_m, 1))
+            self._refresh_extent_and_pairs_labels()
+            self._persist_panel_stats_to_mdepa()
+        if ext_valid_m > 0 and ext_corr_m > 0 and abs(ext_corr_m - ext_valid_m) > 0.5:
             self.log_message(
                 self.tr(
                     'Extensão amostras válidas PEC: {0} km (correspondência total: {1} km).'
@@ -3837,12 +4497,13 @@ class Wd1(QWidget):
     def _pec_samples_group(self, dic_values, scale_, class_, dm_key):
         """Amostras válidas, outliers e listas auxiliares por escala/classe."""
         outlier_key = 'outlier_h' if dm_key == 'dm_h' else 'outlier_v'
+        ref_ext_map = self._reference_extent_m_by_fid()
         samples = []
         outlier_ids = set()
         for count_ in dic_values[scale_][class_]:
             rec = dic_values[scale_][class_][count_]
             fid_r = rec.get('fid_r')
-            if rec.get(outlier_key):
+            if self._is_statistical_outlier_rec(rec, outlier_key, dm_key):
                 if fid_r is not None:
                     try:
                         outlier_ids.add(int(fid_r))
@@ -3852,7 +4513,14 @@ class Wd1(QWidget):
             dm = _coerce_finite_measurement_scalar(rec.get(dm_key))
             if dm is None:
                 continue
-            ext = _coerce_finite_measurement_scalar(rec.get('extent_ref'))
+            ext = None
+            if fid_r is not None:
+                try:
+                    ext = ref_ext_map.get(int(fid_r))
+                except (TypeError, ValueError):
+                    ext = None
+            if ext is None:
+                ext = _coerce_finite_measurement_scalar(rec.get('extent_ref'))
             samples.append({
                 'dm': dm,
                 'fid_r': int(fid_r) if fid_r is not None else None,
@@ -4012,60 +4680,11 @@ class Wd1(QWidget):
         }
 
     def _pec_results_table_head_html(self, altimetric=False, widths_pct=None) -> str:
-        """Cabeçalho HTML em 3 níveis (booktabs / multirow, como na dissertação)."""
-        lb = self._pec_results_header_labels()
-        esc = html.escape
-        # Sem width no thead: colspan/rowspan + width quebra o QTextDocument (PDF em branco).
-        _ = widths_pct
-
-        def th(label, **attrs):
-            attr_s = ' '.join(f'{k}="{v}"' for k, v in attrs.items())
-            return f'<th {attr_s}>{esc(label)}</th>' if attr_s else f'<th>{esc(label)}</th>'
-
-        if altimetric:
-            row1 = (
-                th(lb['escala'], rowspan='3')
-                + th(lb['eq'], rowspan='3')
-                + th(lb['classe'], rowspan='3')
-                + th(lb['outliers'], rowspan='3')
-                + f'<th colspan="2" rowspan="2">{esc(lb["amostras"])}</th>'
-                + f'<th colspan="4">{esc(lb["pec_group"])}</th>'
-                + f'<th colspan="2" rowspan="2">{esc(lb["ep_group"])}</th>'
-            )
-            row3 = (
-                th(lb['quant'])
-                + th(lb['ext_km'])
-                + th(lb['teste'])
-                + th(lb['resultado'])
-                + th(lb['teste'])
-                + th(lb['resultado'])
-                + th(lb['teste'])
-                + th(lb['resultado'])
-            )
-        else:
-            row1 = (
-                th(lb['escala'], rowspan='3')
-                + th(lb['classe'], rowspan='3')
-                + th(lb['outliers'], rowspan='3')
-                + f'<th colspan="2" rowspan="2">{esc(lb["amostras"])}</th>'
-                + f'<th colspan="4">{esc(lb["pec_group"])}</th>'
-                + f'<th colspan="2" rowspan="2">{esc(lb["ep_group"])}</th>'
-            )
-            row3 = (
-                th(lb['quant'])
-                + th(lb['ext_km'])
-                + th(lb['teste'])
-                + th(lb['resultado'])
-                + th(lb['teste'])
-                + th(lb['resultado'])
-                + th(lb['teste'])
-                + th(lb['resultado'])
-            )
-        row2 = (
-            f'<th colspan="2">{esc(lb["pec_quant"])}</th>'
-            f'<th colspan="2">{esc(lb["pec_ext"])}</th>'
+        return _pec_results_table_head_html(
+            altimetric=altimetric,
+            header_labels=self._pec_results_header_labels(),
+            widths_pct=widths_pct,
         )
-        return f'<thead class="pec-thead">\n<tr>{row1}</tr>\n<tr>{row2}</tr>\n<tr>{row3}</tr>\n</thead>'
 
     def _pec_results_table_head_txt_rows(self, altimetric=False):
         """Três linhas de cabeçalho tabulado (mesma estrutura lógica do LaTeX)."""
@@ -4161,309 +4780,204 @@ class Wd1(QWidget):
         if ext.isEmpty():
             return [self.tr('(extensão vazia — execute a interseção dos MDEs)')]
         crs = lyr.crs()
-        rows = [
-            self.tr('CRS: {0}').format(crs.authid()),
-            self.tr('Envelope (CRS do projeto): Xmin={0}, Ymin={1}, Xmax={2}, Ymax={3}').format(
-                round(ext.xMinimum(), 3),
-                round(ext.yMinimum(), 3),
-                round(ext.xMaximum(), 3),
-                round(ext.yMaximum(), 3),
-            ),
-        ]
-        if crs.isValid() and crs.authid().upper() not in ('EPSG:4326', 'OGC:CRS84'):
-            try:
-                xform = QgsCoordinateTransform(
-                    crs,
-                    QgsCoordinateReferenceSystem('EPSG:4326'),
-                    QgsProject.instance(),
-                )
-                rect = xform.transformBoundingBox(ext)
-                rows.append(
-                    self.tr(
-                        'Envelope aproximado (WGS84 / EPSG:4326): '
-                        'lon_min={0}, lat_min={1}, lon_max={2}, lat_max={3}'
-                    ).format(
-                        round(rect.xMinimum(), 6),
-                        round(rect.yMinimum(), 6),
-                        round(rect.xMaximum(), 6),
-                        round(rect.yMaximum(), 6),
-                    ))
-            except Exception:
-                rows.append(self.tr('(transformação para WGS84 indisponível)'))
+        official = QgsCoordinateReferenceSystem(REPORT_ENVELOPE_OFFICIAL_CRS_AUTH)
+        official_label = REPORT_ENVELOPE_OFFICIAL_LABEL
+        xmin = round(ext.xMinimum(), 3)
+        ymin = round(ext.yMinimum(), 3)
+        xmax = round(ext.xMaximum(), 3)
+        ymax = round(ext.yMaximum(), 3)
+        rows = []
+        if crs.isValid() and crs.authid().upper() == REPORT_ENVELOPE_OFFICIAL_CRS_AUTH.upper():
+            rows.append(
+                self.tr('Envelope ({0}): Xmin={1}, Ymin={2}, Xmax={3}, Ymax={4}').format(
+                    official_label, xmin, ymin, xmax, ymax,
+                ))
+        else:
+            rows.append(
+                self.tr('Envelope: Xmin={0}, Ymin={1}, Xmax={2}, Ymax={3}').format(
+                    xmin, ymin, xmax, ymax,
+                ))
+            if crs.isValid():
+                try:
+                    xform = QgsCoordinateTransform(
+                        crs, official, QgsProject.instance(),
+                    )
+                    rect = xform.transformBoundingBox(ext)
+                    rows.append(
+                        self.tr('Envelope ({0}): Xmin={1}, Ymin={2}, Xmax={3}, Ymax={4}').format(
+                            official_label,
+                            round(rect.xMinimum(), 6),
+                            round(rect.yMinimum(), 6),
+                            round(rect.xMaximum(), 6),
+                            round(rect.yMaximum(), 6),
+                        ))
+                except Exception:
+                    rows.append(
+                        self.tr('(transformação para {0} indisponível)').format(official_label))
         return rows
 
     def _report_extent_intersection_html(self) -> str:
         return '<br/>'.join(html.escape(s) for s in self._report_extent_intersection_lines())
 
     def _build_pec_results_tables_html(self) -> str:
-        """Tabelas planimétrica / altimétrica (cabeçalho em 3 níveis, padrão dissertação)."""
+        """Tabelas planimétrica / altimétrica (mesma função que TXT→PDF)."""
         intro = (getattr(self, '_pec_report_pec_intro', '') or '').strip()
         plan_rows = getattr(self, '_pec_report_plan_rows', None) or []
         alt_rows = getattr(self, '_pec_report_alt_rows', None) or []
-
-        def cell(v):
-            return html.escape('' if v is None else str(v))
-
-        def table_html(title, altimetric, rows, *, page_break=False):
-            widths = _pec_report_col_widths(altimetric)
-            thead = self._pec_results_table_head_html(
-                altimetric=altimetric, widths_pct=widths)
-            dim = 'V' if altimetric else 'H'
-            body = ''
-            for row in rows:
-                cells = self._pec_row_data_cells(row, dim)
-                tds = _pec_row_tds_html(cells, widths, cell)
-                body += f'<tr>{tds}</tr>'
-            pb_cls = ' class="pec-section page-break"' if page_break else ' class="pec-section"'
-            return (
-                f'<h3{pb_cls}>{html.escape(title)}</h3>\n'
-                f'<table class="pec-results">\n{thead}\n<tbody>\n{body}</tbody></table>'
-            )
-
-        chunks = []
-        if intro:
-            chunks.append(f'<p>{html.escape(intro)}</p>')
-        if plan_rows:
-            chunks.append(table_html(
-                self.tr('6.1 PEC Planimétrico'), False, plan_rows, page_break=True))
-        if alt_rows:
-            chunks.append(table_html(
-                self.tr('6.2 PEC Altimétrico'), True, alt_rows, page_break=True))
+        empty_msg = ''
         if not plan_rows and not alt_rows:
-            msg = self.tr(
+            empty_msg = self.tr(
                 '(ainda não há resultados de PEC nesta sessão — execute a análise até ao fim.)')
-            chunks.append(f'<p>{html.escape(msg)}</p>')
-        return '\n'.join(chunks)
+        return _build_pec_results_tables_html_blocks(
+            intro=intro,
+            plan_title=self.tr('6.1 PEC Planimétrico'),
+            alt_title=self.tr('6.2 PEC Altimétrico'),
+            plan_data_rows=[
+                [str(c) for c in self._pec_row_to_cells(row, 'H')] for row in plan_rows],
+            alt_data_rows=[
+                [str(c) for c in self._pec_row_to_cells(row, 'V')] for row in alt_rows],
+            empty_message=empty_msg,
+            header_labels=self._pec_results_header_labels(),
+            plan_page_break=True,
+            alt_page_break=True,
+        )
 
-    def _build_full_report_txt(self) -> str:
-        """Relatório completo em texto plano (mesmas secções do PDF)."""
-        lines = []
-        title = self.tr('Relatório — MDE Acuracia Posicional')
+    def _collect_report_snapshot(self) -> dict:
+        """Dados completos do relatório (fonte única para TXT v1 e PDF)."""
         when = QDateTime.currentDateTime().toString('yyyy-MM-dd HH:mm:ss')
         proj_path = self.dic_prj.get('project_file') or ''
         crs_ = self.crs_epsg or self.tr('(não definido)')
 
-        lines.extend(['=' * 60, title, '=' * 60, ''])
-        lines.append(f'{self.tr("Data/hora:")} {when}')
-        lines.append(f'{self.tr("Ficheiro de projeto:")} {proj_path}')
-        lines.append(f'{self.tr("CRS de referência (análise):")} {crs_}')
-        lines.append('')
-
-        lines.append(self.tr('1. Localização da área de estudo'))
-        lines.append('-' * 40)
-        lines.extend(self._report_extent_intersection_lines())
-        lines.append('')
-
-        lines.append(self.tr('2. Fluxo de trabalho'))
-        lines.append('-' * 40)
-        lines.append(f'{self.tr("Área de estudos")}\t{self.cbx_workflow_study.currentText()}')
-        lines.append(f'{self.tr("Pares homólogos")}\t{self.cbx_workflow_pairs.currentText()}')
-        lines.append(f'{self.tr("Outliers (PEC)")}\t{self.cbx_workflow_outliers.currentText()}')
         sly = self.cbx_study_area_layer.currentLayer()
         study_ly = sly.name() if isinstance(sly, QgsVectorLayer) else self.tr('(nenhuma)')
-        lines.append(f'{self.tr("Camada polígono (se aplicável)")}\t{study_ly}')
-        lines.append('')
 
-        lines.append(self.tr('3. Modelos digitais de elevação (MDE)'))
-        lines.append('-' * 40)
+        dem_rows = []
         for i in (0, 1):
             cbx = self.dic_prj['dems'][i]['obj_cbx']
             ly = cbx.currentLayer() if cbx else None
-            label = self.dic_prj['dems'][i]['type']
+            label = str(self.dic_prj['dems'][i]['type'])
             if isinstance(ly, QgsRasterLayer) and ly.isValid():
-                lines.append(f'{label}\t{ly.name()}\t{ly.source()[:500]}')
+                dem_rows.append({
+                    'role': label,
+                    'name': ly.name(),
+                    'source': ly.source()[:500],
+                })
             else:
-                lines.append(f'{label}\t{self.tr("(não selecionado)")}')
-        lines.append('')
+                dem_rows.append({
+                    'role': label,
+                    'name': self.tr('(não selecionado)'),
+                    'source': '',
+                })
 
-        lines.append(self.tr('4. Parâmetros de processamento'))
-        lines.append('-' * 40)
+        param_groups = []
         dlg = self.settings_dlg
         for sk, block in dlg.dic_param.items():
             if not isinstance(sk, str) or not sk.startswith('step_'):
                 continue
             if not isinstance(block, dict) or 'fields' not in block:
                 continue
-            lines.append(f'[{block.get("label", sk)}]')
+            fields = []
             for fk, meta in block['fields'].items():
                 if not isinstance(meta, dict):
                     continue
-                fl = meta.get('label', fk)
-                fv = self._format_param_value_for_report(meta)
-                lines.append(f'  {fl}\t{fv}')
-        lines.append('')
+                fields.append({
+                    'label': meta.get('label', fk),
+                    'value': self._format_param_value_for_report(meta),
+                })
+            param_groups.append({
+                'label': block.get('label', sk),
+                'fields': fields,
+            })
 
-        lines.append(self.tr('5. Estatísticas do painel'))
-        lines.append('-' * 40)
         em_raw = (self._panel_stats_cache.get('ext_match') or '').strip()
         em_m = self._float_from_panel_str(em_raw)
         if em_m is not None and em_m > 0:
             ext_match_disp = str(round(em_m / 1000.0, 1))
         else:
             ext_match_disp = '—'
-        lines.append(self.dic_lb_texts['area'].format(
-            self._panel_stats_cache.get('area') or '—'))
-        lines.append(self.dic_lb_texts['ext_min'].format(
-            self._panel_stats_cache.get('ext_min') or '—'))
-        lines.append(self.dic_lb_texts['ext_match'].format(ext_match_disp))
-        lines.append(self.dic_lb_texts['pair_nr'].format(
-            self._panel_stats_cache.get('pair_nr') or '—'))
-        lines.append('')
+        stats_lines = [
+            self.dic_lb_texts['area'].format(self._panel_stats_cache.get('area') or '—'),
+            self.dic_lb_texts['ext_min'].format(self._panel_stats_cache.get('ext_min') or '—'),
+            self.dic_lb_texts['ext_match'].format(ext_match_disp),
+            self.dic_lb_texts['pair_nr'].format(self._panel_stats_cache.get('pair_nr') or '—'),
+        ]
 
-        lines.append(self.tr('6. Resultados PEC'))
-        lines.append('-' * 40)
-        intro = (getattr(self, '_pec_report_pec_intro', '') or '').strip()
         plan_rows = getattr(self, '_pec_report_plan_rows', None) or []
         alt_rows = getattr(self, '_pec_report_alt_rows', None) or []
-        if intro:
-            lines.append(intro)
-            lines.append('')
-        if plan_rows:
-            lines.append(self.tr('6.1 PEC Planimétrico'))
-            lines.append('')
-            for hdr in self._pec_results_table_head_txt_rows(altimetric=False):
-                lines.append('\t'.join(hdr))
-            for row in plan_rows:
-                lines.append('\t'.join(
-                    str(c) for c in self._pec_row_to_cells(row, 'H')))
-            lines.append('')
-        if alt_rows:
-            lines.append(self.tr('6.2 PEC Altimétrico'))
-            lines.append('')
-            for hdr in self._pec_results_table_head_txt_rows(altimetric=True):
-                lines.append('\t'.join(hdr))
-            for row in alt_rows:
-                lines.append('\t'.join(
-                    str(c) for c in self._pec_row_to_cells(row, 'V')))
-            lines.append('')
-        if not plan_rows and not alt_rows:
-            lines.append(self.tr(
-                '(ainda não há resultados de PEC nesta sessão — execute a análise até ao fim.)'))
-        return '\n'.join(lines)
+        pec_empty = self.tr(
+            '(ainda não há resultados de PEC nesta sessão — execute a análise até ao fim.)')
+
+        return {
+            'meta': {
+                'title': self.tr('Relatório — MDE Acuracia Posicional'),
+                'datetime': when,
+                'project_file': proj_path,
+                'crs': crs_,
+            },
+            'sections': {
+                'location': {
+                    'title': self.tr('1. Localização da área de estudo'),
+                    'lines': self._report_extent_intersection_lines(),
+                },
+                'workflow': {
+                    'title': self.tr('2. Fluxo de trabalho'),
+                    'header': [self.tr('Opção'), self.tr('Valor')],
+                    'rows': [
+                        {'option': self.tr('Área de estudos'), 'value': self.cbx_workflow_study.currentText()},
+                        {'option': self.tr('Pares homólogos'), 'value': self.cbx_workflow_pairs.currentText()},
+                        {'option': self.tr('Outliers (PEC)'), 'value': self.cbx_workflow_outliers.currentText()},
+                        {'option': self.tr('Camada polígono (se aplicável)'), 'value': study_ly},
+                    ],
+                },
+                'dems': {
+                    'title': self.tr('3. Modelos digitais de elevação (MDE)'),
+                    'header': [
+                        self.tr('Papel'),
+                        self.tr('Nome'),
+                        self.tr('Fonte (início)'),
+                    ],
+                    'rows': dem_rows,
+                },
+                'params': {
+                    'title': self.tr('4. Parâmetros de processamento'),
+                    'header': [self.tr('Parâmetro'), self.tr('Valor')],
+                    'groups': param_groups,
+                },
+                'stats': {
+                    'title': self.tr('5. Estatísticas do painel'),
+                    'lines': stats_lines,
+                },
+                'pec': {
+                    'title': self.tr('6. Resultados PEC'),
+                    'intro': (getattr(self, '_pec_report_pec_intro', '') or '').strip(),
+                    'header_labels': self._pec_results_header_labels(),
+                    'plan': {
+                        'title': self.tr('6.1 PEC Planimétrico'),
+                        'header_rows': list(self._pec_results_table_head_txt_rows(altimetric=False)),
+                        'data_rows': [
+                            [str(c) for c in self._pec_row_to_cells(row, 'H')]
+                            for row in plan_rows
+                        ],
+                    },
+                    'alt': {
+                        'title': self.tr('6.2 PEC Altimétrico'),
+                        'header_rows': list(self._pec_results_table_head_txt_rows(altimetric=True)),
+                        'data_rows': [
+                            [str(c) for c in self._pec_row_to_cells(row, 'V')]
+                            for row in alt_rows
+                        ],
+                    },
+                    'empty_message': pec_empty if not plan_rows and not alt_rows else '',
+                },
+            },
+        }
+
+    def _build_full_report_txt(self) -> str:
+        """Relatório completo em TXT v1 (parseável → PDF sem correr o pipeline)."""
+        return format_full_report_txt(self._collect_report_snapshot())
 
     def _build_pdf_report_html(self) -> str:
-        title = html.escape(self.tr('Relatório — MDE Acuracia Posicional'))
-        when = html.escape(
-            QDateTime.currentDateTime().toString('yyyy-MM-dd HH:mm:ss'))
-        proj_path = self.dic_prj.get('project_file') or ''
-        proj_esc = html.escape(proj_path)
-        crs_ = html.escape(self.crs_epsg or self.tr('(não definido)'))
-        study = html.escape(self.cbx_workflow_study.currentText())
-        pairs = html.escape(self.cbx_workflow_pairs.currentText())
-        outl = html.escape(self.cbx_workflow_outliers.currentText())
-        sly = self.cbx_study_area_layer.currentLayer()
-        study_ly = html.escape(
-            sly.name() if isinstance(sly, QgsVectorLayer) else self.tr('(nenhuma)'))
-
-        dem_rows = []
-        for i in (0, 1):
-            cbx = self.dic_prj['dems'][i]['obj_cbx']
-            ly = cbx.currentLayer() if cbx else None
-            label = self.dic_prj['dems'][i]['type']
-            if isinstance(ly, QgsRasterLayer) and ly.isValid():
-                dem_rows.append(
-                    '<tr><td>{}</td><td>{}</td><td>{}</td></tr>'.format(
-                        html.escape(str(label)),
-                        html.escape(ly.name()),
-                        html.escape(ly.source()[:500]),
-                    ))
-            else:
-                dem_rows.append(
-                    '<tr><td>{}</td><td colspan="2">{}</td></tr>'.format(
-                        html.escape(str(label)),
-                        html.escape(self.tr('(não selecionado)'))))
-
-        param_rows = []
-        dlg = self.settings_dlg
-        for sk, block in dlg.dic_param.items():
-            if not isinstance(sk, str) or not sk.startswith('step_'):
-                continue
-            if not isinstance(block, dict) or 'fields' not in block:
-                continue
-            sec_lab = html.escape(block.get('label', sk))
-            param_rows.append(
-                f'<tr><td colspan="2" style="background:#eee"><b>{sec_lab}</b></td></tr>')
-            for fk, meta in block['fields'].items():
-                if not isinstance(meta, dict):
-                    continue
-                fl = html.escape(meta.get('label', fk))
-                fv = html.escape(self._format_param_value_for_report(meta))
-                param_rows.append(f'<tr><td>{fl}</td><td>{fv}</td></tr>')
-
-        stats_block = '<br/>'.join([
-            html.escape(self.lb_area.text()),
-            html.escape(self.lb_ext_min.text()),
-            html.escape(self.lb_ext_match.text()),
-        ])
-
-        pec_body = self._build_pec_results_tables_html()
-
-        loc_block = self._report_extent_intersection_html()
-
-        icon_uri = _plugin_icon_png_data_uri(64)
-        icon_cell = ''
-        if icon_uri:
-            icon_cell = (
-                f'<td class="report-header-icon">'
-                f'<img src="{icon_uri}" width="64" height="64" alt=""/>'
-                f'</td>'
-            )
-        css = (
-            '@page { margin: 0; } '
-            'body { font-family: Segoe UI, Arial, sans-serif; font-size: 10pt; margin: 0; padding: 0; } '
-            'h1 { font-size: 16pt; margin: 0 0 4px 0; } '
-            'h2 { font-size: 12pt; margin-top: 14px; border-bottom: 1px solid #444; } '
-            'h3.pec-section { font-size: 11pt; margin-top: 10px; } '
-            'h3.page-break { page-break-before: always; } '
-            'table.report-header { border: none; margin: 0 0 8px 0; width: 100%; } '
-            'table.report-header td { border: none; padding: 0; vertical-align: middle; } '
-            'td.report-header-icon { width: 72px; padding-right: 10px; } '
-            'table { border-collapse: collapse; width: 100%; margin: 6px 0; } '
-            'table.pec-results { table-layout: auto; width: 100%; font-size: 8pt; } '
-            'table.pec-results th, table.pec-results td { text-align: center; } '
-            'td, th { border: 1px solid #ccc; padding: 4px 6px; vertical-align: middle; } '
-            'th { background: #f0f0f0; } '
-            'table.pec-results thead th { background: #e8e8e8; font-weight: 600; }'
-        )
-        return f'''<!DOCTYPE html><html><head><meta charset="utf-8"/><style>{css}</style></head><body>
-<table class="report-header"><tr>
-{icon_cell}
-<td><h1>{title}</h1>
-<p><b>{html.escape(self.tr('Data/hora:'))}</b> {when}</p></td>
-</tr></table>
-<p><b>{html.escape(self.tr('Ficheiro de projeto:'))}</b> {proj_esc}</p>
-<p><b>{html.escape(self.tr('CRS de referência (análise):'))}</b> {crs_}</p>
-
-<h2>{html.escape(self.tr('1. Localização da área de estudo'))}</h2>
-<p>{loc_block}</p>
-
-<h2>{html.escape(self.tr('2. Fluxo de trabalho'))}</h2>
-<table>
-<tr><th>{html.escape(self.tr('Opção'))}</th><th>{html.escape(self.tr('Valor'))}</th></tr>
-<tr><td>{html.escape(self.tr('Área de estudos'))}</td><td>{study}</td></tr>
-<tr><td>{html.escape(self.tr('Pares homólogos'))}</td><td>{pairs}</td></tr>
-<tr><td>{html.escape(self.tr('Outliers (PEC)'))}</td><td>{outl}</td></tr>
-<tr><td>{html.escape(self.tr('Camada polígono (se aplicável)'))}</td><td>{study_ly}</td></tr>
-</table>
-
-<h2>{html.escape(self.tr('3. Modelos digitais de elevação (MDE)'))}</h2>
-<table>
-<tr><th>{html.escape(self.tr('Papel'))}</th><th>{html.escape(self.tr('Nome'))}</th><th>{html.escape(self.tr('Fonte (início)'))}</th></tr>
-{"".join(dem_rows)}
-</table>
-
-<h2>{html.escape(self.tr('4. Parâmetros de processamento'))}</h2>
-<table>
-<tr><th>{html.escape(self.tr('Parâmetro'))}</th><th>{html.escape(self.tr('Valor'))}</th></tr>
-{"".join(param_rows)}
-</table>
-
-<h2>{html.escape(self.tr('5. Estatísticas do painel'))}</h2>
-<p>{stats_block}</p>
-
-<h2>{html.escape(self.tr('6. Resultados PEC'))}</h2>
-{pec_body}
-</body></html>'''
+        return render_pdf_report_html(self._collect_report_snapshot())
 
     def export_project_reports_to(
         self,
@@ -4514,8 +5028,11 @@ class Wd1(QWidget):
             fn = f'Relatorio_MDE_PA_{safe_stem}_{ts}.txt'
             txt_path = os.path.normpath(os.path.join(data_dir, fn))
 
-        html_doc = self._build_pdf_report_html()
         html_path = _companion_report_path(txt_path, '.html')
+
+        snapshot = self._collect_report_snapshot()
+        html_doc = render_pdf_report_html(snapshot)
+        txt_body = format_full_report_txt(snapshot)
 
         try:
             write_pdf_from_html_doc(html_doc, pdf_path, margin_mm=margin_mm)
@@ -4525,7 +5042,7 @@ class Wd1(QWidget):
 
         try:
             with open(txt_path, 'w', encoding='utf-8') as f:
-                f.write(self._build_full_report_txt())
+                f.write(txt_body)
         except OSError as e:
             self.log_message(
                 self.tr('Falha ao gerar relatório TXT: {0} ({1})').format(txt_path, e), 'ERROR')
@@ -4543,7 +5060,10 @@ class Wd1(QWidget):
         if pdf_path:
             self.log_message(self.tr('Relatório PDF exportado: {0}').format(pdf_path), 'INFO')
         if txt_path:
-            self.log_message(self.tr('Relatório TXT exportado: {0}').format(txt_path), 'INFO')
+            self.log_message(
+                self.tr('Relatório TXT v1 exportado (parseável → PDF): {0}').format(txt_path),
+                'INFO',
+            )
         if os.path.isfile(html_path):
             self.log_message(self.tr('Relatório HTML exportado: {0}').format(html_path), 'INFO')
         if pdf_path and txt_path:
@@ -4761,10 +5281,8 @@ class Wd1(QWidget):
         elif 'dic_values' in dic_:
             dv = dic_['dic_values']
             om = self.cbx_workflow_outliers.currentIndex()
-            if om == 0:
-                self.check_outliers(dv)
-            elif om == 1:
-                self.check_outliers(dv)
+            self._apply_outlier_workflow(dv)
+            if om == 1:
                 n_out = self._count_outliers_flagged(dv)
                 QMessageBox.information(
                     self,
