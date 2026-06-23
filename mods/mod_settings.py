@@ -90,6 +90,12 @@ class SettingsDlg(QDialog):
                             'value': 10,
                             'default': 10,
                             'obj': None},
+                        'show_buffers_on_map': {
+                            'label': tr_ui('Mostrar buffers no mapa durante o processamento'),
+                            'list': [tr_ui('Não'), tr_ui('Sim')],
+                            'value': 0,
+                            'default': 0,
+                            'obj': None},
                     },
                 },
                 'step_normalize_prog': {

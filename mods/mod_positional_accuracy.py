@@ -62,6 +62,19 @@ def _coerce_finite_measurement_scalar(x):
     return v
 
 
+def _coerce_finite_extent_m(x):
+    """Comprimento de linha de referência (m); sem limite de 1000 m (só aplica-se a DM)."""
+    if x is None:
+        return None
+    try:
+        v = float(x)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+    if not math.isfinite(v) or v <= 0:
+        return None
+    return v
+
+
 def pec_test_limit(pec_):
     """Arredonda o limiar PEC para inteiro antes do teste."""
     try:
@@ -1411,6 +1424,41 @@ def plugin_layer_tree_group_name(project_file: str = '') -> str:
     return f'{PLUGIN_LAYER_TREE_ROOT_GROUP}{stem}'
 
 
+def _norm_gpkg_path(path: str) -> str:
+    if not path:
+        return ''
+    return os.path.normcase(os.path.normpath(os.path.abspath(path)))
+
+
+def map_layer_gpkg_path(layer) -> str:
+    """Caminho do .pa.gpkg a partir do source() OGR da camada no mapa."""
+    if layer is None:
+        return ''
+    try:
+        src = layer.source() or ''
+    except Exception:
+        return ''
+    if not src:
+        return ''
+    return _norm_gpkg_path(src.split('|')[0].strip())
+
+
+def project_layer_display_name(logical_name: str, project_file: str = '') -> str:
+    """Nome único da camada no mapa QGIS (evita colisão entre vários .pa.gpkg abertos)."""
+    if not logical_name:
+        return logical_name
+    if not project_file:
+        return logical_name
+    stem = os.path.basename(_strip_project_ext(os.path.normpath(project_file)))
+    if not stem:
+        return logical_name
+    return f'{logical_name}@{stem}'
+
+
+def gpkg_layer_uri(gpkg_path: str, layername: str) -> str:
+    return f'{os.path.normpath(gpkg_path)}|layername={layername}'
+
+
 def _ensure_pa_settings_table_conn(conn: sqlite3.Connection) -> None:
     conn.execute(
         f'''CREATE TABLE IF NOT EXISTS {PA_SETTINGS_TABLE} (
@@ -2360,6 +2408,31 @@ class Wd1(QWidget):
         self.dic_prj['path'] = data_dir
         os.makedirs(data_dir, exist_ok=True)
         self.lb_path_proj.setText(project_file)
+        self.node_group = None
+
+    def _active_gpkg_path(self) -> str:
+        return _norm_gpkg_path(self.gpkg_path or self.dic_prj.get('project_file') or '')
+
+    def _layer_display_name(self, logical_name: str) -> str:
+        return project_layer_display_name(
+            logical_name,
+            self.gpkg_path or self.dic_prj.get('project_file') or '',
+        )
+
+    def _find_map_layer_for_project(self, logical_name: str, gpkg_path: str = ''):
+        """Camada no mapa cujo source aponta para o .pa.gpkg indicado."""
+        gpkg_n = _norm_gpkg_path(gpkg_path or self._active_gpkg_path())
+        if not gpkg_n or not logical_name:
+            return None
+        proj = QgsProject.instance()
+        names = [self._layer_display_name(logical_name)]
+        if names[0] != logical_name:
+            names.append(logical_name)
+        for nm in names:
+            for lyr in proj.mapLayersByName(nm):
+                if lyr and lyr.isValid() and map_layer_gpkg_path(lyr) == gpkg_n:
+                    return lyr
+        return None
 
     def _dialog_start_dir(self) -> str:
         d = self.aux_tools.get_(key_=AUX_LAST_PROJECT_DIR_KEY)
@@ -2800,21 +2873,9 @@ class Wd1(QWidget):
         root = QgsProject.instance().layerTreeRoot()
         project_file = self.gpkg_path or self.dic_prj.get('project_file') or ''
         target = plugin_layer_tree_group_name(project_file)
-
         grp = root.findGroup(target)
         if grp:
             return grp
-
-        for gname in (PLUGIN_LAYER_TREE_ROOT_GROUP,) + PLUGIN_LAYER_TREE_ROOT_GROUP_LEGACY:
-            if gname == target:
-                continue
-            legacy = root.findGroup(gname)
-            if legacy is None:
-                continue
-            if target != PLUGIN_LAYER_TREE_ROOT_GROUP:
-                legacy.setName(target)
-            return legacy
-
         return root.insertGroup(0, target)
 
     def _gpkg_has_any_vector_layer(self) -> bool:
@@ -2911,27 +2972,23 @@ class Wd1(QWidget):
         """Só entra no QGIS o que já existe no .pa.gpkg: cria tabelas vazias no ficheiro e depois carrega com OGR."""
         if not self._ensure_limit_vector_tables_in_mdepa(self.crs_epsg):
             return False
-        proj = QgsProject.instance()
         for key_ in (0, 1):
             name = f'__Limit_{self.dic_prj["dems"][key_]["type"]}__'
-            if not proj.mapLayersByName(name):
+            if self._find_map_layer_for_project(name) is None:
                 self.get_gpkg_layer(prefix_=name, gpkg_path=self.gpkg_path)
         iname = self.intersection_name
-        if not proj.mapLayersByName(iname):
+        if self._find_map_layer_for_project(iname) is None:
             self.get_gpkg_layer(prefix_=iname, gpkg_path=self.gpkg_path)
         return True
 
     def _clear_gpkg_vector_layer_features(self, layer_name: str) -> bool:
-        """Esvazia feições da camada nomeada no .pa.gpkg (camada do mapa ou URI OGR)."""
-        if not self.gpkg_path or not os.path.isfile(self.gpkg_path):
+        """Esvazia feições da camada nomeada no .pa.gpkg (só do projeto ativo)."""
+        gpkg_n = self._active_gpkg_path()
+        if not gpkg_n or not os.path.isfile(gpkg_n):
             return False
-        lyr = None
-        for L in QgsProject.instance().mapLayersByName(layer_name):
-            if L.isValid():
-                lyr = L
-                break
+        lyr = self._find_map_layer_for_project(layer_name, gpkg_n)
         if lyr is None:
-            uri = f'{self.gpkg_path}|layername={layer_name}'
+            uri = gpkg_layer_uri(gpkg_n, layer_name)
             lyr = QgsVectorLayer(uri, layer_name, 'ogr')
         if lyr is None or not lyr.isValid():
             return False
@@ -2962,9 +3019,18 @@ class Wd1(QWidget):
         return [f'__{m}_Z_{t}__' for m in self.list_morph for t in (type_0, type_1)]
 
     def _remove_project_layers_named(self, *layer_names: str) -> None:
+        """Remove do mapa apenas camadas do .pa.gpkg ativo."""
+        gpkg_n = self._active_gpkg_path()
         proj = QgsProject.instance()
         for nm in layer_names:
-            for lyr in list(proj.mapLayersByName(nm)):
+            candidates = []
+            display = self._layer_display_name(nm)
+            candidates.extend(proj.mapLayersByName(display))
+            if display != nm:
+                candidates.extend(proj.mapLayersByName(nm))
+            for lyr in list(candidates):
+                if gpkg_n and map_layer_gpkg_path(lyr) != gpkg_n:
+                    continue
                 try:
                     proj.removeMapLayer(lyr.id())
                 except Exception:
@@ -3588,22 +3654,22 @@ class Wd1(QWidget):
         print('get_gpkg_layer', prefix_)
         if not gpkg_path:
             gpkg_path = self.gpkg_path
+        gpkg_path = os.path.normpath(gpkg_path)
         self.node_group = self._plugin_layer_tree_group()
 
         conn = None
         layer_ = None
         if prefix_:
-            layer_ = QgsProject.instance().mapLayersByName(prefix_)
+            layer_ = self._find_map_layer_for_project(prefix_, gpkg_path)
             if layer_:
-                print(f'Layer {prefix_} já carregada')
-                if isinstance(layer_, list):
-                    layer_ = layer_[0]
+                print(f'Layer {prefix_} já carregada ({self._layer_display_name(prefix_)})')
                 return layer_
 
             conn = self.gpkg_conn(gpkg_path)
-            uri_ = f'{gpkg_path}|layername={prefix_}'
+            uri_ = gpkg_layer_uri(gpkg_path, prefix_)
+            display_name = self._layer_display_name(prefix_)
 
-            layer_ = QgsVectorLayer(uri_, prefix_, 'ogr')
+            layer_ = QgsVectorLayer(uri_, display_name, 'ogr')
             conn.commit()
             style_path = os.path.join(plugin_path, r'styles', f'{prefix_}.qml')
             layer_.loadNamedStyle(style_path)
@@ -3812,11 +3878,19 @@ class Wd1(QWidget):
             return False
         normalize_project_pa_file(self.gpkg_path)
         proj = QgsProject.instance()
+        gpkg_n = self._active_gpkg_path()
         for lyr in list(proj.mapLayersByName(self.match_lines_layer_name)):
-            try:
-                proj.removeMapLayer(lyr.id())
-            except Exception:
-                pass
+            if map_layer_gpkg_path(lyr) == gpkg_n:
+                try:
+                    proj.removeMapLayer(lyr.id())
+                except Exception:
+                    pass
+        for lyr in list(proj.mapLayersByName(self._layer_display_name(self.match_lines_layer_name))):
+            if map_layer_gpkg_path(lyr) == gpkg_n:
+                try:
+                    proj.removeMapLayer(lyr.id())
+                except Exception:
+                    pass
         self.get_gpkg_layer(prefix_=self.match_lines_layer_name, gpkg_path=self.gpkg_path)
         self.log_message(
             self.tr('[__Linhas_de_Correspondencia__] {0} ligações gravadas (edite antes de Continuar se estiver em revisão).').format(
@@ -3906,22 +3980,50 @@ class Wd1(QWidget):
                     continue
         return s
 
-    def _reference_extent_m_by_fid(self, dm=None) -> dict:
-        """Mapa fid_r → comprimento (m) da linha de referência (fonte: dic_match)."""
-        dm = dm if dm is not None else getattr(self, 'dic_match', None) or {}
-        out = {}
-        for tag_ in dm:
-            for vet_ in dm[tag_]:
-                if not vet_:
-                    continue
-                try:
-                    fid_r = int(vet_[0])
+    @staticmethod
+    def _morph_tag_from_layer_name(layer_name) -> str:
+        """Extrai morfologia de nomes como __Cumeada_Z_ref__ ou __Cumeada_Z_ref@projeto__."""
+        if not layer_name:
+            return ''
+        s = str(layer_name).strip()
+        if s.startswith('__') and s.endswith('__'):
+            s = s[2:-2]
+        if '@' in s:
+            s = s.split('@', 1)[0]
+        parts = s.split('_Z_')
+        return parts[0] if parts else ''
+
+    def _match_pair_extent_m(self, rec) -> float:
+        """Comprimento (m) da linha de referência do par — alinhado a dic_match / extent_ref."""
+        ext = _coerce_finite_extent_m(rec.get('extent_ref'))
+        if ext is not None:
+            return ext
+        try:
+            fid_r = int(rec.get('fid_r'))
+            fid_t = int(rec.get('fid_t'))
+        except (TypeError, ValueError):
+            return 0.0
+        tag_ = (str(rec.get('morph_tag') or '').strip()
+                or self._morph_tag_from_layer_name(rec.get('layer_r') or ''))
+        dm = getattr(self, 'dic_match', None) or {}
+        rows = dm.get(tag_) or []
+        for vet_ in rows:
+            try:
+                if int(vet_[0]) == fid_r and int(vet_[1]) == fid_t:
                     len_m = float(vet_[-1])
-                except (TypeError, ValueError, IndexError):
-                    continue
-                if math.isfinite(len_m) and len_m > 0:
-                    out[fid_r] = len_m
-        return out
+                    if math.isfinite(len_m) and len_m > 0:
+                        return len_m
+            except (TypeError, ValueError, IndexError):
+                continue
+        for vet_ in rows:
+            try:
+                if int(vet_[0]) == fid_r:
+                    len_m = float(vet_[-1])
+                    if math.isfinite(len_m) and len_m > 0:
+                        return len_m
+            except (TypeError, ValueError, IndexError):
+                continue
+        return 0.0
 
     @staticmethod
     def _is_statistical_outlier_rec(rec, outlier_key, dm_key):
@@ -4093,7 +4195,7 @@ class Wd1(QWidget):
             return
         self.define_buffers()
 
-    def create_buffers_layer(self):
+    def create_buffers_layer(self, show_on_map: bool = True):
 
         layer_0 = QgsVectorLayer(f'multipolygon?crs={self.crs_epsg}&index=yes', self.buffer_name, "memory")
         schema_ = QgsFields()
@@ -4113,8 +4215,104 @@ class Wd1(QWidget):
             fileName=self.gpkg_path,
             options=options)
         normalize_project_pa_file(self.gpkg_path)
-        layer_ = self.get_gpkg_layer(prefix_=self.buffer_name, gpkg_path=self.gpkg_path)
-        return (layer_)
+        layer_ = self.get_gpkg_layer(
+            prefix_=self.buffer_name, gpkg_path=self.gpkg_path, show=show_on_map)
+        return layer_
+
+    def _show_buffers_on_map_setting(self) -> bool:
+        """Config step_buffers: 0 = não mostrar no mapa durante processamento."""
+        try:
+            return int(
+                self.settings_dlg.dic_param['step_buffers']['fields']['show_buffers_on_map']['value']
+            ) == 1
+        except (TypeError, ValueError, KeyError):
+            return False
+
+    def _ensure_buffers_layer_for_editing(self):
+        if not self.layer_buffers:
+            show = self._show_buffers_on_map_setting()
+            self._buffers_map_deferred = not show
+            self.layer_buffers = self.create_buffers_layer(show_on_map=show)
+        return self.layer_buffers
+
+    def _append_buffer_feats_batch(self, feats, *, repaint: bool = False) -> None:
+        """Grava lote de geometrias na __Buffers__ (um commit por par)."""
+        if not feats:
+            return
+        lyr = self._ensure_buffers_layer_for_editing()
+        if not getattr(self, '_buffers_layer_target_logged', False):
+            self._buffers_layer_target_logged = True
+            self.log_message(
+                self.tr(
+                    '[__Buffers__] Tipo de geometria da camada: {0}. '
+                    'Gravação em lote por par (sem repaint durante o processamento).'
+                ).format(QgsWkbTypes.displayString(lyr.wkbType())),
+                'INFO',
+            )
+        lyr.startEditing()
+        n_ok, n_skip, n_add_fail = 0, 0, 0
+        for feat_ in feats:
+            g0 = feat_.geometry()
+            g_adj = self._geometry_for_buffers_layer(g0, lyr)
+            if g_adj is None:
+                n_skip += 1
+                continue
+            feat_adj = QgsFeature(feat_)
+            feat_adj.setGeometry(g_adj)
+            if not lyr.addFeature(feat_adj):
+                n_add_fail += 1
+            else:
+                n_ok += 1
+        if n_skip or n_add_fail:
+            self.log_message(
+                self.tr(
+                    '[__Buffers__] Lote: {0} adicionadas, {1} ignoradas (geometria), '
+                    '{2} rejeitadas pelo fornecedor.'
+                ).format(n_ok, n_skip, n_add_fail),
+                'WARNING' if (n_skip + n_add_fail) else 'INFO',
+            )
+        if not lyr.commitChanges():
+            errs = lyr.commitErrors()
+            self.log_message(
+                self.tr('[__Buffers__] commitChanges falhou:\n{0}').format(
+                    '\n'.join(errs) if errs else self.tr('(sem detalhe)')),
+                'ERROR',
+            )
+            lyr.rollBack()
+        else:
+            lyr.updateExtents()
+            if repaint:
+                lyr.triggerRepaint()
+
+    def _begin_buffers_map_canvas_freeze(self) -> None:
+        try:
+            c = self.iface.mapCanvas()
+            self._buffers_canvas_render_saved = c.renderFlag()
+            c.setRenderFlag(False)
+        except Exception:
+            self._buffers_canvas_render_saved = True
+
+    def _end_buffers_map_canvas_freeze(self, *, refresh: bool = True) -> None:
+        try:
+            c = self.iface.mapCanvas()
+            c.setRenderFlag(getattr(self, '_buffers_canvas_render_saved', True))
+            if refresh:
+                c.refresh()
+        except Exception:
+            pass
+
+    def _finalize_buffers_map_display(self) -> None:
+        """Um repaint no fim; adiciona __Buffers__ ao mapa se estava diferido."""
+        if getattr(self, '_buffers_map_deferred', False):
+            self.layer_buffers = self.get_gpkg_layer(
+                prefix_=self.buffer_name, gpkg_path=self.gpkg_path, show=True)
+            self._buffers_map_deferred = False
+        lyr = self.layer_buffers
+        if lyr is not None and lyr.isValid():
+            lyr.updateExtents()
+        self._end_buffers_map_canvas_freeze(refresh=True)
+        if lyr is not None and lyr.isValid():
+            lyr.triggerRepaint()
 
     def _log_buffer_geom_diag_once(self, message: str):
         if not hasattr(self, '_buffer_geom_diag_counts'):
@@ -4240,6 +4438,9 @@ class Wd1(QWidget):
     def define_buffers(self):
         self._buffer_geom_diag_counts = {}
         self._buffers_layer_target_logged = False
+        self.layer_buffers = None
+        self._buffers_map_deferred = not self._show_buffers_on_map_setting()
+        self._begin_buffers_map_canvas_freeze()
         rebuilt = self._dic_match_from_match_lines_layer()
         if rebuilt is not None:
             if not rebuilt:
@@ -4418,6 +4619,9 @@ class Wd1(QWidget):
         self._pec_report_pec_intro = self.tr('Tratamento de outliers (PEC): {0}').format(
             om_names[om] if 0 <= om < len(om_names) else str(om))
 
+        self._log_null_dm_samples(dic_values, 'dm_h')
+        self._log_null_dm_samples(dic_values, 'dm_v')
+
         mss_ = self.tr('=======================================\n')
         mss_ += self.tr('CALCULANDO PEC PLANIMÉTRICO')
         self.log_message(mss_, 'INFO')
@@ -4497,7 +4701,6 @@ class Wd1(QWidget):
     def _pec_samples_group(self, dic_values, scale_, class_, dm_key):
         """Amostras válidas, outliers e listas auxiliares por escala/classe."""
         outlier_key = 'outlier_h' if dm_key == 'dm_h' else 'outlier_v'
-        ref_ext_map = self._reference_extent_m_by_fid()
         samples = []
         outlier_ids = set()
         for count_ in dic_values[scale_][class_]:
@@ -4513,20 +4716,67 @@ class Wd1(QWidget):
             dm = _coerce_finite_measurement_scalar(rec.get(dm_key))
             if dm is None:
                 continue
-            ext = None
-            if fid_r is not None:
-                try:
-                    ext = ref_ext_map.get(int(fid_r))
-                except (TypeError, ValueError):
-                    ext = None
-            if ext is None:
-                ext = _coerce_finite_measurement_scalar(rec.get('extent_ref'))
+            ext = self._match_pair_extent_m(rec)
             samples.append({
                 'dm': dm,
                 'fid_r': int(fid_r) if fid_r is not None else None,
-                'extent': ext if ext is not None and ext > 0 else 0.0,
+                'extent': ext if ext > 0 else 0.0,
             })
         return samples, sorted(outlier_ids)
+
+    def _collect_null_dm_ignored(self, dic_values, dm_key):
+        """Registos ignorados: cada entrada é nula só na escala/classe correspondente."""
+        out = []
+        for scale_ in sorted(dic_values):
+            for class_ in sorted(dic_values[scale_]):
+                for count_ in dic_values[scale_][class_]:
+                    rec = dic_values[scale_][class_][count_]
+                    if _coerce_finite_measurement_scalar(rec.get(dm_key)) is not None:
+                        continue
+                    ext_m = self._match_pair_extent_m(rec)
+                    out.append((scale_, class_, rec, ext_m))
+        return out
+
+    def _log_null_dm_samples(self, dic_values, dm_key):
+        """Regista quantidade e extensão das amostras ignoradas por DM nulo (por escala/classe)."""
+        dm_label = 'DM_H' if dm_key == 'dm_h' else 'DM_V'
+        ignored = self._collect_null_dm_ignored(dic_values, dm_key)
+        if not ignored:
+            return
+        total_ext_m = sum(ext_m for _, _, _, ext_m in ignored)
+        n_ign = len(ignored)
+        ext_km = self._extent_km_from_m(total_ext_m)
+        head = self.tr(
+            '{0} nulo/indefinido: {1} amostra(s) ignorada(s) na respetiva escala/classe — '
+            'extensão total ignorada: {2} km ({3} m)'
+        ).format(dm_label, n_ign, ext_km, int(round(total_ext_m)))
+        groups = {}
+        for scale_, class_, rec, ext_m in ignored:
+            gk = (scale_, class_)
+            if gk not in groups:
+                groups[gk] = {'n': 0, 'ext_m': 0.0, 'items': []}
+            groups[gk]['n'] += 1
+            groups[gk]['ext_m'] += ext_m
+            groups[gk]['items'].append((rec, ext_m))
+        lines = []
+        for (scale_, class_) in sorted(groups.keys()):
+            g = groups[(scale_, class_)]
+            lines.append(
+                self.tr('  1:{0}.000 — classe {1}: {2} ignorada(s), {3} m').format(
+                    scale_, class_, g['n'], int(round(g['ext_m']))))
+            for rec, ext_m in g['items']:
+                lines.append(
+                    self.tr('    ref {0} fid_r={1} | teste {2} fid_t={3} | ext. {4} m').format(
+                        rec.get('layer_r'), rec.get('fid_r'),
+                        rec.get('layer_t'), rec.get('fid_t'),
+                        int(round(ext_m)) if ext_m > 0 else 0,
+                    ))
+        extra = ''
+        max_lines = 60
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+            extra = self.tr('\n  … detalhe truncado ({0} amostras no total).').format(n_ign)
+        self.log_message(head + ':\n' + '\n'.join(lines) + extra, 'WARNING')
 
     def _pec_norm_fail_row(self, scale_, class_, pec_lim, samples, outlier_ids, *, dimension='H', eq=None):
         """Linha de relatório quando normalidade falha ou não há amostras."""
@@ -5111,13 +5361,20 @@ class Wd1(QWidget):
     def _resolve_limit_layer_for_editing(self, layer_name: str):
         """Camada de limite no projeto (válida) ou carregada do .pa.gpkg; remove stubs inválidos."""
         proj = QgsProject.instance()
-        for lyr in proj.mapLayersByName(layer_name):
-            if lyr.isValid():
+        gpkg_n = self._active_gpkg_path()
+        display = self._layer_display_name(layer_name)
+        for nm in (display, layer_name):
+            for lyr in list(proj.mapLayersByName(nm)):
+                if not lyr.isValid():
+                    if gpkg_n and map_layer_gpkg_path(lyr) == gpkg_n:
+                        try:
+                            proj.removeMapLayer(lyr.id())
+                        except Exception:
+                            pass
+                    continue
+                if gpkg_n and map_layer_gpkg_path(lyr) != gpkg_n:
+                    continue
                 return lyr
-            try:
-                proj.removeMapLayer(lyr.id())
-            except Exception:
-                pass
         lyr = self.get_gpkg_layer(prefix_=layer_name, gpkg_path=self.gpkg_path)
         if lyr is not None and lyr.isValid():
             return lyr
@@ -5140,6 +5397,8 @@ class Wd1(QWidget):
             prog_bar.setFormat(str(dic_['error']))
             palette.setColor(QPalette.Highlight, QColor(Qt.red))
             prog_bar.setPalette(palette)
+            if key_ in (0, 1):
+                self._end_buffers_map_canvas_freeze(refresh=False)
             if key_ == 3:
                 self.log_message(
                     self.tr('Buffer - {0}').format(dic_['error']), level='ERROR')
@@ -5164,7 +5423,13 @@ class Wd1(QWidget):
             prog_bar.setPalette(palette)
         elif 'value' in dic_:
             prog_bar.setValue(dic_['value'])
+            if dic_.get('progress_only'):
+                prog_bar.setFormat(f"{dic_['value']} - {dic_['msg']}")
+                return
             prog_bar.setFormat(f"{dic_['value']} - {dic_['msg']}")
+            if 'feats_batch' in dic_:
+                self._append_buffer_feats_batch(dic_['feats_batch'], repaint=False)
+                return
             type_ = self.dic_prj['dems'][dic_['key']]['type']
             self.log_message(
                 self.tr('{0} {1} - {2}').format(type_, dic_['value'], dic_['msg']))
@@ -5192,59 +5457,8 @@ class Wd1(QWidget):
                     self.dic_prj['dems'][dic_['key']]['geom_status'] = True
                     self.run_polygon_intersection()
             elif 'feats' in dic_:
-                if not self.layer_buffers:
-                    self.layer_buffers = self.create_buffers_layer()
-                lyr = self.layer_buffers
-                if not getattr(self, '_buffers_layer_target_logged', False):
-                    self._buffers_layer_target_logged = True
-                    self.log_message(
-                        self.tr(
-                            '[__Buffers__] Tipo de geometria da camada: {0}. '
-                            'Cada feição é verificada antes de inserir.'
-                        ).format(QgsWkbTypes.displayString(lyr.wkbType())),
-                        'INFO',
-                    )
-                lyr.startEditing()
-                n_ok, n_skip, n_add_fail = 0, 0, 0
-                for key_feat in dic_['feats']:
-                    feat_ = dic_['feats'][key_feat]
-                    g0 = feat_.geometry()
-                    g_adj = self._geometry_for_buffers_layer(g0, lyr)
-                    if g_adj is None:
-                        n_skip += 1
-                        continue
-                    feat_adj = QgsFeature(feat_)
-                    feat_adj.setGeometry(g_adj)
-                    if not lyr.addFeature(feat_adj):
-                        n_add_fail += 1
-                        self._log_buffer_geom_diag_once(
-                            self.tr(
-                                'addFeature falhou (origem {0}): {1}'
-                            ).format(
-                                key_feat,
-                                QgsWkbTypes.displayString(g_adj.wkbType()),
-                            ))
-                    else:
-                        n_ok += 1
-                if n_skip or n_add_fail:
-                    self.log_message(
-                        self.tr(
-                            '[__Buffers__] Lote: {0} adicionadas, {1} ignoradas (geometria), '
-                            '{2} rejeitadas pelo fornecedor.'
-                        ).format(n_ok, n_skip, n_add_fail),
-                        'WARNING' if (n_skip + n_add_fail) else 'INFO',
-                    )
-                if not lyr.commitChanges():
-                    errs = lyr.commitErrors()
-                    self.log_message(
-                        self.tr('[__Buffers__] commitChanges falhou:\n{0}').format(
-                            '\n'.join(errs) if errs else self.tr('(sem detalhe)')),
-                        'ERROR',
-                    )
-                    lyr.rollBack()
-                else:
-                    lyr.updateExtents()
-                    lyr.triggerRepaint()
+                # Legado: dicionário feat_br/feat_bt/feat_i num único passo
+                self._append_buffer_feats_batch(list(dic_['feats'].values()), repaint=False)
             elif 'layer' in dic_:
                 if isinstance(dic_['layer']['gpkg'], str):
                     datasource = ogr.Open(dic_['layer']['gpkg'])
@@ -5279,6 +5493,7 @@ class Wd1(QWidget):
                 print(f'dem {key_}:', dic_['model'])
                 self.dic_prj["dems"][key_]['model'] = dic_['model']
         elif 'dic_values' in dic_:
+            self._finalize_buffers_map_display()
             dv = dic_['dic_values']
             om = self.cbx_workflow_outliers.currentIndex()
             self._apply_outlier_workflow(dv)

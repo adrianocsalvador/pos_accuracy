@@ -17,6 +17,18 @@ from qgis.core import (QgsApplication, QgsCoordinateReferenceSystem, QgsFeature,
 # |dm_h| ou |dm_v| acima disto é tratado como erro numérico / geometria; → NaN e WARNING no log.
 DM_ABS_MAX_SANE = 1000.0
 
+
+def _finite_dm_scalar(x):
+    if x is None:
+        return None
+    try:
+        v = float(x)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+    if not math.isfinite(v) or abs(v) > DM_ABS_MAX_SANE:
+        return None
+    return v
+
 _GRASS_PROVIDER_IDS = ('grass', 'grass7')
 _MORPHOLOGY_GRASS_ALGORITHMS = ('r.watershed', 'r.to.vect', 'v.to.lines', 'r.thin')
 
@@ -1139,9 +1151,7 @@ class BufferThread(QThread):
                     id_t = vet_[1]
                     feat_t = layer_t.getFeature(id_t)
                     geom_t = QgsGeometry(feat_t.geometry())
-                    self.sig_status.emit(
-                        {'logonly': f' \n-- {tag_} - idr {id_r} - idt {id_t} --'}
-                    )
+                    pair_feats = []
                     for scale_ in self.list_scale:
                         if scale_ not in self.dic_values:
                             self.dic_values[scale_] = {}
@@ -1156,6 +1166,7 @@ class BufferThread(QThread):
                             # ep_h = scale_ * self.dic_pec_mm['H'][class_]['ep']
 
                             self.dic_values[scale_][class_][count_]['layer_r'] = layer_r.name()
+                            self.dic_values[scale_][class_][count_]['morph_tag'] = tag_
                             self.dic_values[scale_][class_][count_]['fid_r'] = vet_[0]
                             self.dic_values[scale_][class_][count_]['layer_t'] = layer_t.name()
                             self.dic_values[scale_][class_][count_]['fid_t'] = vet_[1]
@@ -1184,7 +1195,7 @@ class BufferThread(QThread):
                             feat_i.setGeometry(geom_i)
                             feat_i.setAttributes([count_ + 30000, scale_, class_, None, 'Intersecao'])
 
-                            dic_feats = { 'feat_br': feat_br, 'feat_bt': feat_bt, 'feat_i': feat_i}
+                            pair_feats.extend((feat_br, feat_bt, feat_i))
                             # CÁLCULO DO DM HORIZONTAL (área do buffer teste nula → divisão indefinida / explosão numérica)
                             area_bt = geom_bt.area()
                             area_br = geom_br.area()
@@ -1233,17 +1244,29 @@ class BufferThread(QThread):
 
                             print(scale_, class_, id_r, id_t, round(dm_h, 2), round(dm_v, 2))
 
-                            self.sig_status.emit(
-                                {'key': 0,
-                                 'value': count_,
-                                 'msg': f'{tag_} {i} {scale_} - {class_}',
-                                 'feats': dic_feats}
-                            )
-                            self.sig_status.emit(
-                                {'key': 1,
-                                 'value': count_,
-                                 'msg': f'{tag_} {i} {scale_} - {class_}'}
-                            )
+                            prog_msg = f'{tag_} {i} {scale_} - {class_}'
+                            self.sig_status.emit({
+                                'key': 0,
+                                'value': count_,
+                                'msg': prog_msg,
+                                'progress_only': True,
+                            })
+                            self.sig_status.emit({
+                                'key': 1,
+                                'value': count_,
+                                'msg': prog_msg,
+                                'progress_only': True,
+                            })
+
+                    if pair_feats:
+                        self.sig_status.emit({
+                            'key': 0,
+                            'value': count_,
+                            'msg': self.parent.tr(
+                                '{0} par {1} (fid_r={2}, fid_t={3}) — {4} geometrias'
+                            ).format(tag_, i, id_r, id_t, len(pair_feats)),
+                            'feats_batch': pair_feats,
+                        })
 
             self.sig_status.emit({'key': 0, 'dic_values': self.dic_values})
         except Exception as e:
