@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import base64
 import datetime
+import glob
 import html
 import json
 import math
@@ -15,15 +16,15 @@ from functools import partial
 
 from osgeo import ogr
 from qgis.PyQt.QtCore import (QSettings, Qt, QSize, QTranslator, QCoreApplication, QEvent, QThreadPool, QDateTime,
-                              QVariant, QRectF, QByteArray, QBuffer, QIODevice, QMarginsF)
+                              QVariant, QRectF, QByteArray, QBuffer, QIODevice, QMarginsF, QUrl)
 from qgis.PyQt.QtGui import (
     QPixmap, QIcon, QFont, QPalette, QColor, QTextCharFormat, QBrush, QTextOption,
-    QTextDocument, QPainter,
+    QTextDocument, QPainter, QDesktopServices, QCursor,
 )
 from qgis.PyQt.QtPrintSupport import QPrinter
-from qgis.PyQt.QtWidgets import (QAction, QScrollArea, QGridLayout, QPushButton, QLabel, QWidget, QSizePolicy,
+from qgis.PyQt.QtWidgets import (QAction, QScrollArea, QGridLayout, QHBoxLayout, QPushButton, QLabel, QWidget, QSizePolicy,
                                  QSpacerItem, QDockWidget, QSplitter, QComboBox, QLineEdit, QDialog, QFrame, QCheckBox,
-                                 QHBoxLayout, QVBoxLayout, QFileDialog, QTableWidget,
+                                 QHBoxLayout, QVBoxLayout, QFileDialog, QTableWidget, QStyle, QStyleOptionButton,
                                  QProgressBar, QDateEdit, QWidget, QVBoxLayout, QPushButton, QPlainTextEdit,
                                  QMessageBox)
 from qgis.core import (QgsVectorFileWriter, QgsWkbTypes, QgsCoordinateTransformContext, QgsCoordinateReferenceSystem,
@@ -36,14 +37,29 @@ from .mod_login import Database
 from .mod_worker_threads import (
     DM_ABS_MAX_SANE, Worker, inspect_grass_processing, _windows_memory_status,
     _grass_memory_advice, _recommend_grass_memory_gb,
+    build_compatibilized_profile_geometries,
 )
 from .mod_settings import SettingsDlg
-from .plugin_i18n import PLUGIN_I18N_CONTEXT, tr_ui
+from .mod_language_dlg import LanguageDlg
+from .plugin_i18n import (
+    LOCALE_AUTO,
+    PLUGIN_I18N_CONTEXT,
+    SETTINGS_APP,
+    SETTINGS_ORG,
+    install_plugin_translator,
+    locale_button_label,
+    remove_plugin_translator,
+    saved_ui_locale,
+    tr_ui,
+)
+
+SETTINGS_KEY_OPEN_REPORT = 'open_report_after_run'
 
 plugin_path = os.path.dirname(os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.join(plugin_path, 'libs')))
 # Arquivo de projeto: GeoPackage com extensão composta (conteúdo GPKG)
 PROJECT_EXT = '.pa.gpkg'
+PLUGIN_DISPLAY_NAME = 'MDE AP - Acurácia Posicional'
 
 # Mesmo limite que BufferThread (|dm_h|/|dm_v| acima → NaN + WARNING no log).
 _MAX_PEC_MEASUREMENT_ABS = DM_ABS_MAX_SANE
@@ -158,6 +174,7 @@ def geometry_area_square_meters(geom: QgsGeometry, crs: QgsCoordinateReferenceSy
 
 
 PLUGIN_ICON_BASENAME = 'icon_bfn'
+PPGEC_LOGO_FILENAME = 'PPGEC2025.png'
 
 
 def _ui_device_pixel_ratio() -> float:
@@ -169,6 +186,11 @@ def _ui_device_pixel_ratio() -> float:
     except Exception:
         pass
     return 1.0
+
+
+def _resolve_ppgec_logo_path() -> str:
+    path_ = os.path.normpath(os.path.join(plugin_path, 'icons', PPGEC_LOGO_FILENAME))
+    return path_ if os.path.isfile(path_) else ''
 
 
 def _resolve_plugin_icon_path(prefer_svg: bool = True) -> str:
@@ -192,22 +214,46 @@ def _icon_from_icons_file(filename: str = None) -> QIcon:
     return QIcon()
 
 
+def _make_dem_info_button(parent: QWidget = None) -> QPushButton:
+    """Botão de informação do MDE (ícone v.info.2.png)."""
+    icon_size = QSize(22, 22)
+    btn = QPushButton(parent)
+    ic = _icon_from_icons_file('v.info.2.png')
+    if not ic.isNull():
+        btn.setIcon(ic)
+    else:
+        btn.setText('i')
+    btn.setIconSize(icon_size)
+    btn.setFixedSize(icon_size)
+    btn.setFlat(True)
+    btn.setCursor(Qt.PointingHandCursor)
+    btn.setFocusPolicy(Qt.StrongFocus)
+    btn.setStyleSheet(
+        'QPushButton { border: none; background: transparent; padding: 0; margin: 0; }'
+        'QPushButton:hover { background: rgba(0, 0, 0, 0.06); border-radius: 11px; }'
+        'QPushButton:pressed { background: rgba(0, 0, 0, 0.10); border-radius: 11px; }'
+    )
+    return btn
+
+
 def _pixmap_from_icon_path(
     path_: str,
     size: QSize,
     *,
     smooth: bool = True,
     margin_ratio: float = 0.0,
+    force_dpr: float = None,
 ) -> QPixmap:
     """
     Renderiza ícone no tamanho pedido, com suporte HiDPI.
     SVG via QSvgRenderer (QPixmap não lê SVG de forma fiável).
     margin_ratio: inset relativo (ex. 0.08 = 8% de margem) para não cortar traços na borda.
+    force_dpr: se definido (ex. 1.0), ignora o DPR do ecrã — útil para PNG embutido em HTML/PDF.
     """
     if not path_ or not os.path.isfile(path_):
         return QPixmap()
 
-    dpr = _ui_device_pixel_ratio()
+    dpr = float(force_dpr) if force_dpr is not None else _ui_device_pixel_ratio()
     phys = QSize(max(1, int(size.width() * dpr)), max(1, int(size.height() * dpr)))
     inset = max(0.0, min(float(margin_ratio), 0.45))
 
@@ -271,6 +317,47 @@ REPORT_PEC_COL_WIDTHS_ALT = (8, 5, 5, 6, 6, 7, 8, 8, 8, 8, 9, 8)
 REPORT_ENVELOPE_OFFICIAL_CRS_AUTH = 'EPSG:4674'
 REPORT_ENVELOPE_OFFICIAL_LABEL = 'SIRGAS2000 / EPSG:4674'
 # Ao alterar: manter exatamente REPORT_PEC_NCOL_* valores; width só nas células <td> do corpo.
+# Índices das colunas «Resultado» (plan. / alt.) na ordem de _pec_row_data_cells.
+REPORT_PEC_RESULT_COL_IDX_PLAN = (6, 8, 10)
+REPORT_PEC_RESULT_COL_IDX_ALT = (7, 9, 11)
+REPORT_PEC_N_RESULT_COLS = 3
+
+
+def _pec_result_col_indices(altimetric: bool) -> tuple:
+    return REPORT_PEC_RESULT_COL_IDX_ALT if altimetric else REPORT_PEC_RESULT_COL_IDX_PLAN
+
+
+def _pec_result_flags_to_status(result_ok, altimetric: bool) -> dict:
+    """Mapeia coluna → True (pass) / False (fail) a partir de flags semânticos."""
+    if not isinstance(result_ok, (list, tuple)):
+        return {}
+    col_indices = _pec_result_col_indices(altimetric)
+    if len(result_ok) != len(col_indices):
+        return {}
+    status = {}
+    for col_i, flag in zip(col_indices, result_ok):
+        if flag is not None:
+            status[col_i] = bool(flag)
+    return status
+
+
+def _pec_unpack_data_row(row, altimetric: bool):
+    """Linha PEC: lista de células ou dict {cells, result_ok}."""
+    if isinstance(row, dict):
+        cells = row.get('cells') or []
+        status = _pec_result_flags_to_status(row.get('result_ok'), altimetric)
+        return list(cells), status
+    return list(row), {}
+
+
+def _pec_format_result_cell_html(value, cell_fn, *, passed=None) -> str:
+    """Colore células de resultado do PDF (estado semântico, independente do idioma)."""
+    esc = cell_fn(value)
+    if passed is True:
+        return f'<span class="pec-pass">{esc}</span>'
+    if passed is False:
+        return f'<span class="pec-fail">{esc}</span>'
+    return esc
 
 
 def _normalize_col_widths_pct(widths_pct):
@@ -310,13 +397,18 @@ def _pec_th_width_attr(widths_pct, idx) -> str:
     return f' width="{widths_pct[idx]:.1f}%"'
 
 
-def _pec_row_tds_html(cells, widths_pct, cell_fn) -> str:
+def _pec_row_tds_html(cells, widths_pct, cell_fn, *, result_status_by_col=None) -> str:
     """Células `<td>` com atributo width (compatível com QTextDocument; sem colgroup)."""
     widths = _normalize_col_widths_pct(widths_pct)
+    status = result_status_by_col or {}
     parts = []
     for i, c in enumerate(cells):
         w_attr = _pec_th_width_attr(widths, i)
-        parts.append(f'<td{w_attr}>{cell_fn(c)}</td>')
+        if i in status:
+            inner = _pec_format_result_cell_html(c, cell_fn, passed=status[i])
+        else:
+            inner = cell_fn(c)
+        parts.append(f'<td{w_attr}>{inner}</td>')
     return ''.join(parts)
 
 
@@ -493,7 +585,18 @@ def _companion_report_path(txt_path: str, ext: str) -> str:
 
 
 # Formato TXT v1: parseável para regenerar PDF sem correr o pipeline.
-REPORT_TX_V1_MARKER = '=== MDE-PA-REPORT v1 ==='
+REPORT_TX_V1_MARKER = '=== MDE-AP-REPORT v1 ==='
+PROFILES_WKT_TX_V1_MARKER = '=== MDE-AP-PROFILES-WKT v1 ==='
+REPORT_TX_V1_MARKER_LEGACY = '=== MDE-PA-REPORT v1 ==='
+REPORT_TX_V1_MARKERS = (REPORT_TX_V1_MARKER, REPORT_TX_V1_MARKER_LEGACY)
+
+
+def _report_txt_is_v1_marker(line: str) -> bool:
+    return line in REPORT_TX_V1_MARKERS
+
+
+def _report_txt_contains_v1_marker(txt: str) -> bool:
+    return REPORT_TX_V1_MARKER in txt or REPORT_TX_V1_MARKER_LEGACY in txt
 # Tamanhos de fonte do PDF/HTML (pt); o plugin usa estes valores por defeito.
 REPORT_PDF_FONTS_DEFAULT = {
     'body': 7,
@@ -504,7 +607,7 @@ REPORT_PDF_FONTS_DEFAULT = {
     'doc_default': 7,
 }
 _REPORT_TX_SECTION_IDS = (
-    'location', 'workflow', 'dems', 'params', 'stats', 'pec',
+    'location', 'workflow', 'dems', 'params', 'stats', 'pairs', 'pec',
 )
 
 
@@ -549,15 +652,145 @@ def _report_txt_join_row(parts) -> str:
     return '\t'.join(_report_txt_escape_cell(p) for p in parts)
 
 
+def _report_lines_to_kv_rows(lines: list[str]) -> list[dict]:
+    rows = []
+    for ln in lines or []:
+        s = (ln or '').strip()
+        if not s:
+            continue
+        if ': ' in s:
+            label, value = s.split(': ', 1)
+            rows.append({'label': label.strip(), 'value': value.strip()})
+        elif ':' in s:
+            label, value = s.split(':', 1)
+            rows.append({'label': label.strip(), 'value': value.strip()})
+        else:
+            rows.append({'label': '', 'value': s})
+    return rows
+
+
+def _report_sec_kv_rows(sec: dict) -> list[dict]:
+    if not sec:
+        return []
+    rows = sec.get('rows')
+    if rows is not None:
+        return rows
+    if sec.get('lines'):
+        return _report_lines_to_kv_rows(sec['lines'])
+    return []
+
+
+def _pairs_section_rows(pairs_sec: dict) -> list[dict]:
+    if not pairs_sec:
+        return []
+    rows = pairs_sec.get('rows')
+    if rows is not None:
+        return rows
+    out = []
+    norm = (pairs_sec.get('norm_label') or '').strip()
+    if norm:
+        out.append({
+            'label': pairs_sec.get('norm_caption') or 'Método de normalização de progressivas',
+            'value': norm,
+        })
+    for ln in pairs_sec.get('intro_lines') or []:
+        out.extend(_report_lines_to_kv_rows([ln]))
+    wkt = (pairs_sec.get('wkt_file') or '').strip()
+    if wkt:
+        out.append({
+            'label': pairs_sec.get('wkt_file_caption') or 'Ficheiro WKT dos perfis',
+            'value': wkt,
+        })
+    for ln in pairs_sec.get('stat_lines') or []:
+        out.extend(_report_lines_to_kv_rows([ln]))
+    return out
+
+
+def _render_report_kv_table_html(
+    header: list,
+    rows: list,
+    *,
+    label_key: str = 'label',
+    value_key: str = 'value',
+    option_key: str = 'option',
+) -> str:
+    hdr = header or ['Campo', 'Valor']
+    col1 = html.escape(str(hdr[0] if hdr else 'Campo'))
+    col2 = html.escape(str(hdr[1] if len(hdr) > 1 else 'Valor'))
+    body = ''
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        if row.get('is_group'):
+            body += (
+                f'<tr><td colspan="2" style="background:#eee">'
+                f'<b>{html.escape(str(row.get(label_key) or row.get(option_key) or ""))}</b>'
+                f'</td></tr>'
+            )
+            continue
+        k1 = row.get(label_key) or row.get(option_key) or ''
+        k2 = row.get(value_key) or ''
+        body += (
+            f'<tr><td>{html.escape(str(k1))}</td>'
+            f'<td>{html.escape(str(k2))}</td></tr>'
+        )
+    if not body:
+        return ''
+    return f'<table><tr><th>{col1}</th><th>{col2}</th></tr>{body}</table>'
+
+
+def _location_section_envelope_rows(loc_sec: dict) -> list[dict]:
+    rows = loc_sec.get('rows') or []
+    return [r for r in rows if isinstance(r, dict) and 'xmin' in r]
+
+
+def _render_location_section_html(loc_sec: dict) -> str:
+    if not loc_sec:
+        return ''
+    envelope_rows = _location_section_envelope_rows(loc_sec)
+    if envelope_rows:
+        header = loc_sec.get('header') or ['Envelope', 'Xmin', 'Ymin', 'Xmax', 'Ymax']
+        cols = header[:5] if len(header) >= 5 else ['Envelope', 'Xmin', 'Ymin', 'Xmax', 'Ymax']
+        thead = ''.join(f'<th>{html.escape(str(h))}</th>' for h in cols)
+        body = ''
+        for row in envelope_rows:
+            body += (
+                f'<tr><td>{html.escape(str(row.get("label", "")))}</td>'
+                f'<td>{html.escape(str(row.get("xmin", "")))}</td>'
+                f'<td>{html.escape(str(row.get("ymin", "")))}</td>'
+                f'<td>{html.escape(str(row.get("xmax", "")))}</td>'
+                f'<td>{html.escape(str(row.get("ymax", "")))}</td></tr>'
+            )
+        for row in loc_sec.get('rows') or []:
+            if not isinstance(row, dict) or 'xmin' in row:
+                continue
+            val = row.get('value', '')
+            if val:
+                body += (
+                    f'<tr><td>{html.escape(str(row.get("label", "")))}</td>'
+                    f'<td colspan="4">{html.escape(str(val))}</td></tr>'
+                )
+        return f'<table class="location-envelope"><tr>{thead}</tr>{body}</table>'
+    return _render_report_kv_table_html(
+        loc_sec.get('header') or ['Opção', 'Valor'],
+        _report_sec_kv_rows(loc_sec),
+    )
+
+
 def format_full_report_txt(snapshot: dict) -> str:
     """Serializa snapshot completo (mesmo conteúdo lógico do PDF)."""
     lines = [REPORT_TX_V1_MARKER, '']
     meta = snapshot.get('meta') or {}
+    labels = meta.get('labels') or {}
+    title_key = labels.get('title', 'Título')
+    dt_key = labels.get('datetime', 'Data/hora')
+    proj_key = labels.get('project_file', 'Ficheiro de projeto')
+    crs_key = labels.get('crs', 'CRS de referência (análise)')
     lines.append('[META]')
-    lines.append(f'Título:\t{_report_txt_escape_cell(meta.get("title", ""))}')
-    lines.append(f'Data/hora:\t{_report_txt_escape_cell(meta.get("datetime", ""))}')
-    lines.append(f'Ficheiro de projeto:\t{_report_txt_escape_cell(meta.get("project_file", ""))}')
-    lines.append(f'CRS de referência (análise):\t{_report_txt_escape_cell(meta.get("crs", ""))}')
+    lines.append(f'{title_key}:\t{_report_txt_escape_cell(meta.get("title", ""))}')
+    lines.append(f'{dt_key}:\t{_report_txt_escape_cell(meta.get("datetime", ""))}')
+    lines.append(f'{proj_key}:\t{_report_txt_escape_cell(meta.get("project_file", ""))}')
+    lines.append(f'{crs_key}:\t{_report_txt_escape_cell(meta.get("crs", ""))}')
     lines.append('')
 
     sections = snapshot.get('sections') or {}
@@ -568,8 +801,30 @@ def format_full_report_txt(snapshot: dict) -> str:
         lines.append(f'[SECTION {sid}]')
         lines.append(f'TITLE\t{_report_txt_escape_cell(sec.get("title", ""))}')
         if sid == 'location':
-            for ln in sec.get('lines') or []:
-                lines.append(f'LINE\t{_report_txt_escape_cell(ln)}')
+            loc_rows = sec.get('rows') or []
+            envelope_rows = [r for r in loc_rows if isinstance(r, dict) and 'xmin' in r]
+            if envelope_rows:
+                hdr = sec.get('header') or ['Envelope', 'Xmin', 'Ymin', 'Xmax', 'Ymax']
+                lines.append(f'HEADER\t{_report_txt_join_row(hdr[:5])}')
+                for row in envelope_rows:
+                    lines.append(f'ENVROW\t{_report_txt_join_row([
+                        row.get("label", ""),
+                        row.get("xmin", ""),
+                        row.get("ymin", ""),
+                        row.get("xmax", ""),
+                        row.get("ymax", ""),
+                    ])}')
+                for row in loc_rows:
+                    if isinstance(row, dict) and 'xmin' not in row and row.get('value'):
+                        lines.append(f'ROW\t{_report_txt_join_row([row.get("label", ""), row.get("value", "")])}')
+            else:
+                stat_rows = _report_sec_kv_rows(sec)
+                lines.append(f'HEADER\t{_report_txt_join_row(sec.get("header") or ["Opção", "Valor"])}')
+                for row in stat_rows:
+                    lines.append(f'ROW\t{_report_txt_join_row([row.get("label", ""), row.get("value", "")])}')
+                if not stat_rows:
+                    for ln in sec.get('lines') or []:
+                        lines.append(f'LINE\t{_report_txt_escape_cell(ln)}')
         elif sid == 'workflow':
             lines.append(f'HEADER\t{_report_txt_join_row(sec.get("header") or ["Opção", "Valor"])}')
             for row in sec.get('rows') or []:
@@ -585,8 +840,34 @@ def format_full_report_txt(snapshot: dict) -> str:
                 for fld in grp.get('fields') or []:
                     lines.append(f'PARAM\t{_report_txt_join_row([fld.get("label", ""), fld.get("value", "")])}')
         elif sid == 'stats':
-            for ln in sec.get('lines') or []:
-                lines.append(f'STAT\t{_report_txt_escape_cell(ln)}')
+            stat_rows = _report_sec_kv_rows(sec)
+            lines.append(f'HEADER\t{_report_txt_join_row(sec.get("header") or ["Opção", "Valor"])}')
+            for row in stat_rows:
+                lines.append(f'ROW\t{_report_txt_join_row([row.get("label", ""), row.get("value", "")])}')
+            if not stat_rows:
+                for ln in sec.get('lines') or []:
+                    lines.append(f'STAT\t{_report_txt_escape_cell(ln)}')
+        elif sid == 'pairs':
+            pair_rows = _pairs_section_rows(sec)
+            lines.append(f'HEADER\t{_report_txt_join_row(sec.get("header") or ["Opção", "Valor"])}')
+            for row in pair_rows:
+                if row.get('is_group'):
+                    lines.append(
+                        f'GROUP\t{_report_txt_escape_cell(row.get("label", ""))}')
+                else:
+                    lines.append(
+                        f'ROW\t{_report_txt_join_row([row.get("label", ""), row.get("value", "")])}')
+            if not pair_rows:
+                if sec.get('norm_label'):
+                    lines.append(f'NORM\t{_report_txt_escape_cell(sec.get("norm_label", ""))}')
+                if sec.get('wkt_file'):
+                    lines.append(f'WKTFILE\t{_report_txt_escape_cell(sec["wkt_file"])}')
+                for ln in sec.get('intro_lines') or []:
+                    lines.append(f'PINTRO\t{_report_txt_escape_cell(ln)}')
+                for ln in sec.get('stat_lines') or []:
+                    lines.append(f'PSTAT\t{_report_txt_escape_cell(ln)}')
+            if sec.get('empty_message'):
+                lines.append(f'EMPTY\t{_report_txt_escape_cell(sec["empty_message"])}')
         elif sid == 'pec':
             intro = (sec.get('intro') or '').strip()
             if intro:
@@ -601,7 +882,25 @@ def format_full_report_txt(snapshot: dict) -> str:
                 for i, hdr in enumerate(block.get('header_rows') or []):
                     lines.append(f'PEC_HEADER\t{block_key}\t{i}\t{_report_txt_join_row(hdr)}')
                 for row in block.get('data_rows') or []:
-                    lines.append(f'PEC_ROW\t{block_key}\t{_report_txt_join_row(row)}')
+                    if isinstance(row, dict):
+                        cells = row.get('cells') or []
+                        lines.append(
+                            f'PEC_ROW\t{block_key}\t{_report_txt_join_row(cells)}')
+                        flags = row.get('result_ok')
+                        if isinstance(flags, (list, tuple)) and len(flags) == REPORT_PEC_N_RESULT_COLS:
+                            flag_cells = []
+                            for flag in flags:
+                                if flag is True:
+                                    flag_cells.append('1')
+                                elif flag is False:
+                                    flag_cells.append('0')
+                                else:
+                                    flag_cells.append('-')
+                            lines.append(
+                                f'PEC_FLAGS\t{block_key}\t{_report_txt_join_row(flag_cells)}')
+                    else:
+                        lines.append(
+                            f'PEC_ROW\t{block_key}\t{_report_txt_join_row(row)}')
             if sec.get('empty_message'):
                 lines.append(f'EMPTY\t{_report_txt_escape_cell(sec["empty_message"])}')
         lines.append('')
@@ -691,8 +990,8 @@ def _pec_results_table_head_html(
 def _build_pec_results_tables_html_blocks(
     *,
     intro: str = '',
-    plan_title: str = '6.1 PEC Planimétrico',
-    alt_title: str = '6.2 PEC Altimétrico',
+    plan_title: str = '7.1 PEC Planimétrico',
+    alt_title: str = '7.2 PEC Altimétrico',
     plan_data_rows=None,
     alt_data_rows=None,
     empty_message: str = '',
@@ -716,7 +1015,9 @@ def _build_pec_results_tables_html_blocks(
             altimetric=altimetric, header_labels=header_labels)
         body = ''
         for row in rows:
-            tds = _pec_row_tds_html(row, widths, cell)
+            cells, status = _pec_unpack_data_row(row, altimetric)
+            tds = _pec_row_tds_html(
+                cells, widths, cell, result_status_by_col=status)
             body += f'<tr>{tds}</tr>'
         pb_cls = ' class="pec-section page-break"' if page_break else ' class="pec-section"'
         return (
@@ -736,21 +1037,140 @@ def _build_pec_results_tables_html_blocks(
     return '\n'.join(chunks)
 
 
+def _format_report_scalar_k(value, *, decimals: int = 2) -> str:
+    if value is None:
+        return ''
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return ''
+    if not math.isfinite(v):
+        return ''
+    return f'{v:.{int(decimals)}f}'
+
+
+def _profile_geometry_wkt_for_report(geom, *, decimals: int = 2) -> str:
+    """WKT do perfil compatibilizado (progressiva, cota) com casas decimais fixas."""
+    if geom is None or geom.isEmpty():
+        return ''
+    try:
+        g = QgsGeometry(geom)
+        if g.isMultipart():
+            parts = g.asMultiPolyline()
+            pts = parts[0] if parts else []
+        else:
+            pts = g.asPolyline()
+        if not pts:
+            return ''
+        dec = int(decimals)
+        fmt = f'{{:.{dec}f}}'
+        coords = ', '.join(
+            f'{fmt.format(round(p.x(), dec))} {fmt.format(round(p.y(), dec))}'
+            for p in pts
+        )
+        return f'LINESTRING ({coords})'
+    except Exception:
+        return ''
+
+
+def format_profiles_wkt_txt(
+    profile_data: dict,
+    *,
+    datetime_str: str = '',
+    project_file: str = '',
+    labels: dict = None,
+) -> str:
+    """TXT separado com WKT par a par (não faz parte do relatório principal)."""
+    labels = labels or {}
+    pairs = profile_data.get('pairs') or []
+    if not pairs:
+        return ''
+    lbl_dt = labels.get('datetime', 'Data/hora')
+    lbl_proj = labels.get('project_file', 'Ficheiro de projeto')
+    lbl_norm = labels.get('norm_caption', 'Método de normalização de progressivas')
+    lbl_pair = labels.get('pair', 'Par')
+    lbl_ref_id = labels.get('ref_id', 'ref_id')
+    lbl_layer_ref = labels.get('layer_ref', 'camada_ref')
+    lbl_wkt_ref = labels.get('wkt_ref', 'wkt_ref')
+    lbl_test_id = labels.get('test_id', 'test_id')
+    lbl_layer_test = labels.get('layer_test', 'camada_test')
+    lbl_wkt_test = labels.get('wkt_test', 'wkt_test')
+    lbl_scalar = labels.get('scalar_k', 'Escalar k (linear)')
+
+    lines = [PROFILES_WKT_TX_V1_MARKER, '']
+    if datetime_str:
+        lines.append(f'{lbl_dt}:\t{_report_txt_escape_cell(datetime_str)}')
+    if project_file:
+        lines.append(f'{lbl_proj}:\t{_report_txt_escape_cell(project_file)}')
+    norm_label = (profile_data.get('norm_label') or '').strip()
+    if norm_label:
+        lines.append(f'{lbl_norm}:\t{_report_txt_escape_cell(norm_label)}')
+    lines.append('')
+
+    for par in pairs:
+        n = par.get('n', '')
+        tag = par.get('morph_tag', '')
+        header = f'{lbl_pair} {n}'
+        if tag:
+            header += f' — {tag}'
+        lines.append(header)
+        lines.append(
+            f'{lbl_ref_id}:\t{_report_txt_escape_cell(par.get("ref_id", ""))}\t'
+            f'{lbl_layer_ref}:\t{_report_txt_escape_cell(par.get("layer_ref", ""))}')
+        lines.append(f'{lbl_wkt_ref}:')
+        lines.append(par.get('wkt_ref') or '')
+        lines.append(
+            f'{lbl_test_id}:\t{_report_txt_escape_cell(par.get("test_id", ""))}\t'
+            f'{lbl_layer_test}:\t{_report_txt_escape_cell(par.get("layer_test", ""))}')
+        lines.append(f'{lbl_wkt_test}:')
+        lines.append(par.get('wkt_test') or '')
+        sk = _format_report_scalar_k(par.get('scalar_k'), decimals=2)
+        if sk:
+            lines.append(f'{lbl_scalar}:\t{sk}')
+        lines.append('')
+
+    return '\n'.join(lines).rstrip() + '\n'
+
+
+def _render_pairs_section_html(pairs_sec: dict) -> str:
+    """HTML das estatísticas de pares (WKT num ficheiro .txt separado)."""
+    if not pairs_sec:
+        return ''
+    rows = _pairs_section_rows(pairs_sec)
+    table = _render_report_kv_table_html(
+        pairs_sec.get('header') or ['Opção', 'Valor'],
+        rows,
+    )
+    chunks = []
+    if table:
+        chunks.append(table)
+    if not rows and not (pairs_sec.get('intro_lines') or pairs_sec.get('stat_lines')):
+        empty = (pairs_sec.get('empty_message') or '').strip()
+        if empty:
+            chunks.append(f'<p>{html.escape(empty)}</p>')
+    return '\n'.join(chunks)
+
+
 def _normalize_report_meta_key(key: str) -> str:
     kl = (key or '').strip().lower()
     return {
         'título': 'title',
+        'title': 'title',
         'data/hora': 'datetime',
+        'date/time': 'datetime',
         'ficheiro de projeto': 'project_file',
+        'project file': 'project_file',
         'crs de referência (análise)': 'crs',
+        'reference crs (analysis)': 'crs',
     }.get(kl, (key or '').strip())
 
 
 def parse_full_report_txt(txt: str) -> dict:
     """Lê relatório TXT v1; devolve snapshot para `render_pdf_report_html`."""
-    if REPORT_TX_V1_MARKER not in txt:
+    if not _report_txt_contains_v1_marker(txt):
         raise ValueError(
-            f'Formato de relatório não reconhecido (esperado marcador {REPORT_TX_V1_MARKER!r}).')
+            f'Formato de relatório não reconhecido (esperado marcador {REPORT_TX_V1_MARKER!r} '
+            f'ou legado {REPORT_TX_V1_MARKER_LEGACY!r}).')
 
     snapshot = {
         'meta': {},
@@ -763,7 +1183,7 @@ def parse_full_report_txt(txt: str) -> dict:
 
     for raw_line in txt.splitlines():
         line = raw_line.strip()
-        if not line or line == REPORT_TX_V1_MARKER:
+        if not line or _report_txt_is_v1_marker(line):
             continue
         if line == '[META]':
             current = 'meta'
@@ -790,8 +1210,26 @@ def parse_full_report_txt(txt: str) -> dict:
             sec['title'] = _report_txt_unescape_cell(line.split('\t', 1)[1])
             continue
 
-        if current == 'location' and line.startswith('LINE\t'):
-            sec.setdefault('lines', []).append(_report_txt_unescape_cell(line.split('\t', 1)[1]))
+        if current == 'location':
+            if line.startswith('HEADER\t'):
+                sec['header'] = _report_txt_split_row(line.split('\t', 1)[1])
+            elif line.startswith('ENVROW\t'):
+                cells = _report_txt_split_row(line.split('\t', 1)[1])
+                sec.setdefault('rows', []).append({
+                    'label': cells[0] if cells else '',
+                    'xmin': cells[1] if len(cells) > 1 else '',
+                    'ymin': cells[2] if len(cells) > 2 else '',
+                    'xmax': cells[3] if len(cells) > 3 else '',
+                    'ymax': cells[4] if len(cells) > 4 else '',
+                })
+            elif line.startswith('ROW\t'):
+                cells = _report_txt_split_row(line.split('\t', 1)[1])
+                sec.setdefault('rows', []).append({
+                    'label': cells[0] if cells else '',
+                    'value': cells[1] if len(cells) > 1 else '',
+                })
+            elif line.startswith('LINE\t'):
+                sec.setdefault('lines', []).append(_report_txt_unescape_cell(line.split('\t', 1)[1]))
         elif current == 'workflow':
             if line.startswith('HEADER\t'):
                 sec['header'] = _report_txt_split_row(line.split('\t', 1)[1])
@@ -828,8 +1266,47 @@ def parse_full_report_txt(txt: str) -> dict:
                     'label': cells[0] if cells else '',
                     'value': cells[1] if len(cells) > 1 else '',
                 })
-        elif current == 'stats' and line.startswith('STAT\t'):
-            sec.setdefault('lines', []).append(_report_txt_unescape_cell(line.split('\t', 1)[1]))
+        elif current == 'stats':
+            if line.startswith('HEADER\t'):
+                sec['header'] = _report_txt_split_row(line.split('\t', 1)[1])
+            elif line.startswith('ROW\t'):
+                cells = _report_txt_split_row(line.split('\t', 1)[1])
+                sec.setdefault('rows', []).append({
+                    'label': cells[0] if cells else '',
+                    'value': cells[1] if len(cells) > 1 else '',
+                })
+            elif line.startswith('STAT\t'):
+                sec.setdefault('lines', []).append(_report_txt_unescape_cell(line.split('\t', 1)[1]))
+        elif current == 'pairs':
+            if line.startswith('HEADER\t'):
+                sec['header'] = _report_txt_split_row(line.split('\t', 1)[1])
+            elif line.startswith('ROW\t'):
+                cells = _report_txt_split_row(line.split('\t', 1)[1])
+                sec.setdefault('rows', []).append({
+                    'label': cells[0] if cells else '',
+                    'value': cells[1] if len(cells) > 1 else '',
+                })
+            elif line.startswith('GROUP\t'):
+                sec.setdefault('rows', []).append({
+                    'is_group': True,
+                    'label': _report_txt_unescape_cell(line.split('\t', 1)[1]),
+                })
+            elif line.startswith('NORM\t'):
+                sec['norm_label'] = _report_txt_unescape_cell(line.split('\t', 1)[1])
+            elif line.startswith('WKTFILE\t'):
+                sec['wkt_file'] = _report_txt_unescape_cell(line.split('\t', 1)[1])
+            elif line.startswith('PINTRO\t'):
+                sec.setdefault('intro_lines', []).append(
+                    _report_txt_unescape_cell(line.split('\t', 1)[1]))
+            elif line.startswith('PSTAT\t'):
+                sec.setdefault('stat_lines', []).append(
+                    _report_txt_unescape_cell(line.split('\t', 1)[1]))
+            elif line.startswith('PAIR\t'):
+                pass  # legado: WKT agora num ficheiro separado
+            elif line.startswith('REF\t') or line.startswith('TEST\t') or line.startswith('SCALAR\t'):
+                pass
+            elif line.startswith('EMPTY\t'):
+                sec['empty_message'] = _report_txt_unescape_cell(line.split('\t', 1)[1])
         elif current == 'pec':
             if line.startswith('INTRO\t'):
                 sec['intro'] = _report_txt_unescape_cell(line.split('\t', 1)[1])
@@ -854,7 +1331,33 @@ def parse_full_report_txt(txt: str) -> dict:
                 if len(parts) >= 3:
                     block_key = parts[1]
                     sec.setdefault(block_key, {'title': '', 'header_rows': [], 'data_rows': []})
-                    sec[block_key]['data_rows'].append(_report_txt_split_row('\t'.join(parts[2:])))
+                    sec[block_key]['data_rows'].append(
+                        _report_txt_split_row('\t'.join(parts[2:])))
+            elif line.startswith('PEC_FLAGS\t'):
+                parts = line.split('\t')
+                if len(parts) >= 3:
+                    block_key = parts[1]
+                    flag_cells = _report_txt_split_row('\t'.join(parts[2:]))
+                    block = sec.setdefault(
+                        block_key, {'title': '', 'header_rows': [], 'data_rows': []})
+                    rows = block.get('data_rows') or []
+                    if not rows:
+                        continue
+                    flags = []
+                    for cell in flag_cells[:REPORT_PEC_N_RESULT_COLS]:
+                        if cell == '1':
+                            flags.append(True)
+                        elif cell == '0':
+                            flags.append(False)
+                        else:
+                            flags.append(None)
+                    while len(flags) < REPORT_PEC_N_RESULT_COLS:
+                        flags.append(None)
+                    last = rows[-1]
+                    if isinstance(last, dict):
+                        last['result_ok'] = flags
+                    else:
+                        rows[-1] = {'cells': list(last), 'result_ok': flags}
             elif line.startswith('EMPTY\t'):
                 sec['empty_message'] = _report_txt_unescape_cell(line.split('\t', 1)[1])
 
@@ -869,8 +1372,8 @@ def _render_pec_tables_html_from_snapshot(pec_sec: dict, *, col_widths: dict = N
     alt = pec_sec.get('alt') or {}
     return _build_pec_results_tables_html_blocks(
         intro=pec_sec.get('intro', ''),
-        plan_title=plan.get('title', '6.1 PEC Planimétrico'),
-        alt_title=alt.get('title', '6.2 PEC Altimétrico'),
+        plan_title=plan.get('title', '7.1 PEC Planimétrico'),
+        alt_title=alt.get('title', '7.2 PEC Altimétrico'),
         plan_data_rows=plan.get('data_rows'),
         alt_data_rows=alt.get('data_rows'),
         empty_message=pec_sec.get('empty_message', ''),
@@ -900,13 +1403,23 @@ def _report_pdf_css(fonts: dict = None) -> str:
         'h3.page-break { page-break-before: always; } '
         'table.report-header { border: none; margin: 0 0 8px 0; width: 100%; } '
         'table.report-header td { border: none; padding: 0; vertical-align: middle; } '
-        'td.report-header-icon { width: 72px; padding-right: 10px; } '
+        'td.report-header-icon { width: 76px; min-width: 76px; padding: 2px 12px 2px 0; '
+        'vertical-align: middle; overflow: visible; } '
+        'img.report-logo { width: 64px; height: 64px; max-width: 64px; max-height: 64px; '
+        'display: block; margin: 0; } '
+        'table.location-envelope td, table.location-envelope th { text-align: center; } '
+        'table.location-envelope td:first-child, table.location-envelope th:first-child '
+        '{ text-align: left; } '
         'table { border-collapse: collapse; width: 100%; margin: 6px 0; } '
         f'table.pec-results {{ table-layout: auto; width: 100%; font-size: {f["pec"]}pt; }} '
         'table.pec-results th, table.pec-results td { text-align: center; } '
         'td, th { border: 1px solid #ccc; padding: 4px 6px; vertical-align: middle; } '
         'th { background: #f0f0f0; } '
-        'table.pec-results thead th { background: #e8e8e8; font-weight: 600; }'
+        'table.pec-results thead th { background: #e8e8e8; font-weight: 600; } '
+        'span.pec-pass { color: #2e7d32; font-weight: 600; } '
+        'span.pec-fail { color: #c62828; font-weight: 600; } '
+        'pre.pair-wkt { font-size: 6pt; white-space: pre-wrap; word-break: break-all; '
+        'margin: 4px 0 8px 0; padding: 4px; background: #fafafa; border: 1px solid #ddd; }'
     )
 
 
@@ -916,13 +1429,28 @@ def render_pdf_report_html(
     """Gera HTML do relatório a partir do snapshot (plugin ou TXT parseado)."""
     meta = snapshot.get('meta') or {}
     sections = snapshot.get('sections') or {}
+    labels = meta.get('labels') or {}
     title = html.escape(meta.get('title', ''))
-    when = html.escape(meta.get('datetime', ''))
-    proj_esc = html.escape(meta.get('project_file', ''))
-    crs_ = html.escape(meta.get('crs', ''))
+    when = meta.get('datetime', '')
+    proj_esc = meta.get('project_file', '')
+    crs_ = meta.get('crs', '')
+    lbl_dt = labels.get('datetime', 'Data/hora')
+    lbl_proj = labels.get('project_file', 'Ficheiro de projeto')
+    lbl_crs = labels.get('crs', 'CRS de referência (análise)')
+
+    meta_hdr_option = labels.get('option', 'Opção')
+    meta_hdr_value = labels.get('value', 'Valor')
+    meta_table = _render_report_kv_table_html(
+        [meta_hdr_option, meta_hdr_value],
+        [
+            {'label': lbl_dt, 'value': when},
+            {'label': lbl_proj, 'value': proj_esc},
+            {'label': lbl_crs, 'value': crs_},
+        ],
+    )
 
     loc_sec = sections.get('location') or {}
-    loc_block = '<br/>'.join(html.escape(ln) for ln in (loc_sec.get('lines') or []))
+    loc_table = _render_location_section_html(loc_sec)
 
     wf_sec = sections.get('workflow') or {}
     wf_rows = []
@@ -982,7 +1510,12 @@ def render_pdf_report_html(
     )
 
     stats_sec = sections.get('stats') or {}
-    stats_block = '<br/>'.join(html.escape(ln) for ln in (stats_sec.get('lines') or []))
+    stats_table = _render_report_kv_table_html(
+        stats_sec.get('header') or ['Opção', 'Valor'],
+        _report_sec_kv_rows(stats_sec),
+    )
+
+    pairs_body = _render_pairs_section_html(sections.get('pairs') or {})
 
     pec_body = _render_pec_tables_html_from_snapshot(
         sections.get('pec') or {}, col_widths=col_widths)
@@ -993,7 +1526,7 @@ def render_pdf_report_html(
     if icon_uri:
         icon_cell = (
             f'<td class="report-header-icon">'
-            f'<img src="{icon_uri}" width="64" height="64" alt=""/>'
+            f'<img class="report-logo" src="{icon_uri}" width="64" height="64" alt=""/>'
             f'</td>'
         )
 
@@ -1006,14 +1539,12 @@ def render_pdf_report_html(
     return f'''<!DOCTYPE html><html><head><meta charset="utf-8"/><style>{css}</style></head><body>
 <table class="report-header"><tr>
 {icon_cell}
-<td><h1>{title}</h1>
-<p><b>Data/hora:</b> {when}</p></td>
+<td><h1>{title}</h1></td>
 </tr></table>
-<p><b>Ficheiro de projeto:</b> {proj_esc}</p>
-<p><b>CRS de referência (análise):</b> {crs_}</p>
+{meta_table}
 
 <h2>{h2("location", "1. Localização da área de estudo")}</h2>
-<p>{loc_block}</p>
+{loc_table}
 
 <h2>{h2("workflow", "2. Fluxo de trabalho")}</h2>
 {wf_table}
@@ -1025,9 +1556,12 @@ def render_pdf_report_html(
 {param_table}
 
 <h2>{h2("stats", "5. Estatísticas do painel")}</h2>
-<p>{stats_block}</p>
+{stats_table}
 
-<h2>{h2("pec", "6. Resultados PEC")}</h2>
+<h2>{h2("pairs", "6. Pares homólogos — estatísticas")}</h2>
+{pairs_body}
+
+<h2>{h2("pec", "7. Resultados PEC")}</h2>
 {pec_body}
 </body></html>'''
 
@@ -1062,7 +1596,7 @@ def export_pdf_from_txt_report(
         pdf_path = _companion_report_path(txt_path, '.pdf')
 
     if not recompute_pec:
-        if REPORT_TX_V1_MARKER in txt_body:
+        if _report_txt_contains_v1_marker(txt_body):
             snapshot = parse_full_report_txt(txt_body)
             html_doc = render_pdf_report_html(snapshot, fonts=fonts, col_widths=col_widths)
         else:
@@ -1113,7 +1647,7 @@ def export_pdf_from_txt_report(
 
 
 class _ReportExportMainStub:
-    name_ = 'MDE - Acurácia Posicional'
+    name_ = PLUGIN_DISPLAY_NAME
 
 
 class _ReportExportIfaceStub:
@@ -1169,7 +1703,9 @@ def _plugin_icon_png_data_uri(size_px: int = 64) -> str:
     path_ = _resolve_plugin_icon_path(prefer_svg=True)
     if not path_:
         return ''
-    pm = _pixmap_from_icon_path(path_, QSize(size_px, size_px), margin_ratio=0.10)
+    # force_dpr=1.0: QTextDocument corta PNGs HiDPI quando width/height HTML ≠ pixels reais
+    pm = _pixmap_from_icon_path(
+        path_, QSize(size_px, size_px), margin_ratio=0.15, force_dpr=1.0)
     if pm.isNull():
         return ''
     ba = QByteArray()
@@ -1836,33 +2372,15 @@ class PositionalAccuracyPlugin:
             application at run time.
         :type iface: QgsInterface
         """
-        self.name_ = 'MDE - Acurácia Posicional'
         # Save reference to the QGIS interface
         self.iface = iface
-        # Traduções: tenta locale completo (ex. pt_BR), depois dois caracteres (ex. pt)
-        self.translator = None
-        locale_full = (QSettings().value('locale/userLocale') or '') or ''
-        locale_full = str(locale_full).strip()
-        locale_tag = locale_full.replace('-', '_')
-        base = os.path.join(plugin_path, 'i18n')
-        qm_candidates = [
-            os.path.join(base, f'pos_accuracy_{locale_tag}.qm'),
-            os.path.join(base, f'pos_accuracy_{locale_full[:2]}.qm') if len(locale_full) >= 2 else None,
-            os.path.join(base, 'pos_accuracy_en.qm'),
-        ]
-        for qm_path in qm_candidates:
-            if qm_path and os.path.isfile(qm_path):
-                self.translator = QTranslator()
-                if self.translator.load(qm_path):
-                    QCoreApplication.installTranslator(self.translator)
-                else:
-                    self.translator = None
-                break
+        self.translator = install_plugin_translator(saved_ui_locale() or LOCALE_AUTO)
+        self.name_ = tr_ui(PLUGIN_DISPLAY_NAME)
 
         # Declare instance attributes
 
         self.actions = []
-        self.menu = self.tr(f'&T {self.name_}')
+        self.menu = self.tr('&T MDE AP - Acurácia Posicional')
         self.dic_prj_conn = {}
         self.dic_icon = {}
 
@@ -1954,7 +2472,6 @@ class PositionalAccuracyPlugin:
         return action
 
     def initGui(self):
-        print('initGui')
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
         # self.dock = QDockWidget('T - Inventário de Via.')
 
@@ -1981,7 +2498,6 @@ class PositionalAccuracyPlugin:
         self.first_start = True
 
     def unload(self):
-        print('unload')
         """Remove GUI e libera recursos (compatível com Plugin Reloader)."""
         if getattr(self, 'wd1', None):
             self.wd1.unload_cleanup()
@@ -1999,7 +2515,7 @@ class PositionalAccuracyPlugin:
         self.wd1 = None
 
         if getattr(self, 'translator', None):
-            QCoreApplication.removeTranslator(self.translator)
+            remove_plugin_translator()
             self.translator = None
 
     def call_vs(self):
@@ -2029,9 +2545,6 @@ class Wd1(QWidget):
         self.main = main
         name_ = self.main.name_.replace(' ', '_')
         self.setObjectName(f'Wd_{name_}')
-
-        if os.getlogin() == 'adria':
-            self.iface.actionShowPythonDialog().trigger()
 
         self.dic_prj = \
             {'path': '',  # pasta de dados (logs, exports): vizinha ao .pa.gpkg, mesmo nome base
@@ -2076,6 +2589,7 @@ class Wd1(QWidget):
         self.active_workers = {}  # Keep track of active workers
         self._workflow_pause = None  # None | 'post_intersection' | 'post_pairs_review'
         self._panel_stats_cache = {'area': '', 'ext_min': '', 'ext_match': '', 'pair_nr': ''}
+        self._last_report_pdf_path = ''
         self._pec_report_pec_intro = ''  # nota de outliers (PEC) para o relatório PDF
         self._pec_report_plan_rows = []  # linhas da tabela PEC planimétrico
         self._pec_report_alt_rows = []  # linhas da tabela PEC altimétrico
@@ -2143,6 +2657,7 @@ class Wd1(QWidget):
         self.list_norm_type = [
             tr_ui('Linear'), tr_ui('Por Proximidade'), tr_ui('Sem Normalização')]
         self.settings_dlg = SettingsDlg(main=parent, parent=self)
+        self.language_dlg = None
         self.list_morph = ['Cumeada', 'Hidrografia_Numerica']
 
         self.intersection_name = '__Limit_Intersecao__'
@@ -2156,27 +2671,50 @@ class Wd1(QWidget):
 
     def create_layout(self):
         gl_tool = QGridLayout()
-        gl_tool.setContentsMargins(0, 0, 0, 0)
+        gl_tool.setContentsMargins(2, 2, 2, 2)
         gl_tool.setSpacing(1)
 
+        row_hdr = QGridLayout()
+        row_hdr.setContentsMargins(0, 0, 0, 0)
+        row_hdr.setSpacing(6)
+
+        c_ = 0
+        r_ = 0
+
         self.lb_session_logo = QLabel()
-        self.lb_session_logo.setFixedSize(QSize(50, 50))
+        self.lb_session_logo.setFixedSize(QSize(40, 40))
         self.lb_session_logo.setAlignment(Qt.AlignCenter)
         logo_path = _resolve_plugin_icon_path(prefer_svg=True)
         self.lb_session_logo.setPixmap(
-            _pixmap_from_icon_path(logo_path, self.lb_session_logo.size(), margin_ratio=0.20))
+            _pixmap_from_icon_path(logo_path, self.lb_session_logo.size(), margin_ratio=0.15))
         self.lb_session_logo.setScaledContents(False)
-        r_ = 0
-        gl_tool.addWidget(self.lb_session_logo, r_, 0, Qt.AlignVCenter)
+        row_hdr.addWidget(self.lb_session_logo, 0, c_, 2, 1, Qt.AlignLeft | Qt.AlignVCenter)
+        c_ += 1
 
-        row_hdr = QHBoxLayout()
-        row_hdr.setContentsMargins(0, 0, 0, 0)
-        row_hdr.setSpacing(6)
-        row_hdr.addStretch(1)
+        center_box = QWidget()
+        center_layout = QHBoxLayout(center_box)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(0)
+        center_layout.addStretch(1)
+        self.lb_ppgec_logo = QLabel()
+        self.lb_ppgec_logo.setFixedSize(QSize(90, 32))
+        self.lb_ppgec_logo.setAlignment(Qt.AlignCenter)
+        ppgec_path = _resolve_ppgec_logo_path()
+        if ppgec_path:
+            self.lb_ppgec_logo.setPixmap(
+                _pixmap_from_icon_path(ppgec_path, self.lb_ppgec_logo.size(), margin_ratio=0.04))
+        self.lb_ppgec_logo.setScaledContents(False)
+        self.lb_ppgec_logo.setVisible(bool(ppgec_path))
+        center_layout.addWidget(self.lb_ppgec_logo, 0, Qt.AlignBottom)
+        center_layout.addStretch(1)
+        row_hdr.addWidget(center_box, 0, c_, 2, 1)
+        row_hdr.setColumnStretch(c_, 1)
+        c_ += 1
+
         self.pb_config = QPushButton()
         self.pb_config.setToolTip(self.tr('Config'))
         self.pb_config.setIcon(_icon_from_icons_file('icon_config.png'))
-        self.pb_config.setIconSize(QSize(30, 30))
+        self.pb_config.setIconSize(QSize(25, 25))
         self.pb_config.setFixedSize(32, 32)
         self.pb_config.setCursor(Qt.PointingHandCursor)
         self.pb_config.setFocusPolicy(Qt.StrongFocus)
@@ -2184,11 +2722,28 @@ class Wd1(QWidget):
             'QPushButton { border: 1px solid #9e9e9e; border-radius: 2px; padding: 0; margin: 0; background: palette(base); }'
             'QPushButton:hover { background: palette(alternate-base); }'
             'QPushButton:pressed { background: palette(mid); }')
-        row_hdr.addWidget(self.pb_config, 0, Qt.AlignVCenter)
+        row_hdr.addWidget(self.pb_config, 0, c_, 2, 1, Qt.AlignBottom)
+
+        c_ += 1
         self.lb_version = QLabel(f'v{self.main.plugin_version()}')
-        self.lb_version.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        row_hdr.addWidget(self.lb_version, 0, Qt.AlignVCenter)
-        gl_tool.addLayout(row_hdr, r_, 1, 1, 3)
+        self.lb_version.setAlignment(Qt.AlignBottom | Qt.AlignHCenter)
+        row_hdr.addWidget(self.lb_version, 0, c_, 1, 1, Qt.AlignBottom | Qt.AlignHCenter)
+
+        self.pb_lang = QPushButton()
+        self.pb_lang.setFlat(True)
+        self.pb_lang.setCursor(Qt.PointingHandCursor)
+        self.pb_lang.setFocusPolicy(Qt.StrongFocus)
+        self.pb_lang.setStyleSheet(
+            'QPushButton { border: none; background: transparent; color: #00bcd4; '
+            'font-weight: bold; padding: 2px 6px; min-width: 28px; }'
+            'QPushButton:hover { color: #26c6da; }'
+            'QPushButton:pressed { color: #00838f; }')
+        self.pb_lang.setToolTip(self.tr('Alterar idioma da interface'))
+        self.pb_lang.clicked.connect(self.open_language_dialog)
+        self._refresh_ui_language_button()
+        row_hdr.addWidget(self.pb_lang, 1, c_, 1, 1, Qt.AlignVCenter)
+
+        gl_tool.addLayout(row_hdr, r_, 0, 1, 4)
 
         r_ += 1
         sep_line = QFrame()
@@ -2251,23 +2806,28 @@ class Wd1(QWidget):
         sep_line = QFrame(self)
         sep_line.setFrameShape(QFrame.HLine)
         gl_tool.addWidget(sep_line, r_, 0, 1, 4)
-
+        
         for key_ in self.dic_prj['dems']:
 
             r_ += 1
             lb_title_ = QLabel(
                 self.tr('MDE de referência:') if key_ == 0 else self.tr('MDE de teste:'))
-            gl_tool.addWidget(lb_title_, r_, 0)
-            obj_pb = QPushButton(self.tr('info'))
-            obj_pb.setMaximumWidth(32)
-            gl_tool.addWidget(obj_pb, r_, 3, 1, 1, Qt.AlignRight)
-            self.dic_prj['dems'][key_]['obj_pb'] = obj_pb
+            if key_ == 0:
+                self.lb_dem_ref = lb_title_
+            else:
+                self.lb_dem_test = lb_title_
+            label_row = r_
+            gl_tool.addWidget(lb_title_, label_row, 0)
             r_ += 1
             obj_cbx = QgsMapLayerComboBox(self)
             obj_cbx.setFilters(QgsMapLayerProxyModel.RasterLayer)
             obj_cbx.setAllowEmptyLayer(True)
             gl_tool.addWidget(obj_cbx, r_, 0, 1, 3)
             self.dic_prj['dems'][key_]['obj_cbx'] = obj_cbx
+            obj_pb = _make_dem_info_button(self)
+            obj_pb.setToolTip(self.tr('Informações do MDE selecionado'))
+            gl_tool.addWidget(obj_pb, label_row, 3, 2, 1, Qt.AlignRight | Qt.AlignVCenter)
+            self.dic_prj['dems'][key_]['obj_pb'] = obj_pb
             r_ += 1
             obj_prog_bar = QProgressBar(self)
             gl_tool.addWidget(obj_prog_bar, r_, 0, 1, 4)
@@ -2281,7 +2841,8 @@ class Wd1(QWidget):
         
         r_ += 1        
         r_start_run = r_
-        gl_tool.addWidget(QLabel(self.tr('Área de estudos:')), r_, 0)
+        self.lb_wf_study = QLabel(self.tr('Definição da área de estudos:'))
+        gl_tool.addWidget(self.lb_wf_study, r_, 0)
         r_ += 1
         self.cbx_workflow_study = QComboBox(self)
         self.cbx_workflow_study.addItems([
@@ -2314,7 +2875,8 @@ class Wd1(QWidget):
         gl_tool.addWidget(sep_line_wf, r_, 0, 1, 2)
 
         r_ += 1
-        gl_tool.addWidget(QLabel(self.tr('Seleção de pares homólogos:')), r_, 0)
+        self.lb_wf_pairs = QLabel(self.tr('Seleção de pares homólogos:'))
+        gl_tool.addWidget(self.lb_wf_pairs, r_, 0)
         r_ += 1
         self.cbx_workflow_pairs = QComboBox(self)
         self.cbx_workflow_pairs.addItems([
@@ -2337,23 +2899,35 @@ class Wd1(QWidget):
         gl_tool.addWidget(sep_line_wf, r_, 0, 1, 2)
 
         r_ += 1
-        gl_tool.addWidget(QLabel(self.tr('PEC — outliers:')), r_, 0)
+        self.lb_wf_outliers = QLabel(self.tr('Tratamento de outliers:'))
+        gl_tool.addWidget(self.lb_wf_outliers, r_, 0)
         r_ += 1
+        outliers_combo_row = r_
         self.cbx_workflow_outliers = QComboBox(self)
         self.cbx_workflow_outliers.addItems([
             self.tr('Remover automaticamente'),
             self.tr('Avaliar individualmente'),
             self.tr('Usar todos'),
         ])
-        gl_tool.addWidget(self.cbx_workflow_outliers, r_, 0, 1, 2)
+        gl_tool.addWidget(self.cbx_workflow_outliers, outliers_combo_row, 0, 1, 2)
+
+        self.cb_open_report = QCheckBox(self.tr('Abrir o relatório'))
+        self.cb_open_report.setChecked(self._load_open_report_pref())
+        self._refresh_open_report_checkbox_ui()
+        self.cb_open_report.installEventFilter(self)
+        gl_tool.addWidget(
+            self.cb_open_report, outliers_combo_row, 3, 1, 1, Qt.AlignRight | Qt.AlignVCenter)
 
         r_ += 1
-        sep_line_wf = QFrame(self)
-        sep_line_wf.setFrameShape(QFrame.VLine)
-        gl_tool.addWidget(sep_line_wf, r_start_run, 2, r_ - r_start_run, 1, Qt.AlignHCenter)
+        # sep_line_wf = QFrame(self)
+        # sep_line_wf.setFrameShape(QFrame.VLine)
+        # gl_tool.addWidget(sep_line_wf, r_start_run, 2, r_ - r_start_run, 1, Qt.AlignHCenter)
+        gl_tool.addItem(QSpacerItem(0, 0, QSizePolicy.Fixed, QSizePolicy.Expanding), r_, 0, 1, 4)
+
 
         self.pb_proc = QPushButton(self.tr('Avaliar'))
-        gl_tool.addWidget(self.pb_proc, r_start_run, 3, r_ - r_start_run, 1, Qt.AlignHCenter)
+        gl_tool.addWidget(
+            self.pb_proc, r_start_run, 3, outliers_combo_row - r_start_run, 1, Qt.AlignHCenter)
         self._refresh_proc_button()
 
         r_ += 1
@@ -2386,6 +2960,80 @@ class Wd1(QWidget):
         self.cbx_study_area_layer.layerChanged.connect(self._persist_workflow_ui_if_project)
         self.pb_proc.clicked.connect(self.exec_analyze)
         self.pb_config.clicked.connect(self.open_settings)
+        self.cb_open_report.toggled.connect(self._save_open_report_pref)
+
+    def _refresh_open_report_checkbox_ui(self) -> None:
+        cb = getattr(self, 'cb_open_report', None)
+        if cb is None:
+            return
+        cb.setToolTip(self.tr(
+            'Caixa: abrir automaticamente após a avaliação.\n'
+            'Clique no texto para abrir o último relatório PDF.'))
+
+    @staticmethod
+    def _checkbox_click_on_text(cb: QCheckBox, pos) -> bool:
+        opt = QStyleOptionButton()
+        cb.initStyleOption(opt)
+        style = cb.style()
+        indicator = style.subElementRect(QStyle.SE_CheckBoxIndicator, opt, cb)
+        if indicator.contains(pos):
+            return False
+        contents = style.subElementRect(QStyle.SE_CheckBoxContents, opt, cb)
+        return contents.contains(pos)
+
+    def eventFilter(self, obj, event):
+        cb = getattr(self, 'cb_open_report', None)
+        if obj is cb and cb is not None:
+            et = event.type()
+            if et == QEvent.MouseMove:
+                if self._checkbox_click_on_text(cb, event.pos()):
+                    cb.setCursor(QCursor(Qt.PointingHandCursor))
+                else:
+                    cb.unsetCursor()
+            elif et == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+                if self._checkbox_click_on_text(cb, event.pos()):
+                    self._open_last_report()
+                    return True
+        return super().eventFilter(obj, event)
+
+    def _resolve_last_report_pdf_path(self) -> str:
+        path = getattr(self, '_last_report_pdf_path', '') or ''
+        if path and os.path.isfile(path):
+            return path
+        pf = self.dic_prj.get('project_file')
+        if not pf:
+            return ''
+        data_dir = project_data_dir(pf)
+        if not os.path.isdir(data_dir):
+            return ''
+        candidates = glob.glob(os.path.join(data_dir, 'Relatorio_MDE_AP_*.pdf'))
+        if not candidates:
+            return ''
+        return max(candidates, key=os.path.getmtime)
+
+    def _open_last_report(self) -> None:
+        path = self._resolve_last_report_pdf_path()
+        if not path:
+            self.log_message(self.tr('Nenhum relatório disponível para abrir.'), 'WARNING')
+            return
+        self._open_report_file(path)
+
+    def _load_open_report_pref(self) -> bool:
+        return bool(QSettings(SETTINGS_ORG, SETTINGS_APP).value(
+            SETTINGS_KEY_OPEN_REPORT, True, type=bool))
+
+    def _save_open_report_pref(self, _checked: bool = False) -> None:
+        settings = QSettings(SETTINGS_ORG, SETTINGS_APP)
+        settings.setValue(SETTINGS_KEY_OPEN_REPORT, self.cb_open_report.isChecked())
+        settings.sync()
+
+    def _open_report_file(self, path: str) -> None:
+        if not path or not os.path.isfile(path):
+            return
+        url = QUrl.fromLocalFile(os.path.normpath(os.path.abspath(path)))
+        if not QDesktopServices.openUrl(url):
+            self.log_message(
+                self.tr('Não foi possível abrir o relatório: {0}').format(path), 'WARNING')
 
     def set_project_paths(self, project_file: str):
         """Define arquivo .pa.gpkg e pasta de dados (logs etc.) com o mesmo nome base."""
@@ -3290,28 +3938,31 @@ class Wd1(QWidget):
             file.write(log_entry)
 
     def log_dem_layer_info(self, key_: int):
-        if self.dic_prj['dems'][key_]['obj_cbx']:
-            layer_ = self.dic_prj['dems'][key_]['obj_cbx'].currentLayer()
-
-            mss_ = self.tr('=======================================\n')
-            mss_ += self.tr('  INFORMAÇÕES DO MDE — {0}\n').format(
-                self.dic_prj['dems'][key_]['type'].upper())
-            mss_ += self.tr('  Nome da camada: {0}\n').format(layer_.name())
-            mss_ += self.tr('  Caminho da fonte: {0}\n').format(layer_.source())
-            mss_ += self.tr('  Válida: {0}\n').format(layer_.isValid())
-            mss_ += self.tr('  SRC: {0}\n').format(layer_.crs().authid())
-            mss_ += self.tr('  Largura (px): {0}\n').format(layer_.width())
-            mss_ += self.tr('  Altura (px): {0}\n').format(layer_.height())
-            mss_ += self.tr('  Número de bandas: {0}\n').format(layer_.bandCount())
-            mss_ += self.tr('  Extensão: {0}\n').format(layer_.extent().snappedToGrid(0.001))
-            mss_ += self.tr('  Tamanho do pixel X: {0:.3f}\n').format(layer_.rasterUnitsPerPixelX())
-            mss_ += self.tr('  Tamanho do pixel Y: {0:.3f}\n').format(layer_.rasterUnitsPerPixelY())
-            mss_ += self.tr('=======================================\n')
-            self.log_message(mss_, 'INFO')
-        else:
+        cbx = self.dic_prj['dems'][key_].get('obj_cbx')
+        if not cbx:
+            return
+        layer_ = cbx.currentLayer()
+        if not layer_ or not layer_.isValid():
             self.log_message(
                 self.tr('MDE ({0}) NÃO DEFINIDO').format(self.dic_prj['dems'][key_]['type']),
                 'ERROR')
+            return
+
+        mss_ = self.tr('=======================================\n')
+        mss_ += self.tr('  INFORMAÇÕES DO MDE — {0}\n').format(
+            self.dic_prj['dems'][key_]['type'].upper())
+        mss_ += self.tr('  Nome da camada: {0}\n').format(layer_.name())
+        mss_ += self.tr('  Caminho da fonte: {0}\n').format(layer_.source())
+        mss_ += self.tr('  Válida: {0}\n').format(layer_.isValid())
+        mss_ += self.tr('  SRC: {0}\n').format(layer_.crs().authid())
+        mss_ += self.tr('  Largura (px): {0}\n').format(layer_.width())
+        mss_ += self.tr('  Altura (px): {0}\n').format(layer_.height())
+        mss_ += self.tr('  Número de bandas: {0}\n').format(layer_.bandCount())
+        mss_ += self.tr('  Extensão: {0}\n').format(layer_.extent().snappedToGrid(0.001))
+        mss_ += self.tr('  Tamanho do pixel X: {0:.3f}\n').format(layer_.rasterUnitsPerPixelX())
+        mss_ += self.tr('  Tamanho do pixel Y: {0:.3f}\n').format(layer_.rasterUnitsPerPixelY())
+        mss_ += self.tr('=======================================\n')
+        self.log_message(mss_, 'INFO')
 
     def task_done(self, key_):
         """ Called when a thread finishes processing, allowing another to start """
@@ -3644,14 +4295,12 @@ class Wd1(QWidget):
         return conn_
 
     def gpkg_close_conn(self, conn_=None, cur_=None):
-        print('close conn')
         if conn_:
             conn_.close()
         if cur_:
             cur_.close()
 
     def get_gpkg_layer(self, prefix_='', gpkg_path='', show=True):
-        print('get_gpkg_layer', prefix_)
         if not gpkg_path:
             gpkg_path = self.gpkg_path
         gpkg_path = os.path.normpath(gpkg_path)
@@ -3662,7 +4311,6 @@ class Wd1(QWidget):
         if prefix_:
             layer_ = self._find_map_layer_for_project(prefix_, gpkg_path)
             if layer_:
-                print(f'Layer {prefix_} já carregada ({self._layer_display_name(prefix_)})')
                 return layer_
 
             conn = self.gpkg_conn(gpkg_path)
@@ -4096,7 +4744,6 @@ class Wd1(QWidget):
         return True
 
     def matching_lines(self):
-        print('matching_lines')
         conn = self.gpkg_conn()
         curs = conn.cursor()
         dic_param_match = self.settings_dlg.dic_param['step_match']['fields']
@@ -4173,9 +4820,8 @@ class Wd1(QWidget):
             #     print(col_,end='\t')
             # print()
         ext_sum = self._total_sample_extent_m_from_dic_match(self.dic_match)
-        for key_ in self.dic_match:
-            print(f'------{key_}')
-        print('Extensão Total da Amostra:', ext_sum)
+        self.log_message(
+            self.tr('Extensão total da amostra: {0} m').format(int(round(ext_sum))), 'INFO')
         n_pairs = sum(len(self.dic_match[k]) for k in self.dic_match)
         self._panel_stats_cache['ext_match'] = str(round(ext_sum, 1))
         self._panel_stats_cache['pair_nr'] = str(n_pairs)
@@ -4403,20 +5049,16 @@ class Wd1(QWidget):
             return
         max_scale_from_set = self.settings_dlg.dic_param['step_buffers']['fields']['max_scale']['value']
         min_scale_from_set = self.settings_dlg.dic_param['step_buffers']['fields']['min_scale']['value']
-        print('max_scale_from_set', max_scale_from_set, 'min_scale_from_set', min_scale_from_set)
 
         if  max_scale_from_set < len(self.dic_pec_v):
-            print(f'getting max_scale_from_set: {max_scale_from_set}')
             max_scale = max_scale_from_set
         else:
             gsd_ = get_gsd()
             for i, scale_ in enumerate(self.dic_pec_v):
                 if self.dic_pec_mm['H']['A']['pec'] * scale_ > gsd_/2:
                     max_scale = i - 1
-                    print('else max', list(self.dic_pec_v)[max_scale])
                     break
         if min_scale_from_set < len(self.dic_pec_v):
-            print(f'getting min_scale_from_set: {min_scale_from_set}')
             min_scale = min_scale_from_set
         else:
             if not gsd_:
@@ -4424,12 +5066,9 @@ class Wd1(QWidget):
             for i, scale_ in enumerate(self.dic_pec_v):
                 if self.dic_pec_mm['H']['A']['pec'] * scale_ > gsd_ * 2:
                     min_scale = i
-                    print('else min',list(self.dic_pec_v)[min_scale])
                     break
-        print('min_scale', min_scale, 'max_scale', max_scale)
         max_scale_idx = max(min(max_scale, min_scale), 0)
         min_scale_idx = min(max(max_scale, min_scale), len(self.dic_pec_v) -1)
-        print('max_scale_idx', max_scale_idx, 'min_scale_idx', min_scale_idx)
         list_ = []
         for i in range (max_scale_idx, min_scale_idx + 1):
             list_.append(list(self.dic_pec_v)[i])
@@ -4625,7 +5264,6 @@ class Wd1(QWidget):
         mss_ = self.tr('=======================================\n')
         mss_ += self.tr('CALCULANDO PEC PLANIMÉTRICO')
         self.log_message(mss_, 'INFO')
-        print(mss_)
 
         for scale_ in sorted(dic_values):
             for class_ in dic_values[scale_]:
@@ -4633,14 +5271,12 @@ class Wd1(QWidget):
                 ep_h = round(scale_ * self.dic_pec_mm['H'][class_]['ep'], 2)
                 row, str_ = self._calc_pec_group_report(
                     dic_values, scale_, class_, 'dm_h', pec_h, ep_h, dimension='H')
-                print(str_)
                 self.log_message(str_, 'INFO')
                 self._pec_report_plan_rows.append(row)
 
         mss_ = self.tr('=======================================\n')
         mss_ += self.tr('CALCULANDO PEC ALTIMÉTRICO')
         self.log_message(mss_, 'INFO')
-        print(mss_)
         for scale_ in sorted(dic_values):
             for class_ in dic_values[scale_]:
                 pec_v, ep_v = pec_alt_limits(scale_, class_, self.dic_pec_alt)
@@ -4654,7 +5290,6 @@ class Wd1(QWidget):
                 row, str_ = self._calc_pec_group_report(
                     dic_values, scale_, class_, 'dm_v', pec_v, ep_v,
                     dimension='V', eq=self.dic_pec_v.get(scale_))
-                print(str_)
                 self.log_message(str_, 'INFO')
                 self._pec_report_alt_rows.append(row)
 
@@ -4792,12 +5427,15 @@ class Wd1(QWidget):
             'perc_q': '',
             'pec_lim': pec_lim,
             'result_q': failed,
+            'result_q_ok': False,
             'perc_e': '',
             'result_e': failed,
+            'result_e_ok': False,
             'teste_pec_q': norm_fail,
             'teste_pec_e': norm_fail,
             'teste_ep': '',
             'result_ep': failed,
+            'result_ep_ok': False,
             'outlier_ids': ', '.join(str(i) for i in outlier_ids),
             'reprovados_ids': '',
         }
@@ -4850,8 +5488,10 @@ class Wd1(QWidget):
             'perc_q': perc_q_pct,
             'pec_lim': pec_lim,
             'result_q': self.tr('PASSOU') if pec_ok_q else self.tr('FALHOU'),
+            'result_q_ok': pec_ok_q,
             'perc_e': perc_e_pct,
             'result_e': self.tr('PASSOU') if pec_ok_e else self.tr('FALHOU'),
+            'result_e_ok': pec_ok_e,
             'teste_pec_q': f'{perc_q_pct} % <= {pec_lim}',
             'teste_pec_e': f'{perc_e_pct} % <= {pec_lim}',
             'teste_ep': (
@@ -4859,6 +5499,7 @@ class Wd1(QWidget):
                 if math.isfinite(rms_show) else ''
             ),
             'result_ep': self.tr('PASSOU') if ep_ok else self.tr('FALHOU'),
+            'result_ep_ok': ep_ok,
             'outlier_ids': ', '.join(str(i) for i in outlier_ids),
             'reprovados_ids': ', '.join(str(i) for i in reprov_ids),
         }
@@ -4968,6 +5609,17 @@ class Wd1(QWidget):
     def _pec_row_to_cells(self, row, dimension='H'):
         return self._pec_row_data_cells(row, dimension)
 
+    def _pec_row_snapshot_entry(self, row, dimension='H') -> dict:
+        """Entrada PEC no snapshot/PDF: texto traduzido + flags pass/fail (idioma-independente)."""
+        return {
+            'cells': [str(c) for c in self._pec_row_to_cells(row, dimension)],
+            'result_ok': [
+                row.get('result_q_ok'),
+                row.get('result_e_ok'),
+                row.get('result_ep_ok'),
+            ],
+        }
+
     def _write_pec_results_txt(self):
         """Grava tabelas PEC planimétrica/altimétrica em texto tabulado (formato pec_from_gpkg)."""
         data_dir = self.dic_prj.get('path')
@@ -5021,50 +5673,68 @@ class Wd1(QWidget):
             return str(val)
         return '' if val is None else str(val)
 
-    def _report_extent_intersection_lines(self) -> list:
-        """Linhas de texto para localização da área (mesma lógica do bloco HTML)."""
+    def _report_extent_intersection_rows(self) -> list:
+        """Linhas da tabela de envelope (colunas Xmin, Ymin, Xmax, Ymax)."""
         lyr = self._resolve_limit_layer_for_editing(self.intersection_name)
         if lyr is None or not lyr.isValid():
-            return [self.tr('(camada de interseção indisponível)')]
+            return [{'label': self.tr('Estado'), 'value': self.tr('(camada de interseção indisponível)')}]
         ext = lyr.extent()
         if ext.isEmpty():
-            return [self.tr('(extensão vazia — execute a interseção dos MDEs)')]
+            return [{'label': self.tr('Estado'), 'value': self.tr('(extensão vazia — execute a interseção dos MDEs)')}]
         crs = lyr.crs()
         official = QgsCoordinateReferenceSystem(REPORT_ENVELOPE_OFFICIAL_CRS_AUTH)
         official_label = REPORT_ENVELOPE_OFFICIAL_LABEL
-        xmin = round(ext.xMinimum(), 3)
-        ymin = round(ext.yMinimum(), 3)
-        xmax = round(ext.xMaximum(), 3)
-        ymax = round(ext.yMaximum(), 3)
         rows = []
+
+        def _env_row(label, rect, *, decimals=3):
+            return {
+                'label': label,
+                'xmin': round(rect.xMinimum(), decimals),
+                'ymin': round(rect.yMinimum(), decimals),
+                'xmax': round(rect.xMaximum(), decimals),
+                'ymax': round(rect.yMaximum(), decimals),
+            }
+
+        crs_label = crs.authid() if crs.isValid() else self.tr('(sem CRS)')
         if crs.isValid() and crs.authid().upper() == REPORT_ENVELOPE_OFFICIAL_CRS_AUTH.upper():
-            rows.append(
-                self.tr('Envelope ({0}): Xmin={1}, Ymin={2}, Xmax={3}, Ymax={4}').format(
-                    official_label, xmin, ymin, xmax, ymax,
-                ))
+            rows.append(_env_row(
+                self.tr('Envelope ({0})').format(official_label), ext, decimals=3))
         else:
-            rows.append(
-                self.tr('Envelope: Xmin={0}, Ymin={1}, Xmax={2}, Ymax={3}').format(
-                    xmin, ymin, xmax, ymax,
-                ))
+            rows.append(_env_row(
+                self.tr('Envelope ({0})').format(crs_label), ext, decimals=3))
             if crs.isValid():
                 try:
                     xform = QgsCoordinateTransform(
                         crs, official, QgsProject.instance(),
                     )
                     rect = xform.transformBoundingBox(ext)
-                    rows.append(
-                        self.tr('Envelope ({0}): Xmin={1}, Ymin={2}, Xmax={3}, Ymax={4}').format(
-                            official_label,
-                            round(rect.xMinimum(), 6),
-                            round(rect.yMinimum(), 6),
-                            round(rect.xMaximum(), 6),
-                            round(rect.yMaximum(), 6),
-                        ))
+                    rows.append(_env_row(
+                        self.tr('Envelope ({0})').format(official_label), rect, decimals=6))
                 except Exception:
-                    rows.append(
-                        self.tr('(transformação para {0} indisponível)').format(official_label))
+                    rows.append({
+                        'label': self.tr('Envelope ({0})').format(official_label),
+                        'value': self.tr('(transformação indisponível)'),
+                    })
         return rows
+
+    def _report_extent_intersection_lines(self) -> list:
+        """Compatibilidade: texto plano derivado das linhas da tabela."""
+        lines = []
+        for row in self._report_extent_intersection_rows():
+            if 'xmin' in row:
+                lines.append(
+                    '{0}: Xmin={1}, Ymin={2}, Xmax={3}, Ymax={4}'.format(
+                        row.get('label', ''),
+                        row.get('xmin', ''),
+                        row.get('ymin', ''),
+                        row.get('xmax', ''),
+                        row.get('ymax', ''),
+                    ))
+            elif row.get('label'):
+                lines.append(f'{row.get("label", "")}: {row.get("value", "")}')
+            else:
+                lines.append(str(row.get('value', '')))
+        return lines
 
     def _report_extent_intersection_html(self) -> str:
         return '<br/>'.join(html.escape(s) for s in self._report_extent_intersection_lines())
@@ -5080,16 +5750,196 @@ class Wd1(QWidget):
                 '(ainda não há resultados de PEC nesta sessão — execute a análise até ao fim.)')
         return _build_pec_results_tables_html_blocks(
             intro=intro,
-            plan_title=self.tr('6.1 PEC Planimétrico'),
-            alt_title=self.tr('6.2 PEC Altimétrico'),
+            plan_title=self.tr('7.1 PEC Planimétrico'),
+            alt_title=self.tr('7.2 PEC Altimétrico'),
             plan_data_rows=[
-                [str(c) for c in self._pec_row_to_cells(row, 'H')] for row in plan_rows],
+                self._pec_row_snapshot_entry(row, 'H') for row in plan_rows],
             alt_data_rows=[
-                [str(c) for c in self._pec_row_to_cells(row, 'V')] for row in alt_rows],
+                self._pec_row_snapshot_entry(row, 'V') for row in alt_rows],
             empty_message=empty_msg,
             header_labels=self._pec_results_header_labels(),
             plan_page_break=True,
             alt_page_break=True,
+        )
+
+    def _normalization_method_index(self) -> int:
+        try:
+            return int(
+                self.settings_dlg.dic_param['step_normalize_prog']['fields']['norm_type']['value'])
+        except (TypeError, ValueError, KeyError):
+            return 0
+
+    @staticmethod
+    def _geometry_wkt_for_report(geom) -> str:
+        if geom is None or geom.isNull() or geom.isEmpty():
+            return ''
+        try:
+            return QgsGeometry(geom).asWkt()
+        except Exception:
+            return ''
+
+    def _collect_homologous_pairs_profile_data(self) -> dict:
+        """Pares homólogos com WKT dos perfis compatibilizados e escalar k (método linear)."""
+        norm_idx = self._normalization_method_index()
+        norm_label = self.list_norm_type[norm_idx] if 0 <= norm_idx < len(self.list_norm_type) else ''
+        dm = getattr(self, 'dic_match', None) or {}
+        if not dm:
+            rebuilt = self._dic_match_from_match_lines_layer()
+            if rebuilt is not None:
+                dm = rebuilt
+        if not dm:
+            return {
+                'norm_index': norm_idx,
+                'norm_label': norm_label,
+                'pairs': [],
+                'linear_scalars': [],
+            }
+
+        type_r = self.dic_prj['dems'][0]['type']
+        type_t = self.dic_prj['dems'][1]['type']
+        pairs = []
+        linear_scalars = []
+        pair_n = 0
+        wkt_dec = 2
+
+        for tag_ in sorted(dm.keys()):
+            layer_r = self._resolve_limit_layer_for_editing(f'__{tag_}_Z_{type_r}__')
+            layer_t = self._resolve_limit_layer_for_editing(f'__{tag_}_Z_{type_t}__')
+            if layer_r is None or layer_t is None or not layer_r.isValid() or not layer_t.isValid():
+                continue
+            layer_ref_name = layer_r.name()
+            layer_test_name = layer_t.name()
+            for vet_ in dm[tag_]:
+                if not vet_ or len(vet_) < 2:
+                    continue
+                try:
+                    fid_r = int(vet_[0])
+                    fid_t = int(vet_[1])
+                except (TypeError, ValueError):
+                    continue
+                fr = layer_r.getFeature(fid_r)
+                ft = layer_t.getFeature(fid_t)
+                if not fr.hasGeometry() or not ft.hasGeometry():
+                    continue
+                gr = QgsGeometry(fr.geometry())
+                gt = QgsGeometry(ft.geometry())
+                profiles = build_compatibilized_profile_geometries(gr, gt, norm_idx)
+                pair_n += 1
+                entry = {
+                    'n': pair_n,
+                    'morph_tag': tag_,
+                    'ref_id': fid_r,
+                    'layer_ref': layer_ref_name,
+                    'wkt_ref': '',
+                    'test_id': fid_t,
+                    'layer_test': layer_test_name,
+                    'wkt_test': '',
+                }
+                if profiles:
+                    entry['wkt_ref'] = _profile_geometry_wkt_for_report(
+                        profiles['geom_prof_r'], decimals=wkt_dec)
+                    entry['wkt_test'] = _profile_geometry_wkt_for_report(
+                        profiles['geom_prof_t'], decimals=wkt_dec)
+                    k_t = profiles.get('k_t')
+                    if norm_idx == 0 and k_t is not None and math.isfinite(k_t):
+                        entry['scalar_k'] = k_t
+                        linear_scalars.append(k_t)
+                pairs.append(entry)
+
+        return {
+            'norm_index': norm_idx,
+            'norm_label': norm_label,
+            'pairs': pairs,
+            'linear_scalars': linear_scalars,
+        }
+
+    def _build_report_pairs_section(self) -> dict:
+        data = self._collect_homologous_pairs_profile_data()
+        norm_idx = data.get('norm_index', 0)
+        norm_label = data.get('norm_label') or ''
+        pairs = data.get('pairs') or []
+        scalars = data.get('linear_scalars') or []
+
+        rows = []
+        if norm_label:
+            rows.append({
+                'label': self.tr('Método de normalização de progressivas'),
+                'value': norm_label,
+            })
+        if pairs:
+            rows.append({
+                'label': self.tr('Total de pares'),
+                'value': str(len(pairs)),
+            })
+            rows.append({
+                'label': self.tr('Ficheiro WKT dos perfis'),
+                'value': '',
+            })
+        if norm_idx == 0 and scalars:
+            rows.append({
+                'is_group': True,
+                'label': self.tr('Escalar (k)'),
+            })
+            dec = 2
+            rows.extend([
+                {
+                    'label': self.tr('Média'),
+                    'value': _format_report_scalar_k(statistics.mean(scalars), decimals=dec),
+                },
+                {
+                    'label': self.tr('Mínima'),
+                    'value': _format_report_scalar_k(min(scalars), decimals=dec),
+                },
+                {
+                    'label': self.tr('Máxima'),
+                    'value': _format_report_scalar_k(max(scalars), decimals=dec),
+                },
+                {
+                    'label': self.tr('Desvio Padrão'),
+                    'value': _format_report_scalar_k(
+                        statistics.stdev(scalars) if len(scalars) >= 2 else 0.0,
+                        decimals=dec,
+                    ),
+                },
+            ])
+
+        empty_msg = ''
+        if not pairs:
+            empty_msg = self.tr('(sem pares homólogos definidos — execute a correspondência de linhas.)')
+
+        return {
+            'title': self.tr('6. Pares homólogos — estatísticas'),
+            'header': [self.tr('Opção'), self.tr('Valor')],
+            'rows': rows,
+            'norm_caption': self.tr('Método de normalização de progressivas'),
+            'norm_label': norm_label,
+            'wkt_file_caption': self.tr('Ficheiro WKT dos perfis'),
+            'empty_message': empty_msg,
+        }
+
+    def _profiles_wkt_export_labels(self) -> dict:
+        return {
+            'datetime': self.tr('Data/hora'),
+            'project_file': self.tr('Ficheiro de projeto'),
+            'norm_caption': self.tr('Método de normalização de progressivas'),
+            'pair': self.tr('Par'),
+            'ref_id': self.tr('ref_id'),
+            'layer_ref': self.tr('camada_ref'),
+            'wkt_ref': self.tr('Perfil ref. (WKT compatibilizado)'),
+            'test_id': self.tr('test_id'),
+            'layer_test': self.tr('camada_test'),
+            'wkt_test': self.tr('Perfil teste (WKT compatibilizado)'),
+            'scalar_k': self.tr('Escalar k (linear)'),
+        }
+
+    def _build_profiles_wkt_txt(self) -> str:
+        data = self._collect_homologous_pairs_profile_data()
+        when = QDateTime.currentDateTime().toString('yyyy-MM-dd HH:mm:ss')
+        return format_profiles_wkt_txt(
+            data,
+            datetime_str=when,
+            project_file=self.dic_prj.get('project_file') or '',
+            labels=self._profiles_wkt_export_labels(),
         )
 
     def _collect_report_snapshot(self) -> dict:
@@ -5145,11 +5995,23 @@ class Wd1(QWidget):
             ext_match_disp = str(round(em_m / 1000.0, 1))
         else:
             ext_match_disp = '—'
-        stats_lines = [
-            self.dic_lb_texts['area'].format(self._panel_stats_cache.get('area') or '—'),
-            self.dic_lb_texts['ext_min'].format(self._panel_stats_cache.get('ext_min') or '—'),
-            self.dic_lb_texts['ext_match'].format(ext_match_disp),
-            self.dic_lb_texts['pair_nr'].format(self._panel_stats_cache.get('pair_nr') or '—'),
+        stats_rows = [
+            {
+                'label': self.tr('Área de estudo'),
+                'value': f'{self._panel_stats_cache.get("area") or "—"} km²',
+            },
+            {
+                'label': self.tr('Extensão mínima da amostra'),
+                'value': f'{self._panel_stats_cache.get("ext_min") or "—"} km',
+            },
+            {
+                'label': self.tr('Extensão da amostra'),
+                'value': f'{ext_match_disp} km',
+            },
+            {
+                'label': self.tr('Número de pares homólogos'),
+                'value': str(self._panel_stats_cache.get('pair_nr') or '—'),
+            },
         ]
 
         plan_rows = getattr(self, '_pec_report_plan_rows', None) or []
@@ -5159,23 +6021,38 @@ class Wd1(QWidget):
 
         return {
             'meta': {
-                'title': self.tr('Relatório — MDE Acurácia Posicional'),
+                'title': self.tr('Relatório — MDE AP — Acurácia Posicional'),
                 'datetime': when,
                 'project_file': proj_path,
                 'crs': crs_,
+                'labels': {
+                    'title': self.tr('Título'),
+                    'datetime': self.tr('Data/hora'),
+                    'project_file': self.tr('Ficheiro de projeto'),
+                    'crs': self.tr('CRS de referência (análise)'),
+                    'option': self.tr('Opção'),
+                    'value': self.tr('Valor'),
+                },
             },
             'sections': {
                 'location': {
                     'title': self.tr('1. Localização da área de estudo'),
-                    'lines': self._report_extent_intersection_lines(),
+                    'header': [
+                        self.tr('Envelope'),
+                        'Xmin',
+                        'Ymin',
+                        'Xmax',
+                        'Ymax',
+                    ],
+                    'rows': self._report_extent_intersection_rows(),
                 },
                 'workflow': {
                     'title': self.tr('2. Fluxo de trabalho'),
                     'header': [self.tr('Opção'), self.tr('Valor')],
                     'rows': [
-                        {'option': self.tr('Área de estudos'), 'value': self.cbx_workflow_study.currentText()},
+                        {'option': self.tr('Definição da área de estudos'), 'value': self.cbx_workflow_study.currentText()},
                         {'option': self.tr('Pares homólogos'), 'value': self.cbx_workflow_pairs.currentText()},
-                        {'option': self.tr('Outliers (PEC)'), 'value': self.cbx_workflow_outliers.currentText()},
+                        {'option': self.tr('Tratamento de outliers'), 'value': self.cbx_workflow_outliers.currentText()},
                         {'option': self.tr('Camada polígono (se aplicável)'), 'value': study_ly},
                     ],
                 },
@@ -5195,25 +6072,27 @@ class Wd1(QWidget):
                 },
                 'stats': {
                     'title': self.tr('5. Estatísticas do painel'),
-                    'lines': stats_lines,
+                    'header': [self.tr('Opção'), self.tr('Valor')],
+                    'rows': stats_rows,
                 },
+                'pairs': self._build_report_pairs_section(),
                 'pec': {
-                    'title': self.tr('6. Resultados PEC'),
+                    'title': self.tr('7. Resultados PEC'),
                     'intro': (getattr(self, '_pec_report_pec_intro', '') or '').strip(),
                     'header_labels': self._pec_results_header_labels(),
                     'plan': {
-                        'title': self.tr('6.1 PEC Planimétrico'),
+                        'title': self.tr('7.1 PEC Planimétrico'),
                         'header_rows': list(self._pec_results_table_head_txt_rows(altimetric=False)),
                         'data_rows': [
-                            [str(c) for c in self._pec_row_to_cells(row, 'H')]
+                            self._pec_row_snapshot_entry(row, 'H')
                             for row in plan_rows
                         ],
                     },
                     'alt': {
-                        'title': self.tr('6.2 PEC Altimétrico'),
+                        'title': self.tr('7.2 PEC Altimétrico'),
                         'header_rows': list(self._pec_results_table_head_txt_rows(altimetric=True)),
                         'data_rows': [
-                            [str(c) for c in self._pec_row_to_cells(row, 'V')]
+                            self._pec_row_snapshot_entry(row, 'V')
                             for row in alt_rows
                         ],
                     },
@@ -5265,7 +6144,7 @@ class Wd1(QWidget):
             pdf_path = os.path.normpath(os.path.abspath(out_pdf))
             os.makedirs(os.path.dirname(pdf_path) or '.', exist_ok=True)
         else:
-            fn = f'Relatorio_MDE_PA_{safe_stem}_{ts}.pdf'
+            fn = f'Relatorio_MDE_AP_{safe_stem}_{ts}.pdf'
             pdf_path = os.path.normpath(os.path.join(data_dir, fn))
 
         if out_txt:
@@ -5275,12 +6154,44 @@ class Wd1(QWidget):
             root, _ = os.path.splitext(pdf_path)
             txt_path = root + '.txt'
         else:
-            fn = f'Relatorio_MDE_PA_{safe_stem}_{ts}.txt'
+            fn = f'Relatorio_MDE_AP_{safe_stem}_{ts}.txt'
             txt_path = os.path.normpath(os.path.join(data_dir, fn))
 
         html_path = _companion_report_path(txt_path, '.html')
 
         snapshot = self._collect_report_snapshot()
+        wkt_body = self._build_profiles_wkt_txt()
+        wkt_path = None
+        if wkt_body:
+            fn_wkt = f'Perfis_WKT_MDE_AP_{safe_stem}_{ts}.txt'
+            wkt_path = os.path.normpath(os.path.join(data_dir, fn_wkt))
+            try:
+                with open(wkt_path, 'w', encoding='utf-8') as f:
+                    f.write(wkt_body)
+            except OSError as e:
+                self.log_message(
+                    self.tr('Falha ao gerar ficheiro WKT dos perfis: {0} ({1})').format(wkt_path, e),
+                    'ERROR',
+                )
+                wkt_path = None
+            else:
+                pairs_sec = snapshot.get('sections', {}).get('pairs') or {}
+                wkt_name = os.path.basename(wkt_path)
+                pairs_sec['wkt_file'] = wkt_name
+                wkt_caption = pairs_sec.get('wkt_file_caption') or self.tr('Ficheiro WKT dos perfis')
+                pair_rows = list(pairs_sec.get('rows') or [])
+                updated = False
+                for row in pair_rows:
+                    if not row.get('is_group') and row.get('label') == wkt_caption:
+                        row['value'] = wkt_name
+                        updated = True
+                        break
+                if not updated:
+                    insert_at = min(2, len(pair_rows))
+                    pair_rows.insert(insert_at, {'label': wkt_caption, 'value': wkt_name})
+                pairs_sec['rows'] = pair_rows
+                snapshot.setdefault('sections', {})['pairs'] = pairs_sec
+
         html_doc = render_pdf_report_html(snapshot)
         txt_body = format_full_report_txt(snapshot)
 
@@ -5314,6 +6225,9 @@ class Wd1(QWidget):
                 self.tr('Relatório TXT v1 exportado (parseável → PDF): {0}').format(txt_path),
                 'INFO',
             )
+        if wkt_path:
+            self.log_message(
+                self.tr('Ficheiro WKT dos perfis exportado: {0}').format(wkt_path), 'INFO')
         if os.path.isfile(html_path):
             self.log_message(self.tr('Relatório HTML exportado: {0}').format(html_path), 'INFO')
         if pdf_path and txt_path:
@@ -5321,6 +6235,8 @@ class Wd1(QWidget):
                 self.tr('Relatórios na pasta do projeto: PDF + TXT (+ HTML se aplicável).'),
                 'INFO',
             )
+        if pdf_path and os.path.isfile(pdf_path):
+            self._last_report_pdf_path = pdf_path
         return pdf_path, txt_path
 
     def export_project_pdf_report_to(self, out_path: str = None, *, margin_mm: float = None) -> str:
@@ -5490,7 +6406,6 @@ class Wd1(QWidget):
                 elif key_ == 1:
                     self.matching_lines()
             if 'model' in dic_:
-                print(f'dem {key_}:', dic_['model'])
                 self.dic_prj["dems"][key_]['model'] = dic_['model']
         elif 'dic_values' in dic_:
             self._finalize_buffers_map_display()
@@ -5501,7 +6416,7 @@ class Wd1(QWidget):
                 n_out = self._count_outliers_flagged(dv)
                 QMessageBox.information(
                     self,
-                    self.tr('Outliers (PEC)'),
+                    self.tr('Tratamento de outliers'),
                     self.tr(
                         'Foram identificados {0} valores atípicos (excluídos do cálculo PEC). '
                         'Prima OK para continuar.').format(n_out),
@@ -5512,6 +6427,8 @@ class Wd1(QWidget):
             pdf_path, txt_path = self.export_project_reports_to()
             if not pdf_path and not txt_path:
                 self.log_message(self.tr('Falha ao exportar relatórios.'), 'ERROR')
+            elif self.cb_open_report.isChecked() and pdf_path:
+                self._open_report_file(pdf_path)
             # print(dic_['dic_values'])
         elif 'end' in dic_:
             palette.setColor(QPalette.Highlight, QColor(Qt.darkGreen))
@@ -5519,6 +6436,118 @@ class Wd1(QWidget):
             prog_bar.setFormat(dic_['msg'])
             prog_bar.setPalette(palette)
             # self.db.commit_()
+
+    def apply_ui_language(
+        self,
+        rebuild_settings: bool = False,
+        refresh_open_settings: bool = False,
+        refresh_open_language: bool = False,
+    ):
+        """Recarrega traduções e actualiza textos visíveis após mudança de idioma."""
+        plugin = self.main
+        locale_code = saved_ui_locale() or LOCALE_AUTO
+        if plugin:
+            plugin.translator = install_plugin_translator(locale_code)
+            plugin.name_ = tr_ui(PLUGIN_DISPLAY_NAME)
+            if getattr(plugin, 'dock1', None):
+                plugin.dock1.setWindowTitle(f'{plugin.name_}.')
+
+        self._refresh_ui_language_button()
+
+        self.dic_lb_texts = {
+            'area': tr_ui('Área de estudo: {} km²'),
+            'ext_min': tr_ui('Extensão mínima da amostra: {} km'),
+            'ext_match': tr_ui('Extensão da Amostra: {} km'),
+            'pair_nr': tr_ui('Número de pares homólogos: {}'),
+        }
+        self.list_norm_type = [
+            tr_ui('Linear'), tr_ui('Por Proximidade'), tr_ui('Sem Normalização')]
+
+        self.lb_title_proj.setText(self.tr('Projeto (.pa.gpkg):'))
+        self.pb_config.setToolTip(self.tr('Config'))
+        self.pb_lang.setToolTip(self.tr('Alterar idioma da interface'))
+        self.pb_project_new.setToolTip(self.tr('Novo projeto…'))
+        self.pb_project_open.setToolTip(self.tr('Abrir projeto…'))
+        self.lb_study_layer.setText(self.tr('Camada polígono (área de estudo):'))
+        self.pb_proc.setText(self.tr('Avaliar'))
+        self.lb_log.setText(self.tr('LOG:'))
+        if getattr(self, 'cb_open_report', None):
+            self.cb_open_report.setText(self.tr('Abrir o relatório'))
+            self._refresh_open_report_checkbox_ui()
+        if getattr(self, 'lb_dem_ref', None):
+            self.lb_dem_ref.setText(self.tr('MDE de referência:'))
+        if getattr(self, 'lb_dem_test', None):
+            self.lb_dem_test.setText(self.tr('MDE de teste:'))
+        if getattr(self, 'lb_wf_study', None):
+            self.lb_wf_study.setText(self.tr('Definição da área de estudos:'))
+        if getattr(self, 'lb_wf_pairs', None):
+            self.lb_wf_pairs.setText(self.tr('Seleção de pares homólogos:'))
+        if getattr(self, 'lb_wf_outliers', None):
+            self.lb_wf_outliers.setText(self.tr('Tratamento de outliers:'))
+
+        def _reload_combo(combo, texts):
+            idx = combo.currentIndex()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItems(texts)
+            if 0 <= idx < combo.count():
+                combo.setCurrentIndex(idx)
+            combo.blockSignals(False)
+
+        _reload_combo(self.cbx_workflow_study, [
+            self.tr('Calcular pela interseção dos MDEs'),
+            self.tr('Editar após interseção'),
+            self.tr('Selecionar de uma camada'),
+        ])
+        _reload_combo(self.cbx_workflow_pairs, [
+            self.tr('Automática'),
+            self.tr('Revisar'),
+        ])
+        _reload_combo(self.cbx_workflow_outliers, [
+            self.tr('Remover automaticamente'),
+            self.tr('Avaliar individualmente'),
+            self.tr('Usar todos'),
+        ])
+
+        for key_ in self.dic_prj['dems']:
+            obj_pb = self.dic_prj['dems'][key_].get('obj_pb')
+            if obj_pb is not None:
+                obj_pb.setToolTip(self.tr('Informações do MDE selecionado'))
+
+        self._refresh_extent_and_pairs_labels()
+        self._refresh_proc_button()
+
+        pf = self.dic_prj.get('project_file')
+        if pf and os.path.isfile(pf):
+            self.lb_status_proj.setText(self.tr('Projeto OK'))
+        elif pf:
+            self.lb_status_proj.setText(self.tr('Arquivo .pa.gpkg ausente'))
+        else:
+            self.lb_status_proj.setText(self.tr('Não definido'))
+
+        if refresh_open_language and self.language_dlg and self.language_dlg.isVisible():
+            self.language_dlg.apply_language_live()
+        if refresh_open_settings and self.settings_dlg and self.settings_dlg.isVisible():
+            self.settings_dlg.apply_language_live()
+        elif rebuild_settings:
+            old_dlg = self.settings_dlg
+            self.settings_dlg = None
+            if old_dlg is not None:
+                old_dlg.deleteLater()
+            self.settings_dlg = SettingsDlg(main=self.parent, parent=self)
+            self.reload_settings_from_project_file()
+
+    def _refresh_ui_language_button(self):
+        if not getattr(self, 'pb_lang', None):
+            return
+        self.pb_lang.setText(locale_button_label())
+
+    def open_language_dialog(self):
+        if not self.language_dlg:
+            self.language_dlg = LanguageDlg(parent=self)
+        self.language_dlg.show()
+        self.language_dlg.raise_()
+        self.language_dlg.activateWindow()
 
     def open_settings(self):
         if not self.settings_dlg:

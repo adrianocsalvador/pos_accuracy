@@ -1,4 +1,4 @@
-Traduções do plugin MDE Acurácia Posicional (textos fonte em pt_BR; traduções via Qt Linguist)
+Traduções do plugin MDE AP - Acurácia Posicional (textos fonte em pt_BR; traduções via Qt Linguist)
 ==========================================
 
 Editor (VS Code / Cursor): ficheiros em i18n/*.ts são XML Qt, não TypeScript.
@@ -12,21 +12,24 @@ No código Python:
 
 O QTranslator carrega pos_accuracy_<locale>.qm a partir da pasta i18n/
 (p.ex. pos_accuracy_en.qm para inglês, pos_accuracy_pt_BR.qm para português do Brasil).
+Idioma de desenvolvimento (textos fonte no código): pt_BR (não usar «pt» genérico).
 
 Fluxo recomendado
 -----------------
-1) Instalar ferramentas Qt (pylupdate5 e lrelease), ou usar as do OSGeo4W / instalador QGIS.
-
-2) Após alterar strings traduzíveis:
+1) Atualizar .ts e gerar .qm (recomendado):
      cd i18n
-     pylupdate5 pos_accuracy.pro
+     build_translations.bat
 
-3) Abrir o(s) ficheiro(s) .ts no Qt Linguist, preencher traduções e gravar.
+   O script sync_translations.py extrai strings do Python para um unico
+   contexto PositionalAccuracyPlugin (evita problema do pylupdate com Wd1).
 
-4) Gerar binários .qm:
-     lrelease pos_accuracy_en.ts -qm pos_accuracy_en.qm
+2) So recompilar .qm apos editar traducoes no Qt Linguist:
+     build_translations.bat qm-only
 
-5) Colocar o .qm na pasta i18n/ e recarregar o plugin.
+3) lrelease: QGIS standalone muitas vezes nao o inclui. O .bat procura
+   pyside6-lrelease (py -3.12 -m pip install --user PySide6) ou lrelease do OSGeo4W.
+
+4) Recarregar o plugin no QGIS apos gerar pos_accuracy_en.qm.
 
 Nota: Se não existir .qm para o idioma do QGIS, as mensagens em português do código
 continuam visíveis (idioma de partida).

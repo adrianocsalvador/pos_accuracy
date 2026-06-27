@@ -5,7 +5,7 @@
                              -------------------
         begin                : 2025-11-01
         copyright            : (C) 2025 Adriano Caliman Salvador - BR
-        email                : adriano.caliman@com.br
+        email                : adriano.caliman@ufv.br
         git sha              : $Format:%H$
  ***************************************************************************/
 

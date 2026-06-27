@@ -1,13 +1,11 @@
-# Atualizar ficheiros .ts a partir do código Python (PyQt5 / QGIS):
-#   cd i18n
-#   pylupdate5 pos_accuracy.pro
-#
-# Editar traduções no Qt Linguist, depois gerar .qm:
-#   lrelease pos_accuracy_en.ts -qm pos_accuracy_en.qm
+# Fluxo principal: build_translations.bat (sync_translations.py + lrelease).
+# pylupdate5 abaixo e legado / fallback; sync gera pos_accuracy_en.ts e pos_accuracy_es_ES.ts.
 
 CODECFORTR = UTF-8
 
 SOURCES = ../mods/mod_positional_accuracy.py \
-          ../mods/mod_settings.py
+          ../mods/mod_settings.py \
+          ../mods/mod_language_dlg.py
 
-TRANSLATIONS = pos_accuracy_en.ts
+TRANSLATIONS = pos_accuracy_en.ts \
+               pos_accuracy_es_ES.ts

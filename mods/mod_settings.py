@@ -114,6 +114,69 @@ class SettingsDlg(QDialog):
         dlgLayout = self.create_layout()
         self.setLayout(dlgLayout)
 
+    def _retranslate_dic_param(self):
+        """Actualiza rótulos traduzíveis em dic_param (valores dos widgets mantêm-se)."""
+        dp = self.dic_param
+        dp['step_morfologia']['label'] = tr_ui('Definições para Geração de Morfologia')
+        dp['step_morfologia']['fields']['max_basin_area']['label'] = tr_ui(
+            'Máxima Área das Bacias (m²)')
+        dp['step_morfologia']['fields']['max_memo_grass']['label'] = tr_ui(
+            'Limite de Memória para Grass GIS (GB)')
+        dp['step_match']['label'] = tr_ui('Definições para Seleção dos Pares')
+        dp['step_match']['fields']['dist_max']['label'] = tr_ui(
+            'Distância máxima entre centróides (pixels do MDE de teste)')
+        dp['step_match']['fields']['percent_area']['label'] = tr_ui(
+            'Diferença % entre área dos mínimos envelopes')
+        dp['step_buffers']['label'] = tr_ui('Definições para Geração Buffers')
+        dp['step_buffers']['fields']['max_scale']['label'] = tr_ui('Máxima Escala')
+        dp['step_buffers']['fields']['min_scale']['label'] = tr_ui('Mínima Escala')
+        dp['step_buffers']['fields']['show_buffers_on_map']['label'] = tr_ui(
+            'Mostrar buffers no mapa durante o processamento')
+        dp['step_buffers']['fields']['show_buffers_on_map']['list'] = [
+            tr_ui('Não'), tr_ui('Sim')]
+        dp['step_normalize_prog']['label'] = tr_ui(
+            'Definições para Normalização de Progressivas')
+        dp['step_normalize_prog']['fields']['norm_type']['label'] = tr_ui(
+            'Método para Normalização')
+        dp['step_normalize_prog']['fields']['norm_type']['list'] = self.parent.list_norm_type
+
+    def apply_language_live(self):
+        """Actualiza textos da janela de parâmetros após mudança de idioma."""
+        self.flush_widgets_to_dic_param()
+        self._retranslate_dic_param()
+        self.setWindowTitle(tr_ui('Parâmetros'))
+        self.pb_rest.setText(tr_ui('Restaurar'))
+        self.pb_save.setText(tr_ui('Salvar'))
+        for item_i, block in self.dic_param.items():
+            if not item_i.startswith('step_'):
+                continue
+            lb_sec = self.findChild(QLabel, item_i.replace('sch', 'lb'))
+            if lb_sec is not None:
+                lb_sec.setText(block['label'])
+            for item_j, meta in block['fields'].items():
+                lb_f = self.findChild(QLabel, 'lb_' + item_j.lower())
+                if lb_f is not None:
+                    lb_f.setText(meta['label'])
+                obj = meta.get('obj')
+                if obj is None or 'list' not in meta:
+                    continue
+                idx = obj.currentIndex()
+                obj.blockSignals(True)
+                obj.clear()
+                if 'string' in meta:
+                    for value_ in meta['list']:
+                        obj.addItem(meta['string'].format(value_))
+                    obj.addItem('')
+                elif item_j == 'norm_type':
+                    obj.addItems(list(self.parent.list_norm_type))
+                elif item_j == 'show_buffers_on_map':
+                    obj.addItems(list(meta['list']))
+                else:
+                    obj.addItems([str(x) for x in meta['list']])
+                if 0 <= idx < obj.count():
+                    obj.setCurrentIndex(idx)
+                obj.blockSignals(False)
+
     def get_dic_from_settings(self):
         dic_from_settings = self.aux_tools.get_dic(key_='dic_param')
         for key_i in dic_from_settings:
@@ -163,7 +226,6 @@ class SettingsDlg(QDialog):
                     obj.setText('' if val is None else str(val))
 
     def create_layout(self):
-        print("create_layout_db")
         r_ = 0
         gl_ = QGridLayout()
 
@@ -194,7 +256,6 @@ class SettingsDlg(QDialog):
                             list_ = self.dic_param[item_i]['fields'][item_j]['list']
                         cmb_.addItems(list_)
                         index_ = int(self.dic_param[item_i]['fields'][item_j]['value'])
-                        print('index_', index_)
                         cmb_.setCurrentIndex(index_)
                         self.dic_param[item_i]['fields'][item_j]['obj'] = cmb_
                         gl_.addWidget(cmb_, r_, 2)
@@ -247,7 +308,6 @@ class SettingsDlg(QDialog):
         return vl_
 
     def trigger_actions(self):
-        print("trigger_actions")
         self.pb_save.clicked.connect(self.set_dic_param)
         self.pb_rest.clicked.connect(self.rest_default)
 
@@ -271,9 +331,6 @@ class SettingsDlg(QDialog):
 
     def set_dic_param(self):
         self.parent.persist_project_config_from_widgets(log_values=True)
-        list_scale = self.parent.get_list_scale()
-        print('list_scale:', list_scale)
-
         self.close()
 
     def rest_default(self):
@@ -288,7 +345,6 @@ class SettingsDlg(QDialog):
                     self.dic_param[item_i]['fields'][item_j]['value'] = default_
 
     def fill_inf(self):
-        print('fill_inf')
         self.pb_remove.setEnabled(True)
         # conn_name = self.cb_name.currentText()
         conn_name = self.cb_name.currentText()
@@ -381,6 +437,5 @@ class SettingsDlg(QDialog):
 
 
     def closeEvent(self, evt):
-        print('closeEvent')
         self.aux_tools.save_geometry(self)
 

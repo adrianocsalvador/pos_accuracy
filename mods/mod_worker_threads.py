@@ -16,6 +16,93 @@ from qgis.core import (QgsApplication, QgsCoordinateReferenceSystem, QgsFeature,
 
 # |dm_h| ou |dm_v| acima disto é tratado como erro numérico / geometria; → NaN e WARNING no log.
 DM_ABS_MAX_SANE = 1000.0
+PROFILE_PROG_OFFSET = 10000.0
+
+
+def _profile_line_points(geom: QgsGeometry):
+    wkbt = geom.wkbType()
+    if wkbt == QgsWkbTypes.LineString or wkbt == QgsWkbTypes.LineStringZ:
+        return geom.constGet().points()
+    return geom.constGet()[0].points()
+
+
+def build_compatibilized_profile_geometries(geom_r, geom_t, norm_type: int):
+    """
+    Perfil (progressiva, cota) após compatibilização — mesma lógica que BufferThread.calc_dm_v.
+    Devolve dict com geom_prof_r, geom_prof_t, k_t ou None se inválido.
+    """
+    geom_r = QgsGeometry(geom_r)
+    geom_t = QgsGeometry(geom_t)
+    len_r = geom_r.length()
+    len_t = geom_t.length()
+    if (
+        not math.isfinite(len_r)
+        or not math.isfinite(len_t)
+        or len_r <= 0
+        or len_t <= 0
+    ):
+        return None
+
+    ps_r = _profile_line_points(geom_r)
+    ps_t = _profile_line_points(geom_t)
+    if not ps_r or not ps_t:
+        return None
+
+    gpr0 = QgsGeometry.fromPointXY(QgsPointXY(ps_r[0]))
+    gpr1 = QgsGeometry.fromPointXY(QgsPointXY(ps_r[-1]))
+
+    list_prof_r = []
+    for p_ in ps_r:
+        dist_ = round(geom_r.lineLocatePoint(QgsGeometry(p_)), 2)
+        z_ = round(p_.z(), 2)
+        list_prof_r.append(QgsPointXY(dist_ + PROFILE_PROG_OFFSET, z_))
+    geom_prof_r = QgsGeometry.fromPolylineXY(list_prof_r)
+
+    k_t = len_r / len_t
+    if not math.isfinite(k_t) or abs(k_t) > 1e12:
+        return None
+
+    gpt0 = QgsGeometry.fromPointXY(QgsPointXY(ps_t[0]))
+    ci = gpt0.distance(gpr0) > gpt0.distance(gpr1)
+
+    list_prog_cota_t = []
+    for p_ in ps_t:
+        z_ = round(p_.z(), 2)
+        if norm_type == 0:
+            dist_ = geom_t.lineLocatePoint(QgsGeometry(p_))
+            if ci:
+                dist_ = round((len_t - dist_) * k_t, 2)
+            else:
+                dist_ = round(dist_ * k_t, 2)
+        elif norm_type == 1:
+            dist_ = geom_r.lineLocatePoint(QgsGeometry(p_))
+            if ci:
+                dist_ = round((len_r - dist_) * k_t, 2)
+            else:
+                dist_ = round(dist_, 2)
+        else:
+            dist_ = geom_t.lineLocatePoint(QgsGeometry(p_))
+            if ci:
+                dist_ = round(len_t - dist_, 2)
+            else:
+                dist_ = round(dist_, 2)
+        if not list_prog_cota_t:
+            list_prog_cota_t.append([dist_ + PROFILE_PROG_OFFSET, z_])
+        elif dist_ != list_prog_cota_t[-1][0]:
+            list_prog_cota_t.append([dist_ + PROFILE_PROG_OFFSET, z_])
+
+    list_prog_cota_t.sort()
+    list_prof_t = [
+        QgsPointXY(float(vet_[0]), float(vet_[1]))
+        for vet_ in list_prog_cota_t
+    ]
+    geom_prof_t = QgsGeometry.fromPolylineXY(list_prof_t)
+
+    return {
+        'geom_prof_r': geom_prof_r,
+        'geom_prof_t': geom_prof_t,
+        'k_t': k_t,
+    }
 
 
 def _finite_dm_scalar(x):
@@ -374,7 +461,6 @@ class PolygonThread(QThread):
             tool_ = "native:buffer"
             result_bff = processing.run(tool_, params)
             result_bff = {'OUTPUT': out_buffer}
-            print('result_bff', result_bff)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
             # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
         except Exception as e:
@@ -490,7 +576,6 @@ class MorphologyThread(QThread):
         try:
             nr_ += 1
             tool_ = 'gdal:cliprasterbymasklayer'
-            print(tool_, self.key_, self.file_path)
             params = {
                 'INPUT': f'{self.file_path}',
                 'MASK':f'{self.boudary}',
@@ -511,7 +596,6 @@ class MorphologyThread(QThread):
                 'OUTPUT': 'TEMPORARY_OUTPUT',
             }
             result_clip = processing.run(tool_, params)
-            print('result_clip', result_clip)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'model': result_clip['OUTPUT']})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
@@ -519,7 +603,6 @@ class MorphologyThread(QThread):
 
         # 2 "grass: r.watershed"
         try:
-            print(result_clip['OUTPUT'], self.max_px, self.max_memo * 1024)
             nr_ += 1  # 1
             tool_ = grass_tools['r.watershed']
             basin_path = os.path.join(caminho_temp_morph, 'watershed_basin.tif')
@@ -708,7 +791,6 @@ class MorphologyThread(QThread):
             return
 
         # 6 "gdal:buffervectors"
-        print(-round(self.gsd_, 2), self.boudary)
         try:
             nr_ += 1  # 1
             tool_ = "gdal:buffervectors"
@@ -780,7 +862,6 @@ class MorphologyThread(QThread):
 
             tool_ = 'native:setzfromraster'
             result_setz_gpkg = os.path.join(caminho_temp_morph, f'setzgeometries{morph_type_idx}.gpkg')
-            print(tool_, self.key_, self.file_path)
             params = {
                 'INPUT': result_densified['OUTPUT'],
                 'RASTER': result_clip['OUTPUT'],
@@ -795,7 +876,6 @@ class MorphologyThread(QThread):
                 'gpkg': result_setz['OUTPUT'],
                 'type': f'{self.morph_names[morph_type_idx]}_Z'
             }
-            print('result_setz', result_setz)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
@@ -899,7 +979,6 @@ class MorphologyThread(QThread):
             nr_ += 1
             tool_ = 'native:setzfromraster'
             result_setz_gpkg = os.path.join(caminho_temp_morph, f'setzgeometries{morph_type_idx}.gpkg')
-            print(tool_, self.key_, self.file_path)
             params = {
                 'INPUT': result_densified['OUTPUT'],
                 'RASTER': result_clip['OUTPUT'],
@@ -914,7 +993,6 @@ class MorphologyThread(QThread):
                 'gpkg': result_setz['OUTPUT'],
                 'type': f'{self.morph_names[morph_type_idx]}_Z'
             }
-            print('result_setz', result_setz)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'layer': dic_layer, 'start_task': True})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
@@ -1001,101 +1079,15 @@ class BufferThread(QThread):
         pec_v = self.dic_pec_v[scale_] * self.dic_pec_mm['V'][class_]['pec']
         # ep_v = self.dic_pec_v[scale_] * self.dic_pec_mm['V'][class_]['ep']
 
+        profiles = build_compatibilized_profile_geometries(geom_r, geom_t, self.norm_type)
+        if profiles is None:
+            return float('nan')
+        geom_prof_r = profiles['geom_prof_r']
+        geom_prof_t = profiles['geom_prof_t']
+        k_t = profiles['k_t']
         len_r = geom_r.length()
-        wkbt_ = geom_r.wkbType()
-        # GETTING LIST OF POINTS
-        if wkbt_ == QgsWkbTypes.LineString or wkbt_ == QgsWkbTypes.LineStringZ:
-            ps_r = geom_r.constGet().points()
-        else:
-            ps_r = geom_r.constGet()[0].points()
-
-        gpr0 = QgsGeometry().fromPointXY(QgsPointXY(ps_r[0]))
-        gpr1 = QgsGeometry().fromPointXY(QgsPointXY(ps_r[-1]))
-        list_prof_r = []
-        list_prog_cota_r = []
-        list_cota_r = []
-        for p_ in ps_r:
-            dist_ = round(geom_r.lineLocatePoint(QgsGeometry(p_)), 2)
-            z_ = round(p_.z(), 2)
-            list_prof_r.append(QgsPointXY(dist_ + 10000, z_))
-            list_prog_cota_r.append([dist_ + 10000, z_])
-            list_cota_r.append(z_)
-        geom_prof_r = QgsGeometry().fromPolylineXY(list_prof_r)
-        # print('r-', list_prog_cota_r)
-
         len_t = geom_t.length()
-        if (
-            not math.isfinite(len_r)
-            or not math.isfinite(len_t)
-            or len_r <= 0
-            or len_t <= 0
-        ):
-            return float('nan')
 
-        if geom_t.wkbType() == QgsWkbTypes.LineString or geom_t.wkbType() == QgsWkbTypes.LineStringZ:
-            ps_t = geom_t.constGet().points()
-        else:
-            ps_t = geom_t.constGet()[0].points()
-        list_prof_t = []
-        list_prog_cota_t = []
-        list_cota_t = []
-        # k_t is used to scale prog
-        k_t = len_r / len_t
-        if not math.isfinite(k_t) or abs(k_t) > 1e12:
-            return float('nan')
-        gpt0 = QgsGeometry().fromPointXY(QgsPointXY(ps_t[0]))
-        if gpt0.distance(gpr0) > gpt0.distance(gpr1):
-            ci = True
-        else:
-            ci = False
-        for p_ in ps_t:
-            # if feat_r.id() == 8:
-            #     print(p_)
-            # # print(p_)
-            z_ = round(p_.z(), 2)
-
-            # DIST FROM SCALE METHOD OR FROM LESS DISTANCE METHOD
-            if self.norm_type == 0:  # Linear — fator escalar k_t nas progressivas
-                dist_ = geom_t.lineLocatePoint(QgsGeometry(p_))
-                if ci: # Need to invert,
-                    dist_ = round((len_t - dist_) * k_t, 2)
-                else:
-                    dist_ = round(dist_ * k_t, 2)
-            elif self.norm_type == 1:  # Por Proximidade — progressiva da ref. no ponto mais próximo
-                dist_ = geom_r.lineLocatePoint(QgsGeometry(p_))
-                if ci:
-                    dist_ = round((len_r - dist_) * k_t, 2)
-                else:
-                    dist_ = round(dist_, 2)
-            else:  # Sem Normalização
-                dist_ = geom_t.lineLocatePoint(QgsGeometry(p_))
-                if ci:
-                    dist_ = round(len_t - dist_, 2)
-                else:
-                    dist_ = round(dist_, 2)
-
-            # list_prof_t.append(QgsPointXY(dist_, z_))
-            if not list_prog_cota_t:
-                list_prog_cota_t.append([dist_ + 10000, z_])
-                list_cota_t.append(z_)
-            elif dist_ != list_prog_cota_t[-1][0]:
-                list_prog_cota_t.append([dist_ + 10000, z_])
-                list_cota_t.append(z_)
-        list_prog_cota_t = sorted(list_prog_cota_t)
-        # print('t-', list_prog_cota_t)
-        list_prof_t = []
-
-        for vet_ in list_prog_cota_t:
-            list_prof_t.append(QgsPointXY(float(vet_[0]), float(vet_[1])))
-        geom_prof_t = QgsGeometry().fromPolylineXY(list_prof_t)
-        cm_r = statistics.mean(list_cota_r)
-        cm_t = statistics.mean(list_cota_t)
-        # with open(path_txt_profile, 'a') as prof_file:
-        #     prof_file.write(f'\n {l_ref_name} - {feat_r.id()} | len(r) = {len_r} | len(t) {len_t}\n'
-        #                     f'Cota_Media_r {cm_r} | Cota_Media_t {cm_t}\n')
-        #     for r_, t_ in zip_longest(list_prog_cota_r, list_prog_cota_t):
-        #         prof_file.write(
-        #             f'{round(r_[0], 2) if r_ else ""}; {round(r_[1], 2) if r_ else ""}; {round(t_[0], 2) if t_ else ""}; {round(t_[1], 2) if t_ else ""}; \n')
         geom_prof_br = geom_prof_r.buffer(pec_v, 20)
         geom_prof_bt = geom_prof_t.buffer(pec_v, 20)
         # print('geom_prof_bt=', geom_prof_bt)
@@ -1135,11 +1127,8 @@ class BufferThread(QThread):
         count_ = 0
         try:
             for tag_ in self.dic_match:
-                print('tag_', tag_)
                 layer_r = self.dic_layers_line[tag_][0]
                 layer_t = self.dic_layers_line[tag_][1]
-                print('layer_r', layer_r)
-                print('layer_t', layer_t)
                 self.sig_status.emit(
                     {'logonly': f'---{tag_}---{layer_r.name()}---{layer_t.name()}---'}
                 )
@@ -1241,8 +1230,6 @@ class BufferThread(QThread):
                                 id_t=id_t,
                             )
                             self.dic_values[scale_][class_][count_]['dm_v'] = dm_v
-
-                            print(scale_, class_, id_r, id_t, round(dm_h, 2), round(dm_v, 2))
 
                             prog_msg = f'{tag_} {i} {scale_} - {class_}'
                             self.sig_status.emit({
