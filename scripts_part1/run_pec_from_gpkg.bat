@@ -48,6 +48,11 @@ if "%~1"=="" (
 ) else (
   set "GPKG_ARG=%~1"
 )
+if "%~2"=="" (
+  set "REF_GPKG_ARG="
+) else (
+  set "REF_GPKG_ARG=%~2"
+)
 
 echo.
 echo QGIS_INSTALL=%QGIS_INSTALL%
@@ -57,10 +62,19 @@ if defined GPKG_ARG (
 ) else (
   echo GPKG=padrao: Results\Geral_none\Result.gpkg
 )
+if defined REF_GPKG_ARG (
+  echo REF_GPKG=%REF_GPKG_ARG%
+) else (
+  echo REF_GPKG=padrao: Data\Selecao_v2_z.gpkg
+)
 echo.
 
 if defined GPKG_ARG (
-  call "%PYQGIS_BAT%" "%SCRIPT%" "%GPKG_ARG%"
+  if defined REF_GPKG_ARG (
+    call "%PYQGIS_BAT%" "%SCRIPT%" "%GPKG_ARG%" "%REF_GPKG_ARG%"
+  ) else (
+    call "%PYQGIS_BAT%" "%SCRIPT%" "%GPKG_ARG%"
+  )
 ) else (
   call "%PYQGIS_BAT%" "%SCRIPT%"
 )

@@ -1,12 +1,14 @@
 # UTF8
 """
 Lê feições da camada de resultados (__Buffer_Test__) em um GPKG produzido por
-pec_master_buffer_duplo.py, identifica outliers (planimétrico e altimétrico)
-e calcula PEC e EP por combinação Test_name / escala / classe.
+pec_master_buffer_duplo.py, identifica outliers (planimétrico e altimétrico),
+calcula PEC e EP por combinação Test_name / escala / classe e inclui
+estatísticas do escalar (k) dos pares homólogos (como no relatório do plugin).
 """
 
 import math
 import os
+import re
 import statistics
 
 from PyQt5.QtCore import QVariant
@@ -118,6 +120,23 @@ TABLE_COLUMNS_ALT = [
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_GPKG = os.path.join(_SCRIPT_DIR, 'Results', 'Geral_none', 'Result.gpkg')
 DEFAULT_REF_GPKG = os.path.join(_SCRIPT_DIR, 'Data', 'Selecao_v2_z.gpkg')
+
+# Mesmo mapeamento teste → referência de pec_master_buffer_duplo.py
+DIC_NAME_LAYER = {
+    'ANADEM': {
+        'anadem_cumeadas_z': 'sei_cumeadas_z',
+        'anadem_hidrografias_z': 'sei_hidrografias_z',
+    },
+    'NASADEM': {
+        'nasadem_cumeadas_z': 'sei_cumeadas_z',
+        'nasadem_hidrografias_z': 'sei_hidrografias_z',
+    },
+}
+
+PROFILE_LEN_HEADER_RE = re.compile(
+    r'len\(r\)\s*=\s*([\d.eE+-]+)\s*\|\s*len\(t\)\s*([\d.eE+-]+)',
+    re.IGNORECASE,
+)
 
 
 def load_result_layer(gpkg_path, layer_name=LAYER_NAME, add_to_project=False):
@@ -567,7 +586,7 @@ def build_result_rows(layer, dic_stats, dimension, out_field):
     return rows
 
 
-def write_results_table(path, plan_rows, alt_rows, plan_cota_lines=None):
+def write_results_table(path, plan_rows, alt_rows, plan_cota_lines=None, scalar_k_lines=None):
     """Grava relatório em texto com as duas tabelas."""
     os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
     with open(path, 'w', encoding='utf-8') as f:
@@ -586,6 +605,11 @@ def write_results_table(path, plan_rows, alt_rows, plan_cota_lines=None):
             for line in plan_cota_lines:
                 f.write(line + '\n')
 
+        if scalar_k_lines:
+            f.write('\nPARES HOMÓLOGOS — ESCALAR (k)\n')
+            for line in scalar_k_lines:
+                f.write(line + '\n')
+
         f.write('\n')
 
 
@@ -600,9 +624,197 @@ def _cota_summary_lines(dic_stats):
     return lines
 
 
+def _format_scalar_k(value, *, decimals=2):
+    """Formata escalar k com casas decimais fixas (como no relatório do plugin)."""
+    if value is None:
+        return ''
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return ''
+    if not math.isfinite(v):
+        return ''
+    return f'{v:.{int(decimals)}f}'
+
+
+def _unique_test_names_from_layer(layer):
+    names = set()
+    for feat in layer.getFeatures():
+        name = feat['Test_name']
+        if name:
+            names.add(str(name))
+    return sorted(names)
+
+
+def _collect_linear_scalars_from_profile_file(profile_path):
+    """Extrai k = len(r)/len(t) dos cabeçalhos de Profile_*.csv (pec_master)."""
+    scalars = []
+    if not os.path.isfile(profile_path):
+        return scalars
+    with open(profile_path, encoding='utf-8', errors='replace') as f:
+        for line in f:
+            match = PROFILE_LEN_HEADER_RE.search(line)
+            if not match:
+                continue
+            try:
+                len_r = float(match.group(1))
+                len_t = float(match.group(2))
+            except (TypeError, ValueError):
+                continue
+            if len_t <= 0 or not math.isfinite(len_r) or not math.isfinite(len_t):
+                continue
+            k_t = len_r / len_t
+            if math.isfinite(k_t) and abs(k_t) <= 1e12:
+                scalars.append(k_t)
+    return scalars
+
+
+def _resolve_profile_path(results_dir, test_name):
+    """Localiza Profile_*.csv (nome exato ou variantes como Profile_ANADEM_v1.csv)."""
+    exact = os.path.join(results_dir, f'Profile_{test_name}.csv')
+    if os.path.isfile(exact):
+        return exact
+    prefix = f'Profile_{test_name}'
+    matches = sorted(
+        os.path.join(results_dir, name)
+        for name in os.listdir(results_dir)
+        if name.lower().endswith('.csv')
+        and name.startswith(prefix)
+        and os.path.isfile(os.path.join(results_dir, name))
+    )
+    return matches[0] if matches else None
+
+
+def _collect_linear_scalars_from_profiles(layer, results_dir):
+    """Recolhe k por modelo (Profile_{Test_name}*.csv) na pasta de resultados."""
+    scalars_by_model = {}
+    for test_ in _unique_test_names_from_layer(layer):
+        profile_path = _resolve_profile_path(results_dir, test_)
+        if profile_path:
+            found = _collect_linear_scalars_from_profile_file(profile_path)
+            scalars_by_model[test_] = found
+            if not found:
+                print(f'  Profile sem pares k: {profile_path}')
+        else:
+            scalars_by_model[test_] = []
+            print(f'  Profile não encontrado: {os.path.join(results_dir, f"Profile_{test_}*.csv")}')
+    return scalars_by_model
+
+
+def _collect_linear_scalars_from_gpkg(test_gpkg, ref_gpkg, test_names=None):
+    """
+    Calcula k = len(r)/len(t) por modelo de teste, reproduzindo o pareamento
+    de pec_master_buffer_duplo (vizinho mais próximo do centro da linha de teste).
+    """
+    names = test_names or sorted(DIC_NAME_LAYER.keys())
+    scalars_by_model = {test_: [] for test_ in names}
+    if not os.path.isfile(test_gpkg):
+        return scalars_by_model
+    ref_cache = _load_ref_layer_cache(ref_gpkg)
+    test_cache = _load_ref_layer_cache(test_gpkg)
+    for test_ in names:
+        layer_map = DIC_NAME_LAYER.get(test_)
+        if not layer_map:
+            continue
+        for l_test, l_ref in layer_map.items():
+            if l_test not in test_cache or l_ref not in ref_cache:
+                continue
+            tlayer = test_cache[l_test]['layer']
+            rindex = ref_cache[l_ref]['index']
+            rlengths = ref_cache[l_ref]['lengths']
+            for feat_t in tlayer.getFeatures():
+                geom_t = feat_t.geometry()
+                if not geom_t or geom_t.isEmpty():
+                    continue
+                len_t = geom_t.length()
+                if not math.isfinite(len_t) or len_t <= 0:
+                    continue
+                pm = geom_t.interpolate(geom_t.length() / 2.0)
+                nearest = rindex.nearestNeighbor(pm.asPoint(), 1)
+                if not nearest:
+                    continue
+                fid_r = nearest[0]
+                len_r = rlengths.get(fid_r)
+                if len_r is None:
+                    feat_r = ref_cache[l_ref]['layer'].getFeature(fid_r)
+                    if feat_r.isValid() and feat_r.geometry() and not feat_r.geometry().isEmpty():
+                        len_r = feat_r.geometry().length()
+                if not len_r or not math.isfinite(len_r) or len_r <= 0:
+                    continue
+                k_t = len_r / len_t
+                if math.isfinite(k_t) and abs(k_t) <= 1e12:
+                    scalars_by_model[test_].append(k_t)
+    return scalars_by_model
+
+
+def collect_linear_scalars(layer, results_dir, ref_gpkg=DEFAULT_REF_GPKG, test_gpkg=None):
+    """Recolhe k por modelo (normalização linear) a partir de Profile_*.csv ou GPKG de teste."""
+    scalars_by_model = _collect_linear_scalars_from_profiles(layer, results_dir)
+    if any(scalars_by_model.values()):
+        return scalars_by_model
+    if test_gpkg:
+        print(f'Profile_*.csv sem k — recalculando via GPKG de teste:\n{test_gpkg}')
+        return _collect_linear_scalars_from_gpkg(
+            test_gpkg,
+            ref_gpkg,
+            test_names=_unique_test_names_from_layer(layer),
+        )
+    return scalars_by_model
+
+
+def _scalar_k_stats_lines(scalars):
+    """Linhas Média / Mínima / Máxima / Desvio Padrão para um conjunto de k."""
+    if not scalars:
+        return []
+    dec = 2
+    stdev = statistics.stdev(scalars) if len(scalars) >= 2 else 0.0
+    return [
+        'Escalar (k)',
+        f'Média\t{_format_scalar_k(statistics.mean(scalars), decimals=dec)}',
+        f'Mínima\t{_format_scalar_k(min(scalars), decimals=dec)}',
+        f'Máxima\t{_format_scalar_k(max(scalars), decimals=dec)}',
+        f'Desvio Padrão\t{_format_scalar_k(stdev, decimals=dec)}',
+    ]
+
+
+def _scalar_k_summary_lines(scalars_by_model):
+    """Linhas do bloco Escalar (k) — uma secção por modelo de teste."""
+    if not isinstance(scalars_by_model, dict):
+        scalars_by_model = {'': scalars_by_model or []}
+    lines = []
+    for test_ in sorted(scalars_by_model.keys()):
+        scalars = scalars_by_model[test_]
+        if not scalars:
+            continue
+        if test_:
+            lines.append(f'Modelo\t{test_}')
+        lines.append(f'Total de pares\t{len(scalars)}')
+        lines.extend(_scalar_k_stats_lines(scalars))
+        lines.append('')
+    while lines and lines[-1] == '':
+        lines.pop()
+    return lines
+
+
+def print_scalar_k_summary(scalars_by_model):
+    """Imprime estatísticas do escalar k na consola (por modelo de teste)."""
+    lines = _scalar_k_summary_lines(scalars_by_model)
+    if not lines:
+        print('\nEscalar (k): sem dados (Profile_*.csv ou GPKG de teste).\n')
+        return
+    print()
+    print('=' * 60)
+    print('PARES HOMÓLOGOS — ESCALAR (k)')
+    print('=' * 60)
+    for line in lines:
+        print(line)
+    print()
+
+
 def run(
     gpkg_path=DEFAULT_GPKG,
     ref_gpkg=DEFAULT_REF_GPKG,
+    test_gpkg=None,
     results_txt=None,
     add_layer_to_project=False,
 ):
@@ -611,12 +823,23 @@ def run(
     """
     if results_txt is None:
         results_txt = os.path.join(os.path.dirname(gpkg_path), 'Results.txt')
+    results_dir = os.path.dirname(os.path.abspath(gpkg_path))
 
     print(f'Carregando: {gpkg_path}')
     layer = load_result_layer(gpkg_path, add_to_project=add_layer_to_project)
     print(f'Feições na camada: {layer.featureCount()}')
 
     ensure_extent_ref(layer, ref_gpkg=ref_gpkg)
+
+    print('\nEstatísticas do escalar (k)...')
+    scalars_by_model = collect_linear_scalars(
+        layer,
+        results_dir,
+        ref_gpkg=ref_gpkg,
+        test_gpkg=test_gpkg,
+    )
+    scalar_k_lines = _scalar_k_summary_lines(scalars_by_model)
+    print_scalar_k_summary(scalars_by_model)
 
     print('\nIdentificando outliers planimétricos (DM_H)...')
     dic_stats_h = detect_outliers_for_dimension(layer, 'dm_h', 'OUT_H')
@@ -635,7 +858,13 @@ def run(
     print_results_table('ANÁLISE ALTIMÉTRICA', alt_rows, TABLE_COLUMNS_ALT)
 
     cota_lines = _cota_summary_lines(dic_stats_h)
-    write_results_table(results_txt, plan_rows, alt_rows, cota_lines)
+    write_results_table(
+        results_txt,
+        plan_rows,
+        alt_rows,
+        plan_cota_lines=cota_lines,
+        scalar_k_lines=scalar_k_lines,
+    )
     print(f'Relatório gravado em: {results_txt}')
 
     if add_layer_to_project:
@@ -648,20 +877,30 @@ if __name__ == '__main__' or __name__ == '__builtin__':
 
     gpkg_path = DEFAULT_GPKG
     ref_gpkg = DEFAULT_REF_GPKG
+    test_gpkg = None
     if len(sys.argv) > 1:
         gpkg_path = sys.argv[1]
     if len(sys.argv) > 2:
         ref_gpkg = sys.argv[2]
+    if len(sys.argv) > 3:
+        test_gpkg = sys.argv[3]
     elif os.environ.get('GPKG_PATH'):
         gpkg_path = os.environ['GPKG_PATH']
     if os.environ.get('REF_GPKG'):
         ref_gpkg = os.environ['REF_GPKG']
+    if os.environ.get('TEST_GPKG'):
+        test_gpkg = os.environ['TEST_GPKG']
 
-    add_to_project = __name__ == '__builtin__'
+    add_layer_to_project = __name__ == '__builtin__'
     if __name__ == '__main__':
         init_standalone_qgis()
     try:
-        run(gpkg_path=gpkg_path, ref_gpkg=ref_gpkg, add_layer_to_project=add_to_project)
+        run(
+            gpkg_path=gpkg_path,
+            ref_gpkg=ref_gpkg,
+            test_gpkg=test_gpkg,
+            add_layer_to_project=add_layer_to_project,
+        )
     finally:
         if __name__ == '__main__':
             exit_standalone_qgis()
