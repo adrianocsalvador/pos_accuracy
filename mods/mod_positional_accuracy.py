@@ -38,6 +38,7 @@ from .mod_worker_threads import (
     DM_ABS_MAX_SANE, Worker, inspect_grass_processing, _windows_memory_status,
     _grass_memory_advice, _recommend_grass_memory_gb,
     build_compatibilized_profile_geometries,
+    orient_line_high_to_low,
 )
 from .mod_settings import SettingsDlg
 from .mod_language_dlg import LanguageDlg
@@ -2044,7 +2045,14 @@ def load_plugin_settings_from_mdepa_path(mdepa_path: str, dic_param: dict) -> in
                 meta = block['fields'][campo]
                 if valor is None:
                     continue
-                if 'list' in meta:
+                if meta.get('type') == 'checkbox':
+                    try:
+                        meta['value'] = 1 if int(valor) else 0
+                    except (TypeError, ValueError):
+                        meta['value'] = 1 if str(valor).strip().lower() in (
+                            '1', 'true', 'sim', 'yes',
+                        ) else 0
+                elif 'list' in meta:
                     try:
                         meta['value'] = int(valor)
                     except (TypeError, ValueError):
@@ -6105,6 +6113,319 @@ class Wd1(QWidget):
         """Relatório completo em TXT v1 (parseável → PDF sem correr o pipeline)."""
         return format_full_report_txt(self._collect_report_snapshot())
 
+    def _audit_report_flags(self):
+        """Devolve (horizontal, vertical) a partir dos parâmetros (0/1)."""
+        try:
+            fields = self.settings_dlg.dic_param['step_audit_report']['fields']
+        except (KeyError, TypeError, AttributeError):
+            return False, False
+        def _on(key):
+            try:
+                return bool(int(fields[key].get('value', 0)))
+            except (TypeError, ValueError, KeyError):
+                return False
+        return _on('audit_horizontal'), _on('audit_vertical')
+
+    def _audit_test_model_name(self) -> str:
+        dems = (self.dic_prj or {}).get('dems') or {}
+        test = dems.get(1) or {}
+        name = test.get('model') or test.get('type') or 'TESTE'
+        return str(name).strip() or 'TESTE'
+
+    def _pec_v_tables_for_audit(self, scales):
+        """Tabelas PEC-V / EQ no formato esperado pelo gerador de PDF."""
+        pec_v_table = {}
+        eq_v_table = {}
+        for scale in scales:
+            scale = int(scale)
+            eq = self.dic_pec_v.get(scale)
+            if eq is None:
+                continue
+            eq_v_table[scale] = eq
+            pec_v_table[scale] = {}
+            for class_ in self.dic_pec_mm.get('V', {}):
+                pec_v_table[scale][class_] = {
+                    'pec': float(eq) * float(self.dic_pec_mm['V'][class_]['pec']),
+                    'ep': float(eq) * float(self.dic_pec_mm['V'][class_]['ep']),
+                }
+        return pec_v_table, eq_v_table
+
+    def _dm_by_scale_index_from_dic_values(self, dic_values):
+        """(fid_r, fid_t) → {scale: {class: {DM_V: …}}}."""
+        index = {}
+        if not dic_values:
+            return index
+        for scale, by_class in dic_values.items():
+            try:
+                scale_i = int(scale)
+            except (TypeError, ValueError):
+                continue
+            for class_, by_count in (by_class or {}).items():
+                for _count, rec in (by_count or {}).items():
+                    if not isinstance(rec, dict):
+                        continue
+                    try:
+                        fid_r = int(rec.get('fid_r'))
+                        fid_t = int(rec.get('fid_t'))
+                    except (TypeError, ValueError):
+                        continue
+                    dm_v = rec.get('dm_v')
+                    try:
+                        dm_v = float(dm_v)
+                        if not math.isfinite(dm_v):
+                            dm_v = None
+                    except (TypeError, ValueError):
+                        dm_v = None
+                    dm_h = rec.get('dm_h')
+                    try:
+                        dm_h = float(dm_h)
+                        if not math.isfinite(dm_h):
+                            dm_h = None
+                    except (TypeError, ValueError):
+                        dm_h = None
+                    index.setdefault((fid_r, fid_t), {}).setdefault(scale_i, {})[str(class_)] = {
+                        'DM_V': dm_v,
+                        'DM_H': dm_h,
+                    }
+        return index
+
+    def _build_audit_pair_specs(self, dic_values=None):
+        """Pares (geometrias + DM_V) para o relatório de auditoria vertical."""
+        dm = getattr(self, 'dic_match', None) or {}
+        if not dm:
+            rebuilt = self._dic_match_from_match_lines_layer()
+            if rebuilt is not None:
+                dm = rebuilt
+        if not dm:
+            return []
+
+        dm_index = self._dm_by_scale_index_from_dic_values(dic_values)
+        type_r = self.dic_prj['dems'][0]['type']
+        type_t = self.dic_prj['dems'][1]['type']
+        pairs = []
+        for tag_ in sorted(dm.keys()):
+            layer_r = self._resolve_limit_layer_for_editing(f'__{tag_}_Z_{type_r}__')
+            layer_t = self._resolve_limit_layer_for_editing(f'__{tag_}_Z_{type_t}__')
+            if layer_r is None or layer_t is None or not layer_r.isValid() or not layer_t.isValid():
+                continue
+            for vet_ in dm[tag_]:
+                if not vet_ or len(vet_) < 2:
+                    continue
+                try:
+                    fid_r = int(vet_[0])
+                    fid_t = int(vet_[1])
+                except (TypeError, ValueError):
+                    continue
+                fr = layer_r.getFeature(fid_r)
+                ft = layer_t.getFeature(fid_t)
+                if not fr.hasGeometry() or not ft.hasGeometry():
+                    continue
+                pairs.append({
+                    'id_ref': fid_r,
+                    'id_test': fid_t,
+                    'layer_ref': layer_r.name(),
+                    'geom_r': orient_line_high_to_low(QgsGeometry(fr.geometry())),
+                    'geom_t': orient_line_high_to_low(QgsGeometry(ft.geometry())),
+                    'dm_by_scale': dm_index.get((fid_r, fid_t), {}),
+                })
+        return pairs
+
+    def _pec_h_tables_for_audit(self, scales):
+        """Tabela PEC-H (m) por escala/classe: scale × pec_mm."""
+        pec_h_table = {}
+        for scale in scales:
+            scale = int(scale)
+            pec_h_table[scale] = {}
+            for class_ in self.dic_pec_mm.get('H', {}):
+                pec_h_table[scale][class_] = {
+                    'pec': float(scale) * float(self.dic_pec_mm['H'][class_]['pec']),
+                    'ep': float(scale) * float(self.dic_pec_mm['H'][class_]['ep']),
+                }
+        return pec_h_table
+
+    def export_audit_horizontal_pdfs(self, dic_values=None, report_ts=None):
+        """Gera Audit_horizontal_{modelo}_{escala}_{ts}.pdf."""
+        try:
+            self.settings_dlg.flush_widgets_to_dic_param(log_values=False)
+        except Exception:
+            pass
+        audit_h, _v = self._audit_report_flags()
+        if not audit_h:
+            return []
+
+        pf = self.dic_prj.get('project_file')
+        if not pf or not os.path.isfile(pf):
+            self.log_message(
+                self.tr('Defina um projeto (.pa.gpkg) para exportar a auditoria.'),
+                'ERROR',
+            )
+            return []
+        data_dir = project_data_dir(pf)
+        try:
+            os.makedirs(data_dir, exist_ok=True)
+        except OSError as e:
+            self.log_message(
+                self.tr('Não foi possível criar a pasta do projeto: {0}').format(e),
+                'ERROR',
+            )
+            return []
+
+        scales = self.get_list_scale()
+        if not scales:
+            self.log_message(
+                self.tr('Auditoria horizontal: nenhuma escala definida.'), 'WARNING'
+            )
+            return []
+
+        pairs = self._build_audit_pair_specs(dic_values=dic_values)
+        if not pairs:
+            self.log_message(
+                self.tr('Auditoria horizontal: sem pares homólogos.'), 'WARNING'
+            )
+            return []
+
+        scripts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scripts_analise_manual')
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        try:
+            from report_homologous_profiles_pdf import (  # noqa: WPS433
+                generate_audit_horizontal_pdfs_from_pairs,
+            )
+        except Exception as e:
+            self.log_message(
+                self.tr('Falha ao carregar gerador de auditoria: {0}').format(e),
+                'ERROR',
+            )
+            return []
+
+        pec_h_table = self._pec_h_tables_for_audit(scales)
+        norm_type = self._normalization_method_index()
+        test_name = self._audit_test_model_name()
+        ts = report_ts or getattr(self, '_last_report_ts', None)
+        if not ts:
+            ts = QDateTime.currentDateTime().toString('yyyy-MM-dd_HHmm')
+        self.log_message(
+            self.tr('A gerar relatório de auditoria horizontal ({0} pares)…').format(
+                len(pairs)
+            ),
+            'INFO',
+        )
+        try:
+            outputs = generate_audit_horizontal_pdfs_from_pairs(
+                out_dir=data_dir,
+                test_name=test_name,
+                pairs=pairs,
+                scales=scales,
+                norm_type=norm_type,
+                pec_h_table=pec_h_table,
+                timestamp=ts,
+                log=lambda msg: self.log_message(str(msg), 'INFO'),
+            )
+        except Exception as e:
+            self.log_message(
+                self.tr('Falha na auditoria horizontal: {0}').format(e),
+                'ERROR',
+            )
+            return []
+
+        for out_path, drawn, _skipped in outputs:
+            self.log_message(
+                self.tr('Auditoria horizontal gravada: {0} ({1} páginas)').format(
+                    out_path, drawn
+                ),
+                'INFO',
+            )
+        return outputs
+
+    def export_audit_vertical_pdfs(self, dic_values=None, report_ts=None):
+        """Gera Audit_vertical_{modelo}_{linear|proximidade}_{escala}_{ts}.pdf."""
+        try:
+            self.settings_dlg.flush_widgets_to_dic_param(log_values=False)
+        except Exception:
+            pass
+        _h, audit_v = self._audit_report_flags()
+        if not audit_v:
+            return []
+
+        pf = self.dic_prj.get('project_file')
+        if not pf or not os.path.isfile(pf):
+            self.log_message(
+                self.tr('Defina um projeto (.pa.gpkg) para exportar a auditoria.'),
+                'ERROR',
+            )
+            return []
+        data_dir = project_data_dir(pf)
+        try:
+            os.makedirs(data_dir, exist_ok=True)
+        except OSError as e:
+            self.log_message(
+                self.tr('Não foi possível criar a pasta do projeto: {0}').format(e),
+                'ERROR',
+            )
+            return []
+
+        scales = self.get_list_scale()
+        if not scales:
+            self.log_message(self.tr('Auditoria vertical: nenhuma escala definida.'), 'WARNING')
+            return []
+
+        pairs = self._build_audit_pair_specs(dic_values=dic_values)
+        if not pairs:
+            self.log_message(self.tr('Auditoria vertical: sem pares homólogos.'), 'WARNING')
+            return []
+
+        scripts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scripts_analise_manual')
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        try:
+            from report_homologous_profiles_pdf import (  # noqa: WPS433
+                generate_audit_pdfs_from_pairs,
+            )
+        except Exception as e:
+            self.log_message(
+                self.tr('Falha ao carregar gerador de auditoria: {0}').format(e),
+                'ERROR',
+            )
+            return []
+
+        pec_v_table, eq_v_table = self._pec_v_tables_for_audit(scales)
+        norm_type = self._normalization_method_index()
+        test_name = self._audit_test_model_name()
+        ts = report_ts or getattr(self, '_last_report_ts', None)
+        if not ts:
+            ts = QDateTime.currentDateTime().toString('yyyy-MM-dd_HHmm')
+        self.log_message(
+            self.tr('A gerar relatório de auditoria vertical ({0} pares)…').format(len(pairs)),
+            'INFO',
+        )
+        try:
+            outputs = generate_audit_pdfs_from_pairs(
+                out_dir=data_dir,
+                test_name=test_name,
+                pairs=pairs,
+                scales=scales,
+                norm_type=norm_type,
+                pec_v_table=pec_v_table,
+                eq_v_table=eq_v_table,
+                timestamp=ts,
+                log=lambda msg: self.log_message(str(msg), 'INFO'),
+            )
+        except Exception as e:
+            self.log_message(
+                self.tr('Falha na auditoria vertical: {0}').format(e),
+                'ERROR',
+            )
+            return []
+
+        for out_path, drawn, _skipped in outputs:
+            self.log_message(
+                self.tr('Auditoria vertical gravada: {0} ({1} páginas)').format(
+                    out_path, drawn
+                ),
+                'INFO',
+            )
+        return outputs
+
     def _build_pdf_report_html(self) -> str:
         return render_pdf_report_html(self._collect_report_snapshot())
 
@@ -6138,6 +6459,7 @@ class Wd1(QWidget):
 
         stem = os.path.basename(_strip_project_ext(pf)) or 'projeto'
         ts = QDateTime.currentDateTime().toString('yyyy-MM-dd_HHmm')
+        self._last_report_ts = ts
         safe_stem = ''.join(c if c.isalnum() or c in '-_.' else '_' for c in stem)[:80]
 
         if out_pdf:
@@ -6429,6 +6751,21 @@ class Wd1(QWidget):
                 self.log_message(self.tr('Falha ao exportar relatórios.'), 'ERROR')
             elif self.cb_open_report.isChecked() and pdf_path:
                 self._open_report_file(pdf_path)
+            try:
+                report_ts = getattr(self, '_last_report_ts', None)
+                self.export_audit_horizontal_pdfs(
+                    dic_values=dv,
+                    report_ts=report_ts,
+                )
+                self.export_audit_vertical_pdfs(
+                    dic_values=dv,
+                    report_ts=report_ts,
+                )
+            except Exception as e:
+                self.log_message(
+                    self.tr('Falha na auditoria: {0}').format(e),
+                    'ERROR',
+                )
             # print(dic_['dic_values'])
         elif 'end' in dic_:
             palette.setColor(QPalette.Highlight, QColor(Qt.darkGreen))

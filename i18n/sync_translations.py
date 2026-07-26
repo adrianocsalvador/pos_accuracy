@@ -274,6 +274,32 @@ EXTRA_EN: dict[str, str] = {
     'Relatórios na pasta do projeto: PDF + TXT (+ HTML se aplicável).': (
         'Reports in the project folder: PDF + TXT (+ HTML if applicable).'),
     'Falha ao exportar relatórios.': 'Failed to export reports.',
+    'Relatório de Auditoria': 'Audit Report',
+    'Horizontal': 'Horizontal',
+    'Vertical': 'Vertical',
+    'Defina um projeto (.pa.gpkg) para exportar a auditoria.': (
+        'Define a project (.pa.gpkg) to export the audit.'),
+    'Auditoria vertical: nenhuma escala definida.': (
+        'Vertical audit: no scale defined.'),
+    'Auditoria vertical: sem pares homólogos.': (
+        'Vertical audit: no homologous pairs.'),
+    'Falha ao carregar gerador de auditoria: {0}': (
+        'Failed to load audit generator: {0}'),
+    'A gerar relatório de auditoria vertical ({0} pares)…': (
+        'Generating vertical audit report ({0} pairs)…'),
+    'Falha na auditoria vertical: {0}': 'Vertical audit failed: {0}',
+    'Auditoria vertical gravada: {0} ({1} páginas)': (
+        'Vertical audit saved: {0} ({1} pages)'),
+    'Auditoria horizontal: nenhuma escala definida.': (
+        'Horizontal audit: no scale defined.'),
+    'Auditoria horizontal: sem pares homólogos.': (
+        'Horizontal audit: no homologous pairs.'),
+    'A gerar relatório de auditoria horizontal ({0} pares)…': (
+        'Generating horizontal audit report ({0} pairs)…'),
+    'Falha na auditoria horizontal: {0}': 'Horizontal audit failed: {0}',
+    'Auditoria horizontal gravada: {0} ({1} páginas)': (
+        'Horizontal audit saved: {0} ({1} pages)'),
+    'Falha na auditoria: {0}': 'Audit failed: {0}',
     'Pares homólogos: {0} grupos; rever no mapa e prima Continuar.': (
         'Homologous pairs: {0} groups; review on the map and click Continue.'),
     'Edite a camada de interseção se necessário e prima Continuar para morfologia.': (
@@ -389,6 +415,32 @@ EXTRA_ES: dict[str, str] = {
     'Idioma de desenvolvimento ({0})': 'Idioma de desarrollo ({0})',
     '{0} não encontrado': '{0} no encontrado',
     'Parâmetros': 'Parámetros',
+    'Relatório de Auditoria': 'Informe de Auditoría',
+    'Horizontal': 'Horizontal',
+    'Vertical': 'Vertical',
+    'Defina um projeto (.pa.gpkg) para exportar a auditoria.': (
+        'Defina un proyecto (.pa.gpkg) para exportar la auditoría.'),
+    'Auditoria vertical: nenhuma escala definida.': (
+        'Auditoría vertical: ninguna escala definida.'),
+    'Auditoria vertical: sem pares homólogos.': (
+        'Auditoría vertical: sin pares homólogos.'),
+    'Falha ao carregar gerador de auditoria: {0}': (
+        'Error al cargar el generador de auditoría: {0}'),
+    'A gerar relatório de auditoria vertical ({0} pares)…': (
+        'Generando informe de auditoría vertical ({0} pares)…'),
+    'Falha na auditoria vertical: {0}': 'Error en la auditoría vertical: {0}',
+    'Auditoria vertical gravada: {0} ({1} páginas)': (
+        'Auditoría vertical guardada: {0} ({1} páginas)'),
+    'Auditoria horizontal: nenhuma escala definida.': (
+        'Auditoría horizontal: ninguna escala definida.'),
+    'Auditoria horizontal: sem pares homólogos.': (
+        'Auditoría horizontal: sin pares homólogos.'),
+    'A gerar relatório de auditoria horizontal ({0} pares)…': (
+        'Generando informe de auditoría horizontal ({0} pares)…'),
+    'Falha na auditoria horizontal: {0}': 'Error en la auditoría horizontal: {0}',
+    'Auditoria horizontal gravada: {0} ({1} páginas)': (
+        'Auditoría horizontal guardada: {0} ({1} páginas)'),
+    'Falha na auditoria: {0}': 'Error en la auditoría: {0}',
     'Salvar': 'Guardar',
     'Restaurar': 'Restaurar',
     'Config': 'Configuración',

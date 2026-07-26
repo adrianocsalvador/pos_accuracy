@@ -109,6 +109,25 @@ class SettingsDlg(QDialog):
                             'obj': None},
                     },
                 },
+                'step_audit_report': {
+                    'label': tr_ui('Relatório de Auditoria'),
+                    'fields': {
+                        'audit_horizontal': {
+                            'label': tr_ui('Horizontal'),
+                            'type': 'checkbox',
+                            'value': 0,
+                            'default': 0,
+                            'enabled': True,
+                            'obj': None},
+                        'audit_vertical': {
+                            'label': tr_ui('Vertical'),
+                            'type': 'checkbox',
+                            'value': 0,
+                            'default': 0,
+                            'enabled': True,
+                            'obj': None},
+                    },
+                },
             }
         self.get_dic_from_settings()
         dlgLayout = self.create_layout()
@@ -139,6 +158,12 @@ class SettingsDlg(QDialog):
         dp['step_normalize_prog']['fields']['norm_type']['label'] = tr_ui(
             'Método para Normalização')
         dp['step_normalize_prog']['fields']['norm_type']['list'] = self.parent.list_norm_type
+        if 'step_audit_report' in dp:
+            dp['step_audit_report']['label'] = tr_ui('Relatório de Auditoria')
+            dp['step_audit_report']['fields']['audit_horizontal']['label'] = tr_ui(
+                'Horizontal')
+            dp['step_audit_report']['fields']['audit_vertical']['label'] = tr_ui(
+                'Vertical')
 
     def apply_language_live(self):
         """Actualiza textos da janela de parâmetros após mudança de idioma."""
@@ -211,7 +236,15 @@ class SettingsDlg(QDialog):
                 if obj is None:
                     continue
                 val = meta.get('value')
-                if 'list' in meta:
+                if meta.get('type') == 'checkbox':
+                    try:
+                        checked = bool(int(val))
+                    except (TypeError, ValueError):
+                        checked = bool(val)
+                    obj.blockSignals(True)
+                    obj.setChecked(checked)
+                    obj.blockSignals(False)
+                elif 'list' in meta:
                     try:
                         idx = int(val)
                     except (TypeError, ValueError):
@@ -244,26 +277,39 @@ class SettingsDlg(QDialog):
                     lb_ = QLabel(self.dic_param[item_i]['fields'][item_j]['label'])
                     lb_.setObjectName('lb_' + item_j.lower())
                     gl_.addWidget(lb_, r_, 1)
-                    if 'list' in self.dic_param[item_i]['fields'][item_j]:
+                    meta = self.dic_param[item_i]['fields'][item_j]
+                    if meta.get('type') == 'checkbox':
+                        cb_ = QCheckBox(self)
+                        try:
+                            checked = bool(int(meta.get('value', 0)))
+                        except (TypeError, ValueError):
+                            checked = bool(meta.get('value'))
+                        cb_.setChecked(checked)
+                        if meta.get('enabled') is False:
+                            cb_.setEnabled(False)
+                            lb_.setEnabled(False)
+                        meta['obj'] = cb_
+                        gl_.addWidget(cb_, r_, 2)
+                    elif 'list' in meta:
                         cmb_ = QComboBox(self)
-                        if 'string' in self.dic_param[item_i]['fields'][item_j]:
+                        if 'string' in meta:
                             list_ = []
-                            string_ = self.dic_param[item_i]['fields'][item_j]['string']
-                            for value_ in self.dic_param[item_i]['fields'][item_j]['list']:
+                            string_ = meta['string']
+                            for value_ in meta['list']:
                                 list_.append(string_.format(value_))
                             list_.append('')
                         else:
-                            list_ = self.dic_param[item_i]['fields'][item_j]['list']
+                            list_ = meta['list']
                         cmb_.addItems(list_)
-                        index_ = int(self.dic_param[item_i]['fields'][item_j]['value'])
+                        index_ = int(meta['value'])
                         cmb_.setCurrentIndex(index_)
-                        self.dic_param[item_i]['fields'][item_j]['obj'] = cmb_
+                        meta['obj'] = cmb_
                         gl_.addWidget(cmb_, r_, 2)
 
                     else:
-                        le_ = QLineEdit(self.dic_param[item_i]['fields'][item_j]['value'])
+                        le_ = QLineEdit(meta['value'])
                         le_.setObjectName('le_' + item_j.lower())
-                        self.dic_param[item_i]['fields'][item_j]['obj'] = le_
+                        meta['obj'] = le_
                         gl_.addWidget(le_, r_, 2)
    
 
@@ -321,7 +367,9 @@ class SettingsDlg(QDialog):
                 obj = meta.get('obj')
                 if obj is None:
                     continue
-                if 'list' in meta:
+                if meta.get('type') == 'checkbox':
+                    value_ = 1 if obj.isChecked() else 0
+                elif 'list' in meta:
                     value_ = obj.currentIndex()
                 else:
                     value_ = obj.text()
@@ -338,11 +386,18 @@ class SettingsDlg(QDialog):
             if item_i.startswith('step_'):
                 for j, item_j in enumerate(self.dic_param[item_i]['fields']):
                     default_ = self.dic_param[item_i]['fields'][item_j]['default']
-                    if 'list' in self.dic_param[item_i]['fields'][item_j]:
-                        self.dic_param[item_i]['fields'][item_j]['obj'].setCurrentIndex(default_)
+                    meta = self.dic_param[item_i]['fields'][item_j]
+                    obj = meta.get('obj')
+                    if obj is None:
+                        meta['value'] = default_
+                        continue
+                    if meta.get('type') == 'checkbox':
+                        obj.setChecked(bool(int(default_)))
+                    elif 'list' in meta:
+                        obj.setCurrentIndex(default_)
                     else:
-                        self.dic_param[item_i]['fields'][item_j]['obj'].setText(default_)
-                    self.dic_param[item_i]['fields'][item_j]['value'] = default_
+                        obj.setText(default_)
+                    meta['value'] = default_
 
     def fill_inf(self):
         self.pb_remove.setEnabled(True)

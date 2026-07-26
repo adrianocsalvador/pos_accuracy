@@ -11,8 +11,8 @@ from qgis.PyQt.QtCore import QThread, pyqtSignal, QObject
 from qgis import processing
 from qgis.core import (QgsApplication, QgsCoordinateReferenceSystem, QgsFeature, QgsVectorFileWriter,
                        QgsFields, QgsField, QgsVectorLayer, QgsCoordinateTransformContext, QgsWkbTypes,
-                       QgsGeometry, QgsPointXY, QgsProcessingContext, QgsProcessingFeedback, QgsMapLayer,
-                       QgsProject)
+                       QgsGeometry, QgsLineString, QgsPointXY, QgsProcessingContext, QgsProcessingFeedback,
+                       QgsMapLayer, QgsProject)
 
 # |dm_h| ou |dm_v| acima disto é tratado como erro numérico / geometria; → NaN e WARNING no log.
 DM_ABS_MAX_SANE = 1000.0
@@ -26,13 +26,52 @@ def _profile_line_points(geom: QgsGeometry):
     return geom.constGet()[0].points()
 
 
+def orient_line_high_to_low(geom):
+    """
+    Garante progressiva 0 no extremo de maior cota (montante / crista→vale).
+
+    Se Z do 1.º vértice <= Z do último, inverte a linha. Aplica-se a hidrografia
+    e a cumeadas. Sem Z finitos, devolve a geometria inalterada.
+    """
+    if geom is None:
+        return geom
+    g = QgsGeometry(geom)
+    if g.isEmpty():
+        return g
+    try:
+        pts = _profile_line_points(g)
+    except Exception:
+        return g
+    if len(pts) < 2:
+        return g
+    try:
+        z0 = float(pts[0].z())
+        z1 = float(pts[-1].z())
+    except Exception:
+        return g
+    if not math.isfinite(z0) or not math.isfinite(z1):
+        return g
+    if z0 > z1:
+        return g
+    return QgsGeometry(QgsLineString(list(reversed(pts))))
+
+
 def build_compatibilized_profile_geometries(geom_r, geom_t, norm_type: int):
     """
     Perfil (progressiva, cota) após compatibilização — mesma lógica que BufferThread.calc_dm_v.
+
+    Antes do cálculo, ref e teste são orientadas alta→baixa (orient_line_high_to_low).
+
+    norm_type:
+      0 scale — progressiva na teste, escalada por k=len_r/len_t; inverte se digitada
+                em sentido oposto à ref (ci).
+      1 less_dist — progressiva = projeção na ref (lineLocatePoint); sem inversão.
+      2 none — progressiva na teste sem escala; inverte se ci.
+
     Devolve dict com geom_prof_r, geom_prof_t, k_t ou None se inválido.
     """
-    geom_r = QgsGeometry(geom_r)
-    geom_t = QgsGeometry(geom_t)
+    geom_r = orient_line_high_to_low(QgsGeometry(geom_r))
+    geom_t = orient_line_high_to_low(QgsGeometry(geom_t))
     len_r = geom_r.length()
     len_t = geom_t.length()
     if (
@@ -75,11 +114,8 @@ def build_compatibilized_profile_geometries(geom_r, geom_t, norm_type: int):
             else:
                 dist_ = round(dist_ * k_t, 2)
         elif norm_type == 1:
-            dist_ = geom_r.lineLocatePoint(QgsGeometry(p_))
-            if ci:
-                dist_ = round((len_r - dist_) * k_t, 2)
-            else:
-                dist_ = round(dist_, 2)
+            # Progressiva pela projeção na ref — sem inversão (eixo já é o da ref).
+            dist_ = round(geom_r.lineLocatePoint(QgsGeometry(p_)), 2)
         else:
             dist_ = geom_t.lineLocatePoint(QgsGeometry(p_))
             if ci:
@@ -1136,10 +1172,10 @@ class BufferThread(QThread):
                     # print('vet_', vet_)
                     id_r = vet_[0]
                     feat_r = layer_r.getFeature(id_r)
-                    geom_r = QgsGeometry(feat_r.geometry())
+                    geom_r = orient_line_high_to_low(QgsGeometry(feat_r.geometry()))
                     id_t = vet_[1]
                     feat_t = layer_t.getFeature(id_t)
-                    geom_t = QgsGeometry(feat_t.geometry())
+                    geom_t = orient_line_high_to_low(QgsGeometry(feat_t.geometry()))
                     pair_feats = []
                     for scale_ in self.list_scale:
                         if scale_ not in self.dic_values:
