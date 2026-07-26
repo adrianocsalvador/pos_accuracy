@@ -563,17 +563,17 @@ def _draw_page(
     eq_lookup = eq_v_table if eq_v_table is not None else DIC_EQ_V
 
     fig = plt.figure(figsize=(11.69, 8.27))  # A4 landscape
-    # Layout manual: menos espaço Norte↔ticks e 2D↔Cota; margem p/ não cortar perfis
+    # left menor + wspace maior: evita «Cota (m)» invadir a Vista 2D
     gs = GridSpec(
         4,
         2,
         figure=fig,
         width_ratios=[0.72, 1.0],
-        left=0.07,
+        left=0.04,
         right=0.985,
         top=0.92,
         bottom=0.07,
-        wspace=0.08 * 2 / 3,
+        wspace=0.08,
         hspace=0.32 * 2 / 3,
     )
 
