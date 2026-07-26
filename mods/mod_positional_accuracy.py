@@ -4410,6 +4410,17 @@ class Wd1(QWidget):
                     'WARNING',
                 )
         layer_ = self.dic_prj['dems'][key_]['obj_cbx'].currentLayer()
+        src_path = (layer_.source() or '') + ' ' + (self.dic_prj.get('project_file') or '')
+        if 'onedrive' in src_path.lower() or 'área de trabalho' in src_path.lower() or 'area de trabalho' in src_path.lower():
+            self.log_message(
+                self.tr(
+                    'AVISO: projeto/MDE sob OneDrive ou «Área de Trabalho» (caminho com acentos). '
+                    'Isto causa falhas intermitentes no GRASS no Windows. '
+                    'Copie o projeto e os rasters para um caminho local sem acentos '
+                    '(ex.: C:\\dados\\mdepa\\) e pause a sincronização do OneDrive durante o processamento.'
+                ),
+                'WARNING',
+            )
         gsd_ = layer_.rasterUnitsPerPixelX()
         max_px = int(float(dic_param_morphology['max_basin_area']['value']) / (gsd_ ** 2))
         dic_ = {
@@ -6127,10 +6138,37 @@ class Wd1(QWidget):
         return _on('audit_horizontal'), _on('audit_vertical')
 
     def _audit_test_model_name(self) -> str:
+        """Nome curto do MDE de teste para ficheiros Audit_*.pdf (nunca path TEMP)."""
         dems = (self.dic_prj or {}).get('dems') or {}
         test = dems.get(1) or {}
-        name = test.get('model') or test.get('type') or 'TESTE'
-        return str(name).strip() or 'TESTE'
+
+        def _clean_token(raw: str) -> str:
+            s = (raw or '').strip()
+            if not s:
+                return ''
+            # Path completo / URI com |layername=…
+            base = s.split('|')[0].replace('\\', '/')
+            if '/' in base or base.lower().endswith(('.tif', '.tiff', '.img', '.asc', '.vrt')):
+                s = os.path.splitext(os.path.basename(base))[0]
+            # Tokens do Processing TEMP (clip intermédio) — inválidos para o nome do audit.
+            low = s.lower()
+            if 'processing_' in low or low.startswith('output') or 'appdata_local_temp' in low:
+                return ''
+            if low in ('teste', 'test', 'referencia', 'referência', 'reference'):
+                return ''
+            return s.strip() or ''
+
+        name = _clean_token(str(test.get('model') or ''))
+        if not name:
+            layer = None
+            obj = test.get('obj_cbx')
+            if obj is not None and hasattr(obj, 'currentLayer'):
+                layer = obj.currentLayer()
+            if layer is not None and layer.isValid():
+                name = _clean_token(layer.source()) or _clean_token(layer.name())
+        if not name:
+            name = _clean_token(str(test.get('type') or '')) or 'TESTE'
+        return name
 
     def _pec_v_tables_for_audit(self, scales):
         """Tabelas PEC-V / EQ no formato esperado pelo gerador de PDF."""
@@ -6688,7 +6726,21 @@ class Wd1(QWidget):
 
                     layer.startEditing()
                     layer.addFeature(feat_)
-                    layer.commitChanges()
+                    try:
+                        ok = layer.commitChanges()
+                    except Exception as e:
+                        layer.rollBack()
+                        self.log_message(
+                            tr_ui('Falha ao gravar limite ({0}): {1}').format(layer_name, e),
+                            'ERROR')
+                        return
+                    if not ok:
+                        errs = layer.commitErrors() if hasattr(layer, 'commitErrors') else []
+                        self.log_message(
+                            tr_ui('commitChanges falhou em {0}: {1}').format(
+                                layer_name, '; '.join(errs) if errs else '?'),
+                            'ERROR')
+                        return
                     layer.updateExtents()
                     layer.triggerRepaint()
 

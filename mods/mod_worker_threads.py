@@ -10,9 +10,9 @@ from osgeo.ogr import wkbTIN
 from qgis.PyQt.QtCore import QThread, pyqtSignal, QObject
 from qgis import processing
 from qgis.core import (QgsApplication, QgsCoordinateReferenceSystem, QgsFeature, QgsVectorFileWriter,
-                       QgsFields, QgsField, QgsVectorLayer, QgsCoordinateTransformContext, QgsWkbTypes,
-                       QgsGeometry, QgsLineString, QgsPointXY, QgsProcessingContext, QgsProcessingFeedback,
-                       QgsMapLayer, QgsProject)
+                       QgsFields, QgsField, QgsVectorLayer, QgsRasterLayer, QgsCoordinateTransformContext,
+                       QgsWkbTypes, QgsGeometry, QgsLineString, QgsPointXY, QgsProcessingContext,
+                       QgsProcessingFeedback, QgsMapLayer, QgsProject)
 
 # |dm_h| ou |dm_v| acima disto é tratado como erro numérico / geometria; → NaN e WARNING no log.
 DM_ABS_MAX_SANE = 1000.0
@@ -154,6 +154,20 @@ def _finite_dm_scalar(x):
 
 _GRASS_PROVIDER_IDS = ('grass', 'grass7')
 _MORPHOLOGY_GRASS_ALGORITHMS = ('r.watershed', 'r.to.vect', 'v.to.lines', 'r.thin')
+
+
+def _run_processing(alg_or_name, params, feedback=None, context=None):
+    """
+    processing.run seguro em QThread.
+
+    Sem context, o Processing chama createContext() → iface.mapCanvas().fullExtent()
+    na thread de fundo → access violation no Windows.
+    """
+    if context is None:
+        context = QgsProcessingContext()
+    if feedback is None:
+        feedback = QgsProcessingFeedback()
+    return processing.run(alg_or_name, params, context=context, feedback=feedback)
 
 
 def resolve_grass_algorithm(tool_name: str) -> str:
@@ -408,7 +422,7 @@ class PolygonThread(QThread):
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }
             tool_ = "gdal:rastercalculator"
-            result_calc = processing.run(tool_, params)
+            result_calc = _run_processing(tool_, params)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
             # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
         except Exception as e:
@@ -428,7 +442,7 @@ class PolygonThread(QThread):
                 'OUTPUT': 'TEMPORARY_OUTPUT'
             }
             tool_ = "gdal:polygonize"
-            result_poly = processing.run(tool_, params)
+            result_poly = _run_processing(tool_, params)
             # print('result_poly', result_poly)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
             # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
@@ -447,7 +461,7 @@ class PolygonThread(QThread):
                 'OUTPUT': out_assignpro
             }
             tool_ = "native:assignprojection"
-            result_setpro = processing.run(tool_, params)
+            result_setpro = _run_processing(tool_, params)
             result_setpro = {'OUTPUT': out_assignpro}
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
             # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
@@ -468,7 +482,7 @@ class PolygonThread(QThread):
                     'OUTPUT': out_repro
                 }
                 tool_ = "native:reprojectlayer"
-                result_repro = processing.run(tool_, params)
+                result_repro = _run_processing(tool_, params)
                 result_repro = {'OUTPUT': out_repro}
                 self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
                 # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
@@ -495,7 +509,7 @@ class PolygonThread(QThread):
                 'SEPARATE_DISJOINT': False,
                 'OUTPUT': out_buffer}
             tool_ = "native:buffer"
-            result_bff = processing.run(tool_, params)
+            result_bff = _run_processing(tool_, params)
             result_bff = {'OUTPUT': out_buffer}
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
             # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
@@ -585,12 +599,31 @@ class MorphologyThread(QThread):
             path = path[7:]
         return os.path.normpath(path) if path else ''
 
+    @staticmethod
+    def _raster_has_usable_extent(path: str) -> bool:
+        """True se o GeoTIFF existe, é válido e não é um raster vazio/1x1 (falha silenciosa do GRASS)."""
+        if not path or not os.path.isfile(path) or os.path.getsize(path) < 400:
+            return False
+        layer = QgsRasterLayer(path, 'watershed_check')
+        if not layer.isValid():
+            return False
+        w, h = layer.width(), layer.height()
+        if w < 2 or h < 2:
+            return False
+        ext = layer.extent()
+        if ext.isEmpty() or ext.width() <= 0 or ext.height() <= 0:
+            return False
+        # Região dummy típica quando o GRASS exporta um raster inválido (ex.: 0–1).
+        if ext.width() <= 1.0 and ext.height() <= 1.0 and abs(ext.xMinimum()) < 2 and abs(ext.yMinimum()) < 2:
+            return False
+        return True
+
     def _watershed_basin_stream_exist(self, result_watershed, context=None) -> bool:
         if not result_watershed:
             return False
         for k in ('basin', 'stream'):
             p = self._processing_raster_path(result_watershed.get(k), context)
-            if not p or not os.path.isfile(p):
+            if not self._raster_has_usable_extent(p):
                 return False
         return True
 
@@ -631,8 +664,16 @@ class MorphologyThread(QThread):
                 'EXTRA':'',
                 'OUTPUT': 'TEMPORARY_OUTPUT',
             }
-            result_clip = processing.run(tool_, params)
-            self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_, 'model': result_clip['OUTPUT']})
+            result_clip = _run_processing(tool_, params)
+            # Nome amigável do MDE (não o path do TEMP do clip) — usado nos Audits PDF.
+            dem_label = os.path.splitext(os.path.basename(self.file_path.split('|')[0]))[0]
+            dem_label = dem_label.strip() or (self.morph_names[0] if self.morph_names else 'MDE')
+            self.sig_status.emit({
+                'key': self.key_,
+                'value': nr_,
+                'msg': tool_,
+                'model': dem_label,
+            })
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
             return
@@ -671,22 +712,23 @@ class MorphologyThread(QThread):
                 '-4':False,
                 '-a':False,
                 '-b':False,
-                'accumulation': 'TEMPORARY_OUTPUT',
-                'drainage': 'TEMPORARY_OUTPUT',
+                # Só basin/stream — pedir 9 rasters TEMPORARY aumenta falhas no export GRASS/Windows.
+                'accumulation': None,
+                'drainage': None,
                 'basin': basin_path,
                 'stream': stream_path,
-                'half_basin': 'TEMPORARY_OUTPUT',
-                'length_slope': 'TEMPORARY_OUTPUT',
-                'slope_steepness': 'TEMPORARY_OUTPUT',
-                'tci': 'TEMPORARY_OUTPUT',
-                'spi': 'TEMPORARY_OUTPUT',
+                'half_basin': None,
+                'length_slope': None,
+                'slope_steepness': None,
+                'tci': None,
+                'spi': None,
                 'GRASS_REGION_PARAMETER':None,
                 'GRASS_REGION_CELLSIZE_PARAMETER':0,
                 'GRASS_RASTER_FORMAT_OPT':'',
                 'GRASS_RASTER_FORMAT_META':''
             }
 
-            result_watershed = processing.run(
+            result_watershed = _run_processing(
                 tool_, params, context=proc_context, feedback=proc_feedback)
             # Retentativas: modo -m, depois menos memory (atualiza RAM a cada tentativa).
             min_grass_mem_mb = 512
@@ -726,7 +768,7 @@ class MorphologyThread(QThread):
                         f'{", modo -m" if memory_efficient else ""}.'
                     ),
                 })
-                result_watershed = processing.run(
+                result_watershed = _run_processing(
                     tool_, params, context=proc_context, feedback=proc_feedback)
             if not self._watershed_basin_stream_exist(result_watershed, proc_context):
                 b = self._processing_raster_path(
@@ -782,7 +824,7 @@ class MorphologyThread(QThread):
                 'GRASS_VECTOR_DSCO': '',
                 'GRASS_VECTOR_LCO': '',
                 'GRASS_VECTOR_EXPORT_NOCAT': False}
-            result_basian_vect = processing.run(tool_, params)
+            result_basian_vect = _run_processing(tool_, params)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
@@ -798,7 +840,7 @@ class MorphologyThread(QThread):
                 'METHOD': 1,
                 'OUTPUT': result_fix_gpkg,
             }
-            result_fix = processing.run(tool_, params)
+            result_fix = _run_processing(tool_, params)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
@@ -820,7 +862,7 @@ class MorphologyThread(QThread):
                 'GRASS_VECTOR_LCO': '',
                 'GRASS_VECTOR_EXPORT_NOCAT': False
             }
-            result_lines = processing.run(tool_, params)
+            result_lines = _run_processing(tool_, params)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
@@ -840,7 +882,7 @@ class MorphologyThread(QThread):
                 'OPTIONS':'',
                 'OUTPUT': 'TEMPORARY_OUTPUT',
             }
-            result_buffer = processing.run(tool_, params)
+            result_buffer = _run_processing(tool_, params)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
@@ -856,7 +898,7 @@ class MorphologyThread(QThread):
                 'OVERLAY': result_buffer['OUTPUT'],
                 'OUTPUT': result_clipv_gpkg
             }
-            result_clip_v = processing.run(tool_, params)
+            result_clip_v = _run_processing(tool_, params)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
@@ -871,7 +913,7 @@ class MorphologyThread(QThread):
                 'INPUT': result_clip_v['OUTPUT'],
                 'OUTPUT': result_single_gpkg
             }
-            result_single = processing.run(tool_, params)
+            result_single = _run_processing(tool_, params)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
@@ -886,7 +928,7 @@ class MorphologyThread(QThread):
                 'INTERVAL': self.gsd_,
                 'OUTPUT': result_densified_gpkg
             }
-            result_densified = processing.run(tool_, params)
+            result_densified = _run_processing(tool_, params)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
@@ -907,7 +949,7 @@ class MorphologyThread(QThread):
                 'OFFSET': 0,
                 'OUTPUT': f'{result_setz_gpkg}',
             }
-            result_setz = processing.run(tool_, params)
+            result_setz = _run_processing(tool_, params)
             dic_layer = {
                 'gpkg': result_setz['OUTPUT'],
                 'type': f'{self.morph_names[morph_type_idx]}_Z'
@@ -930,7 +972,7 @@ class MorphologyThread(QThread):
                 'GRASS_RASTER_FORMAT_OPT': '',
                 'GRASS_RASTER_FORMAT_META': '',
             }
-            result_stream_thin = processing.run(tool_, params)
+            result_stream_thin = _run_processing(tool_, params)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
@@ -956,7 +998,7 @@ class MorphologyThread(QThread):
                 'GRASS_VECTOR_DSCO':'',
                 'GRASS_VECTOR_LCO':'',
                 'GRASS_VECTOR_EXPORT_NOCAT':False}
-            result_stream_vect = processing.run(tool_, params)
+            result_stream_vect = _run_processing(tool_, params)
 
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
@@ -973,7 +1015,7 @@ class MorphologyThread(QThread):
                 'OVERLAY': result_buffer['OUTPUT'],
                 'OUTPUT': result_clipv_gpkg1
             }
-            result_clip_v1 = processing.run(tool_, params)
+            result_clip_v1 = _run_processing(tool_, params)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
@@ -988,7 +1030,7 @@ class MorphologyThread(QThread):
                 'INPUT': result_clip_v1['OUTPUT'],
                 'OUTPUT': result_single_gpkg1
             }
-            result_single1 = processing.run(tool_, params)
+            result_single1 = _run_processing(tool_, params)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
@@ -1004,7 +1046,7 @@ class MorphologyThread(QThread):
                 'INTERVAL': self.gsd_,
                 'OUTPUT': result_densified_gpkg
             }
-            result_densified = processing.run(tool_, params)
+            result_densified = _run_processing(tool_, params)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
@@ -1024,7 +1066,7 @@ class MorphologyThread(QThread):
                 'OFFSET': 0,
                 'OUTPUT': f'{result_setz_gpkg}',
             }
-            result_setz = processing.run(tool_, params)
+            result_setz = _run_processing(tool_, params)
             dic_layer = {
                 'gpkg': result_setz['OUTPUT'],
                 'type': f'{self.morph_names[morph_type_idx]}_Z'

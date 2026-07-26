@@ -6,7 +6,7 @@
 name=MDE AP - Acurácia Posicional
 qgisMinimumVersion=3.30
 description=Evaluates three-dimensional positional accuracy of elevation models (MDE) in the MDE-AP workflow.
-version=1.3.0
+version=1.3.1
 author=Adriano Caliman Salvador
 email=adriano.caliman@ufv.br; adrianocsalvador@gmail.com
 
@@ -19,7 +19,8 @@ repository=https://github.com/adrianocsalvador/pos_accuracy
 # Recommended items:
 
 hasProcessingProvider=yes
-changelog=1.3.0: relatórios de auditoria H/V (PDF, logo); orientação alta→baixa das linhas; correção progressiva por proximidade; scripts_analise_manual
+changelog=1.3.1: processing thread-safe (sem access violation no canvas); r.watershed só basin/stream + validação de rasters; diagnóstico RAM/GRASS; nome Audit_*.pdf pelo MDE de origem (não TEMP); aviso OneDrive/acentos
+1.3.0: relatórios de auditoria H/V (PDF, logo); orientação alta→baixa das linhas; correção progressiva por proximidade; scripts_analise_manual
 1.2.0: i18n EN/ES e seletor de idioma; relatório PDF (tabelas, PASSOU/FALHOU colorido, secção 6); WKT de perfis compatibilizados; logo PPGEC; checkbox abrir PDF; renomeação MDE AP
 
 # Tags are comma separated with spaces allowed
