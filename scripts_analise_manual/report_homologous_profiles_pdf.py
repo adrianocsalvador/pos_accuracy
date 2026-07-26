@@ -1160,6 +1160,7 @@ def generate_audit_pdfs_from_pairs(
     eq_v_table=None,
     timestamp=None,
     log=None,
+    progress=None,
 ):
     """
     Gera Audit_vertical_{modelo}_{linear|proximidade}_{escala}_{timestamp}.pdf
@@ -1167,8 +1168,10 @@ def generate_audit_pdfs_from_pairs(
     pairs: lista de dicts com chaves
       id_ref, id_test, layer_ref, geom_r, geom_t,
       dm_by_scale (opcional): {scale: {class: {DM_V, Area_*}}}
+    progress: callback opcional(msg) chamado após cada par×escala
     """
     _log = log or (lambda msg: print(msg))
+    _progress = progress if callable(progress) else None
     if not pairs:
         _log('Auditoria vertical: sem pares homólogos.')
         return []
@@ -1187,6 +1190,9 @@ def generate_audit_pdfs_from_pairs(
         scale = int(scale)
         if scale not in pec_lookup:
             _log(f'Auditoria vertical: escala {scale} sem PEC-V — ignorada.')
+            if _progress:
+                for _pair in pairs:
+                    _progress(f'V 1:{scale * 1000} (ignorada)')
             continue
         out_name = f'Audit_vertical_{safe_model}_{norm_slug}_{scale}_{ts}.pdf'
         out_path = os.path.join(out_dir, out_name)
@@ -1197,11 +1203,16 @@ def generate_audit_pdfs_from_pairs(
             for pair in pairs:
                 geom_r = pair.get('geom_r')
                 geom_t = pair.get('geom_t')
+                id_ref = pair.get('id_ref')
                 if geom_r is None or geom_t is None:
                     skipped += 1
+                    if _progress:
+                        _progress(f'V 1:{scale * 1000} id_ref={id_ref} (skip)')
                     continue
                 if geom_r.isEmpty() or geom_t.isEmpty():
                     skipped += 1
+                    if _progress:
+                        _progress(f'V 1:{scale * 1000} id_ref={id_ref} (skip)')
                     continue
                 profiles_compat = build_compatibilized_profile_geometries(
                     geom_r, geom_t, int(norm_type)
@@ -1211,6 +1222,8 @@ def generate_audit_pdfs_from_pairs(
                 )
                 if not profiles_compat:
                     skipped += 1
+                    if _progress:
+                        _progress(f'V 1:{scale * 1000} id_ref={id_ref} (skip)')
                     continue
                 dm_by_scale = pair.get('dm_by_scale') or {}
                 dm_by_class = dm_by_scale.get(scale) or dm_by_scale.get(str(scale)) or {}
@@ -1218,7 +1231,7 @@ def generate_audit_pdfs_from_pairs(
                     pdf,
                     test_name=str(test_name),
                     layer_ref=str(pair.get('layer_ref') or ''),
-                    id_ref=pair.get('id_ref'),
+                    id_ref=id_ref,
                     id_test=pair.get('id_test'),
                     scale=scale,
                     geom_r=geom_r,
@@ -1232,6 +1245,8 @@ def generate_audit_pdfs_from_pairs(
                     eq_v_table=eq_lookup,
                 )
                 drawn += 1
+                if _progress:
+                    _progress(f'V 1:{scale * 1000} id_ref={id_ref}')
         _log(f'PDF gravado: {out_path}  |  páginas={drawn}  |  ignorados={skipped}')
         outputs.append((out_path, drawn, skipped))
     return outputs
@@ -1247,12 +1262,15 @@ def generate_audit_horizontal_pdfs_from_pairs(
     pec_h_table=None,
     timestamp=None,
     log=None,
+    progress=None,
 ):
     """
     Gera Audit_horizontal_{modelo}_{escala}_{timestamp}.pdf
     (matriz 2×2 por classe; método de compatibilização não entra no nome).
+    progress: callback opcional(msg) chamado após cada par×escala
     """
     _log = log or (lambda msg: print(msg))
+    _progress = progress if callable(progress) else None
     if not pairs:
         _log('Auditoria horizontal: sem pares homólogos.')
         return []
@@ -1275,11 +1293,16 @@ def generate_audit_horizontal_pdfs_from_pairs(
             for pair in pairs:
                 geom_r = pair.get('geom_r')
                 geom_t = pair.get('geom_t')
+                id_ref = pair.get('id_ref')
                 if geom_r is None or geom_t is None:
                     skipped += 1
+                    if _progress:
+                        _progress(f'H 1:{scale * 1000} id_ref={id_ref} (skip)')
                     continue
                 if geom_r.isEmpty() or geom_t.isEmpty():
                     skipped += 1
+                    if _progress:
+                        _progress(f'H 1:{scale * 1000} id_ref={id_ref} (skip)')
                     continue
                 k_t = None
                 if int(norm_type) == NORM_SCALE:
@@ -1294,7 +1317,7 @@ def generate_audit_horizontal_pdfs_from_pairs(
                     pdf,
                     test_name=str(test_name),
                     layer_ref=str(pair.get('layer_ref') or ''),
-                    id_ref=pair.get('id_ref'),
+                    id_ref=id_ref,
                     id_test=pair.get('id_test'),
                     scale=scale,
                     geom_r=geom_r,
@@ -1306,6 +1329,8 @@ def generate_audit_horizontal_pdfs_from_pairs(
                     k_t=k_t,
                 )
                 drawn += 1
+                if _progress:
+                    _progress(f'H 1:{scale * 1000} id_ref={id_ref}')
         _log(f'PDF gravado: {out_path}  |  páginas={drawn}  |  ignorados={skipped}')
         outputs.append((out_path, drawn, skipped))
     return outputs

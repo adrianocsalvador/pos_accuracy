@@ -26,7 +26,7 @@ from qgis.PyQt.QtWidgets import (QAction, QScrollArea, QGridLayout, QHBoxLayout,
                                  QSpacerItem, QDockWidget, QSplitter, QComboBox, QLineEdit, QDialog, QFrame, QCheckBox,
                                  QHBoxLayout, QVBoxLayout, QFileDialog, QTableWidget, QStyle, QStyleOptionButton,
                                  QProgressBar, QDateEdit, QWidget, QVBoxLayout, QPushButton, QPlainTextEdit,
-                                 QMessageBox)
+                                 QMessageBox, QApplication)
 from qgis.core import (QgsVectorFileWriter, QgsWkbTypes, QgsCoordinateTransformContext, QgsCoordinateReferenceSystem,
                        QgsCoordinateTransform, QgsGeometry, QgsPointXY,
                        QgsFeature, QgsVectorLayer, QgsRasterLayer, QgsFields, QgsField, QgsProject,
@@ -6281,7 +6281,40 @@ class Wd1(QWidget):
                 }
         return pec_h_table
 
-    def export_audit_horizontal_pdfs(self, dic_values=None, report_ts=None):
+    def _audit_progress_begin(self, total, msg=None):
+        """Reinicia as duas barras (Referência/Teste) para a geração de auditoria."""
+        total = max(int(total or 0), 1)
+        label = msg or self.tr('Auditoria')
+        for key in (0, 1):
+            self.update_bar({'key': key, 'quant': total})
+            self.update_bar({
+                'key': key,
+                'value': 0,
+                'msg': label,
+                'progress_only': True,
+            })
+        QApplication.processEvents()
+
+    def _audit_progress_tick(self, value, total, msg):
+        """Atualiza as duas barras com o passo atual da auditoria."""
+        for key in (0, 1):
+            self.update_bar({
+                'key': key,
+                'value': int(value),
+                'msg': str(msg),
+                'progress_only': True,
+            })
+        QApplication.processEvents()
+
+    def _audit_progress_end(self, total, msg=None):
+        """Marca as duas barras como concluídas."""
+        total = max(int(total or 0), 1)
+        label = msg or self.tr('Auditoria concluída')
+        for key in (0, 1):
+            self.update_bar({'key': key, 'end': total, 'msg': label})
+        QApplication.processEvents()
+
+    def export_audit_horizontal_pdfs(self, dic_values=None, report_ts=None, progress=None):
         """Gera Audit_horizontal_{modelo}_{escala}_{ts}.pdf."""
         try:
             self.settings_dlg.flush_widgets_to_dic_param(log_values=False)
@@ -6358,6 +6391,7 @@ class Wd1(QWidget):
                 pec_h_table=pec_h_table,
                 timestamp=ts,
                 log=lambda msg: self.log_message(str(msg), 'INFO'),
+                progress=progress,
             )
         except Exception as e:
             self.log_message(
@@ -6375,7 +6409,7 @@ class Wd1(QWidget):
             )
         return outputs
 
-    def export_audit_vertical_pdfs(self, dic_values=None, report_ts=None):
+    def export_audit_vertical_pdfs(self, dic_values=None, report_ts=None, progress=None):
         """Gera Audit_vertical_{modelo}_{linear|proximidade}_{escala}_{ts}.pdf."""
         try:
             self.settings_dlg.flush_widgets_to_dic_param(log_values=False)
@@ -6447,6 +6481,7 @@ class Wd1(QWidget):
                 eq_v_table=eq_v_table,
                 timestamp=ts,
                 log=lambda msg: self.log_message(str(msg), 'INFO'),
+                progress=progress,
             )
         except Exception as e:
             self.log_message(
@@ -6463,6 +6498,50 @@ class Wd1(QWidget):
                 'INFO',
             )
         return outputs
+
+    def _run_audit_exports_with_progress(self, dic_values=None, report_ts=None):
+        """Gera H e/ou V atualizando as duas barras de progresso do painel."""
+        audit_h, audit_v = self._audit_report_flags()
+        if not audit_h and not audit_v:
+            return
+        pairs = self._build_audit_pair_specs(dic_values=dic_values)
+        scales = self.get_list_scale() or []
+        n_units = len(pairs) * len(scales) if pairs and scales else 0
+        total = n_units * (int(bool(audit_h)) + int(bool(audit_v)))
+        if total <= 0:
+            # Ainda assim corre os exports (logs de aviso internos)
+            if audit_h:
+                self.export_audit_horizontal_pdfs(
+                    dic_values=dic_values, report_ts=report_ts,
+                )
+            if audit_v:
+                self.export_audit_vertical_pdfs(
+                    dic_values=dic_values, report_ts=report_ts,
+                )
+            return
+
+        state = {'i': 0}
+
+        def _tick(msg):
+            state['i'] += 1
+            self._audit_progress_tick(state['i'], total, msg)
+
+        self._audit_progress_begin(total, self.tr('Auditoria'))
+        try:
+            if audit_h:
+                self.export_audit_horizontal_pdfs(
+                    dic_values=dic_values,
+                    report_ts=report_ts,
+                    progress=_tick,
+                )
+            if audit_v:
+                self.export_audit_vertical_pdfs(
+                    dic_values=dic_values,
+                    report_ts=report_ts,
+                    progress=_tick,
+                )
+        finally:
+            self._audit_progress_end(total, self.tr('Auditoria concluída'))
 
     def _build_pdf_report_html(self) -> str:
         return render_pdf_report_html(self._collect_report_snapshot())
@@ -6805,11 +6884,7 @@ class Wd1(QWidget):
                 self._open_report_file(pdf_path)
             try:
                 report_ts = getattr(self, '_last_report_ts', None)
-                self.export_audit_horizontal_pdfs(
-                    dic_values=dv,
-                    report_ts=report_ts,
-                )
-                self.export_audit_vertical_pdfs(
+                self._run_audit_exports_with_progress(
                     dic_values=dv,
                     report_ts=report_ts,
                 )
