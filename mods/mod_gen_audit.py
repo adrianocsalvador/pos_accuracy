@@ -7,8 +7,7 @@ Layout por página (1 par × 1 escala):
   Coluna 2 — painéis empilhados A/B/C/D com:
     ref + buffer V, teste sem compatibilização, teste compatibilizada + buffer V
 
-Batch (1 PDF por modelo×escala):
-  report_homologous_profiles_pdf.py --results-dirs Results/Geral_linear Results/Geral_proximidade
+Batch (1 PDF por modelo×escala): executar como script ou via scripts_aux/run_gen_audit.bat
 """
 
 from __future__ import annotations
@@ -16,7 +15,6 @@ from __future__ import annotations
 import argparse
 import math
 import os
-import sys
 from datetime import datetime
 
 import matplotlib
@@ -29,37 +27,20 @@ from matplotlib.ticker import FuncFormatter, MultipleLocator
 import matplotlib.pyplot as plt
 from qgis.core import Qgis, QgsGeometry, QgsPointXY, QgsSpatialIndex, QgsVectorLayer
 
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_PLUGIN_ROOT = os.path.dirname(_SCRIPT_DIR)
-if _SCRIPT_DIR not in sys.path:
-    sys.path.insert(0, _SCRIPT_DIR)
-if _PLUGIN_ROOT not in sys.path:
-    sys.path.insert(0, _PLUGIN_ROOT)
+_PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-from mods.mod_worker_threads import (  # noqa: E402
-    PROFILE_PROG_OFFSET,
-    build_compatibilized_profile_geometries,
-    orient_line_high_to_low,
-)
-
-from pec_from_gpkg import (  # noqa: E402
+from .mod_pec_constants import (
     CLASS_ORDER,
     DIC_EQ_V,
     DIC_NAME_LAYER,
     DIC_PEC_MM,
     DIC_PEC_V,
-    exit_standalone_qgis,
-    init_standalone_qgis,
-    load_result_layer,
 )
-
-DEFAULT_GPKG = os.path.join(_SCRIPT_DIR, 'Results', 'Geral_linear', 'Result.gpkg')
-DEFAULT_LINES_GPKG = os.path.join(_SCRIPT_DIR, 'Data', 'Selecao_v2_z.gpkg')
-DEFAULT_OUT = os.path.join(
-    _SCRIPT_DIR, 'Results', 'Geral_linear', 'Audit_vertical_smoke.pdf'
-)
-DEFAULT_OUT_H = os.path.join(
-    _SCRIPT_DIR, 'Results', 'Geral_linear', 'Audit_horizontal_smoke.pdf'
+from .mod_standalone_qgis import load_result_layer
+from .mod_worker_threads import (
+    PROFILE_PROG_OFFSET,
+    build_compatibilized_profile_geometries,
+    orient_line_high_to_low,
 )
 
 NORM_SCALE = 0
@@ -286,7 +267,11 @@ def _resolve_norm_type(norm_arg, results_dir=None):
     if norm_arg is None or norm_arg == 'auto':
         base = os.path.basename(os.path.normpath(results_dir or ''))
         low = base.lower()
-        if 'less_dist' in low or 'proximidade' in low:
+        if (
+            'geral_less_dist' in low
+            or 'less_dist' in low
+            or 'proximidade' in low
+        ):
             return NORM_LESS_DIST
         if (
             'sem_compatibilizacao' in low
@@ -295,7 +280,9 @@ def _resolve_norm_type(norm_arg, results_dir=None):
             or 'geral_none' in low
         ):
             return NORM_NONE
-        # Geral_linear (e aliases antigos Geral_scale) / default
+        if 'geral_linear' in low or 'geral_scale' in low:
+            return NORM_SCALE
+        # fallback: linear (ex. Geral_linear ou pastas sem sufixo explícito)
         return NORM_SCALE
     key = str(norm_arg).strip().lower()
     mapping = {
@@ -1042,9 +1029,9 @@ def _draw_page_horizontal(
 
 
 def generate_pdf(
-    gpkg_path=DEFAULT_GPKG,
-    lines_gpkg=DEFAULT_LINES_GPKG,
-    out_path=DEFAULT_OUT,
+    gpkg_path,
+    lines_gpkg,
+    out_path,
     scale=50,
     limit=None,
     model=None,
@@ -1337,9 +1324,9 @@ def generate_audit_horizontal_pdfs_from_pairs(
 
 
 def generate_horizontal_pdf(
-    gpkg_path=DEFAULT_GPKG,
-    lines_gpkg=DEFAULT_LINES_GPKG,
-    out_path=DEFAULT_OUT_H,
+    gpkg_path,
+    lines_gpkg,
+    out_path,
     scale=50,
     limit=None,
     model=None,
@@ -1432,7 +1419,7 @@ def generate_horizontal_pdf(
 
 def generate_pdfs_for_results_dir(
     results_dir,
-    lines_gpkg=DEFAULT_LINES_GPKG,
+    lines_gpkg,
     norm_type=None,
     limit=None,
     models=None,
@@ -1489,7 +1476,17 @@ def generate_pdfs_for_results_dir(
     return outputs
 
 
-def _parse_args(argv=None):
+def _cli_default_paths():
+    """Defaults para CLI standalone (dados em scripts_analise_manual/, se existirem)."""
+    manual_dir = os.path.join(_PLUGIN_ROOT, 'scripts_analise_manual')
+    return {
+        'lines_gpkg': os.path.join(manual_dir, 'Data', 'Selecao_v2_z.gpkg'),
+        'default_gpkg': os.path.join(manual_dir, 'Results', 'Geral_linear', 'Result.gpkg'),
+    }
+
+
+def _parse_cli_args(argv=None):
+    defaults = _cli_default_paths()
     p = argparse.ArgumentParser(
         description='PDF de pares homólogos (vista 2D + perfis por classe).'
     )
@@ -1501,8 +1498,8 @@ def _parse_args(argv=None):
     )
     p.add_argument(
         '--lines',
-        default=DEFAULT_LINES_GPKG,
-        help='GPKG com linhas Z de ref e teste (Selecao_v2_z.gpkg)',
+        default=defaults['lines_gpkg'],
+        help='GPKG com linhas Z de ref e teste',
     )
     p.add_argument('--out', default=None, help='Caminho do PDF (modo simples)')
     p.add_argument('--scale', type=int, default=None, choices=sorted(DIC_PEC_V.keys()))
@@ -1533,13 +1530,18 @@ def _parse_args(argv=None):
         '--results-dirs',
         nargs='+',
         default=None,
-        help='Pastas Results para --batch (ex.: Results/Geral_linear Results/Geral_proximidade)',
+        help='Pastas Results para --batch',
     )
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    args._default_gpkg = defaults['default_gpkg']
+    return args
 
 
 def main(argv=None):
-    args = _parse_args(argv)
+    """CLI standalone (QGIS headless). O painel do plugin chama as funções generate_* diretamente."""
+    from .mod_standalone_qgis import exit_standalone_qgis, init_standalone_qgis
+
+    args = _parse_cli_args(argv)
     limit = None if args.limit == 0 else args.limit
     init_standalone_qgis()
     try:
@@ -1555,7 +1557,7 @@ def main(argv=None):
                 )
             return
 
-        gpkg_path = args.gpkg or DEFAULT_GPKG
+        gpkg_path = args.gpkg or args._default_gpkg
         if os.path.isdir(gpkg_path):
             results_dir = gpkg_path
             gpkg_path = os.path.join(results_dir, 'Result.gpkg')

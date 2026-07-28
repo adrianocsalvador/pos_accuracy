@@ -42,6 +42,7 @@ from .mod_worker_threads import (
 )
 from .mod_settings import SettingsDlg
 from .mod_language_dlg import LanguageDlg
+from .mod_pec_constants import DIC_EQ_BY_NOMINAL_SCALE, DIC_PEC_ALT, DIC_PEC_MM
 from .plugin_i18n import (
     LOCALE_AUTO,
     PLUGIN_I18N_CONTEXT,
@@ -118,28 +119,7 @@ def perc_pec_ext(values, extents, pec_):
     return ok_ext / total_ext
 
 
-# Limites PEC/EP altimétricos por escala nominal e classe (pec_from_gpkg.py / pec_master_buffer_duplo.py)
-DIC_PEC_ALT = {
-    50: {
-        'A': {'pec': 5.0, 'ep': 3.33},
-        'B': {'pec': 10.0, 'ep': 6.66},
-        'C': {'pec': 12.0, 'ep': 8.0},
-        'D': {'pec': 15.0, 'ep': 10.0},
-    },
-    100: {
-        'A': {'pec': 13.7, 'ep': 8.33},
-        'B': {'pec': 25.00, 'ep': 16.66},
-        'C': {'pec': 30.0, 'ep': 20.0},
-        'D': {'pec': 37.5, 'ep': 25.0},
-    },
-    250: {
-        'A': {'pec': 27.0, 'ep': 16.67},
-        'B': {'pec': 50.0, 'ep': 33.33},
-        'C': {'pec': 60.0, 'ep': 40.0},
-        'D': {'pec': 75.0, 'ep': 50.0},
-    },
-}
-
+# Limites PEC/EP altimétricos por escala nominal e classe (mods/mod_pec_constants.py)
 
 def check_norm_values(values):
     """Teste de normalidade (Shapiro); exige ≥3 amostras."""
@@ -2611,56 +2591,8 @@ class Wd1(QWidget):
         self.aux_tools = AuxTools(parent=self)
         lg = self.create_layout()
         self.setLayout(lg)
-        self.dic_pec_mm = {
-            'H': {
-                'A': {
-                    'pec': 0.28,
-                    'ep': 0.17
-                },
-                'B': {
-                    'pec': 0.5,
-                    'ep': 0.3
-                },
-                'C': {
-                    'pec': 0.8,
-                    'ep': 0.5
-                },
-                'D': {
-                    'pec': 1.0,
-                    'ep': 0.6
-                },
-            },
-            'V': {
-                'A': {
-                    'pec': 0.27,
-                    'ep': 0.17
-                },
-                'B': {
-                    'pec': 0.5,
-                    'ep': 0.33
-                },
-                'C': {
-                    'pec': 0.6,
-                    'ep': 0.4
-                },
-                'D': {
-                    'pec': 0.75,
-                    'ep': 0.5
-                },
-            },
-        }
-        self.dic_pec_v = {
-            1: 1,
-            2: 1,
-            5: 2,
-            10: 5,
-            25: 10,
-            50: 20,
-            100: 50,
-            250: 100,
-            500: 200,
-            1000: 200,
-        }
+        self.dic_pec_mm = DIC_PEC_MM
+        self.dic_pec_v = DIC_EQ_BY_NOMINAL_SCALE
         self.dic_pec_alt = DIC_PEC_ALT
         self.list_norm_type = [
             tr_ui('Linear'), tr_ui('Por Proximidade'), tr_ui('Sem Normalização')]
@@ -6355,11 +6287,8 @@ class Wd1(QWidget):
             )
             return []
 
-        scripts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scripts_analise_manual')
-        if scripts_dir not in sys.path:
-            sys.path.insert(0, scripts_dir)
         try:
-            from report_homologous_profiles_pdf import (  # noqa: WPS433
+            from .mod_gen_audit import (  # noqa: WPS433
                 generate_audit_horizontal_pdfs_from_pairs,
             )
         except Exception as e:
@@ -6446,11 +6375,8 @@ class Wd1(QWidget):
             self.log_message(self.tr('Auditoria vertical: sem pares homólogos.'), 'WARNING')
             return []
 
-        scripts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'scripts_analise_manual')
-        if scripts_dir not in sys.path:
-            sys.path.insert(0, scripts_dir)
         try:
-            from report_homologous_profiles_pdf import (  # noqa: WPS433
+            from .mod_gen_audit import (  # noqa: WPS433
                 generate_audit_pdfs_from_pairs,
             )
         except Exception as e:

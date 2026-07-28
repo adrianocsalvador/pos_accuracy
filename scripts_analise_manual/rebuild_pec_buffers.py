@@ -42,33 +42,21 @@ from mods.mod_worker_threads import (  # noqa: E402
     build_compatibilized_profile_geometries,
     orient_line_high_to_low,
 )
-from pec_from_gpkg import (  # noqa: E402
+from manual_paths import LINES_GPKG  # noqa: E402
+from mods.mod_pec_constants import (  # noqa: E402
     DIC_NAME_LAYER,
     DIC_PEC_MM,
     DIC_PEC_V,
+    NORM_BY_METHOD,
+    RESULTS_FOLDER_BY_METHOD,
+)
+from mods.mod_standalone_qgis import (  # noqa: E402
     exit_standalone_qgis,
     init_standalone_qgis,
 )
 
-DEFAULT_LINES_GPKG = os.path.join(_SCRIPT_DIR, 'Data', 'Selecao_v2_z.gpkg')
+DEFAULT_LINES_GPKG = LINES_GPKG
 BUFFER_SEGMENTS = 20
-
-NORM_BY_METHOD = {
-    'scale': 0,
-    'linear': 0,
-    'less_dist': 1,
-    'proximidade': 1,
-    'none': 2,
-    'sem_compatibilizacao': 2,
-    'sem_normalizacao': 2,
-}
-
-# Pasta Results/ por método canónico
-RESULTS_FOLDER_BY_METHOD = {
-    0: 'Geral_linear',
-    1: 'Geral_proximidade',
-    2: 'Geral_sem_compatibilizacao',
-}
 
 
 def _load_named_layers(gpkg_path):

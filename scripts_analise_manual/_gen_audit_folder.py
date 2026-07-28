@@ -13,13 +13,13 @@ if _SCRIPT_DIR not in sys.path:
 if _PLUGIN_ROOT not in sys.path:
     sys.path.insert(0, _PLUGIN_ROOT)
 
-from pec_from_gpkg import (  # noqa: E402
+from manual_paths import LINES_GPKG  # noqa: E402
+from mods.mod_standalone_qgis import (  # noqa: E402
     exit_standalone_qgis,
     init_standalone_qgis,
     load_result_layer,
 )
-from report_homologous_profiles_pdf import (  # noqa: E402
-    DEFAULT_LINES_GPKG,
+from mods.mod_gen_audit import (  # noqa: E402
     _build_test_pair_index,
     _load_layer_cache,
     _models_from_result,
@@ -56,7 +56,7 @@ def _gen_vertical(results_dir, lines, pair_index, ts):
             print(f'→ {os.path.basename(out)}')
             generate_pdf(
                 gpkg_path=gpkg,
-                lines_gpkg=DEFAULT_LINES_GPKG,
+                lines_gpkg=LINES_GPKG,
                 out_path=out,
                 scale=int(scale),
                 model=model,
@@ -83,7 +83,7 @@ def _gen_horizontal(results_dir, lines, pair_index, ts):
             print(f'→ {os.path.basename(out)}')
             generate_horizontal_pdf(
                 gpkg_path=gpkg,
-                lines_gpkg=DEFAULT_LINES_GPKG,
+                lines_gpkg=LINES_GPKG,
                 out_path=out,
                 scale=int(scale),
                 model=model,
@@ -106,7 +106,7 @@ def main():
         ts = datetime.now().strftime('%Y-%m-%d_%H%M')
         print(f'OUT={OUT_DIR}')
         print(f'ts={ts}')
-        lines = _load_layer_cache(DEFAULT_LINES_GPKG)
+        lines = _load_layer_cache(LINES_GPKG)
         pair_index = _build_test_pair_index(lines)
         print(f'Pares indexados: {len(pair_index)}')
 

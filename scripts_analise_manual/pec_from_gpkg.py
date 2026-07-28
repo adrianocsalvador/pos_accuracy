@@ -10,77 +10,34 @@ import math
 import os
 import re
 import statistics
+import sys
 
 from PyQt5.QtCore import QVariant
-from qgis.core import QgsApplication, QgsField, QgsProject, QgsSpatialIndex, QgsVectorLayer
+from qgis.core import QgsField, QgsProject, QgsSpatialIndex, QgsVectorLayer
 from scipy.stats import shapiro
 
-_qgs_app = None
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_PLUGIN_ROOT = os.path.dirname(_SCRIPT_DIR)
+if _PLUGIN_ROOT not in sys.path:
+    sys.path.insert(0, _PLUGIN_ROOT)
 
+from manual_paths import DEFAULT_RESULT_GPKG, LINES_GPKG  # noqa: E402
+from mods.mod_pec_constants import (  # noqa: E402
+    CLASS_ORDER,
+    DIC_EQ_V,
+    DIC_NAME_LAYER,
+    DIC_PEC_MM,
+    DIC_PEC_V,
+    EXTENT_REF_FIELD,
+    LAYER_NAME_BUFFER_TEST,
+)
+from mods.mod_standalone_qgis import (  # noqa: E402
+    exit_standalone_qgis,
+    init_standalone_qgis,
+    load_result_layer,
+)
 
-def init_standalone_qgis():
-    """Inicializa QGIS headless (evita avisos Qt ao rodar via .bat)."""
-    global _qgs_app
-    if _qgs_app is not None or QgsApplication.instance():
-        return
-    _qgs_app = QgsApplication([], False)
-    _qgs_app.initQgis()
-
-
-def exit_standalone_qgis():
-    global _qgs_app
-    if _qgs_app is not None:
-        _qgs_app.exitQgis()
-        _qgs_app = None
-
-# ---------------------------------------------------------------------------
-# Parâmetros PEC / EP (mesmos valores de pec_master_buffer_duplo.py)
-# ---------------------------------------------------------------------------
-DIC_PEC_MM = {
-    'H': {
-        'A': {'pec': 0.28, 'ep': 0.17},
-        'B': {'pec': 0.5, 'ep': 0.3},
-        'C': {'pec': 0.8, 'ep': 0.5},
-        'D': {'pec': 1.0, 'ep': 0.6},
-    },
-    'V': {
-        'A': {'pec': 0.27, 'ep': 0.17},
-        'B': {'pec': 0.5, 'ep': 0.33},
-        'C': {'pec': 0.6, 'ep': 0.4},
-        'D': {'pec': 0.75, 'ep': 0.5},
-    },
-}
-DIC_PEC_V = {
-    50: {
-        'A': {'pec': 5.0, 'ep': 3.33},
-        'B': {'pec': 10.0, 'ep': 6.66},
-        'C': {'pec': 12.0, 'ep': 8.0},
-        'D': {'pec': 15.0, 'ep': 10.0},
-    },
-    100: {
-        'A': {'pec': 13.7, 'ep': 8.33},
-        'B': {'pec': 25.00, 'ep': 16.66},
-        'C': {'pec': 30.0, 'ep': 20.0},
-        'D': {'pec': 37.5, 'ep': 25.0},
-    },
-    250: {
-        'A': {'pec': 27.0, 'ep': 16.67},
-        'B': {'pec': 50.0, 'ep': 33.33},
-        'C': {'pec': 60.0, 'ep': 40.0},
-        'D': {'pec': 75.0, 'ep': 50.0},
-    },
-}
-
-# EQ altimétrico por escala nominal (mesmo fator dic_pec_v do plugin)
-DIC_EQ_V = {
-    50: 20,
-    100: 50,
-    250: 100,
-}
-
-LAYER_NAME = '__Buffer_Test__'
-EXTENT_REF_FIELD = 'extent_ref'
-CLASS_ORDER = ['A', 'B', 'C', 'D']
+LAYER_NAME = LAYER_NAME_BUFFER_TEST
 
 TABLE_COLUMNS_PLAN = [
     'Modelo',
@@ -117,39 +74,13 @@ TABLE_COLUMNS_ALT = [
     'array_reprovados',
 ]
 
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_GPKG = os.path.join(_SCRIPT_DIR, 'Results', 'Geral_sem_compatibilizacao', 'Result.gpkg')
-DEFAULT_REF_GPKG = os.path.join(_SCRIPT_DIR, 'Data', 'Selecao_v2_z.gpkg')
-
-# Mesmo mapeamento teste → referência de pec_master_buffer_duplo.py
-DIC_NAME_LAYER = {
-    'ANADEM': {
-        'anadem_cumeadas_z': 'sei_cumeadas_z',
-        'anadem_hidrografias_z': 'sei_hidrografias_z',
-    },
-    'NASADEM': {
-        'nasadem_cumeadas_z': 'sei_cumeadas_z',
-        'nasadem_hidrografias_z': 'sei_hidrografias_z',
-    },
-}
+DEFAULT_GPKG = DEFAULT_RESULT_GPKG
+DEFAULT_REF_GPKG = LINES_GPKG
 
 PROFILE_LEN_HEADER_RE = re.compile(
     r'len\(r\)\s*=\s*([\d.eE+-]+)\s*\|\s*len\(t\)\s*([\d.eE+-]+)',
     re.IGNORECASE,
 )
-
-
-def load_result_layer(gpkg_path, layer_name=LAYER_NAME, add_to_project=False):
-    """Abre a camada de resultados no GPKG."""
-    uri = f'{gpkg_path}|layername={layer_name}'
-    layer = QgsVectorLayer(uri, layer_name, 'ogr')
-    if not layer.isValid():
-        raise RuntimeError(
-            f'Não foi possível abrir a camada "{layer_name}" em:\n{gpkg_path}'
-        )
-    if add_to_project:
-        QgsProject.instance().addMapLayer(layer, False)
-    return layer
 
 
 def _group_key(feat):
