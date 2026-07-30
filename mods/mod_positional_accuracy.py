@@ -2109,6 +2109,22 @@ def find_dem_layer_in_project(source_str: str):
     return None
 
 
+def _raster_layer_gsd(layer):
+    """GSD efetivo (m) a partir do tamanho de pixel; menor = melhor resolução."""
+    if layer is None or not isinstance(layer, QgsRasterLayer) or not layer.isValid():
+        return None
+    try:
+        gx = abs(float(layer.rasterUnitsPerPixelX()))
+        gy = abs(float(layer.rasterUnitsPerPixelY()))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(gx) or gx <= 0:
+        return None
+    if not math.isfinite(gy) or gy <= 0:
+        gy = gx
+    return math.sqrt(gx * gy)
+
+
 def find_vector_layer_in_project(source_str: str):
     """Devolve QgsVectorLayer já no projeto com a mesma fonte que source_str, ou None."""
     if not source_str:
@@ -3225,7 +3241,10 @@ class Wd1(QWidget):
         if not pf or not os.path.isfile(pf):
             return
         sources = load_dem_sources_from_project_path(pf)
-        if not sources:
+        uri0 = (sources.get(0) or '').strip() if sources else ''
+        uri1 = (sources.get(1) or '').strip() if sources else ''
+        if not uri0 and not uri1:
+            self.auto_assign_dems_by_resolution_if_needed()
             return
         for key_ in (0, 1):
             cbx = self.dic_prj['dems'][key_]['obj_cbx']
@@ -3252,6 +3271,71 @@ class Wd1(QWidget):
                 cbx.setLayer(rl)
             finally:
                 cbx.blockSignals(False)
+
+    def _candidate_input_dem_layers(self):
+        """Rasters válidos do projeto QGIS, excluindo camadas internas do plugin / .pa.gpkg."""
+        pf = self.dic_prj.get('project_file')
+        pf_norm = ''
+        if pf and os.path.isfile(pf):
+            pf_norm = os.path.normcase(os.path.normpath(os.path.abspath(pf)))
+        out = []
+        for layer in QgsProject.instance().mapLayers().values():
+            if not isinstance(layer, QgsRasterLayer) or not layer.isValid():
+                continue
+            name = (layer.name() or '').strip()
+            if name.startswith('__'):
+                continue
+            src = (layer.source() or '').strip()
+            path_part = src.split('|')[0].strip() if src else ''
+            if pf_norm and path_part and os.path.isfile(path_part):
+                if os.path.normcase(os.path.normpath(os.path.abspath(path_part))) == pf_norm:
+                    continue
+            gsd = _raster_layer_gsd(layer)
+            if gsd is None:
+                continue
+            out.append((gsd, layer))
+        return out
+
+    def auto_assign_dems_by_resolution_if_needed(self) -> bool:
+        """
+        Se ref/teste não estão definidos no .pa.gpkg e há exatamente 2 MDEs no mapa,
+        atribui o de melhor resolução (menor GSD) à referência e o outro ao teste.
+        """
+        pf = self.dic_prj.get('project_file')
+        if not pf or not os.path.isfile(pf):
+            return False
+        sources = load_dem_sources_from_project_path(pf)
+        uri0 = (sources.get(0) or '').strip() if sources else ''
+        uri1 = (sources.get(1) or '').strip() if sources else ''
+        if uri0 or uri1:
+            return False
+
+        candidates = self._candidate_input_dem_layers()
+        if len(candidates) != 2:
+            return False
+
+        candidates.sort(key=lambda item: (item[0], (item[1].name() or '').lower()))
+        gsd_ref, layer_ref = candidates[0]
+        gsd_test, layer_test = candidates[1]
+        for key_, layer in ((0, layer_ref), (1, layer_test)):
+            cbx = self.dic_prj['dems'][key_]['obj_cbx']
+            if cbx is None:
+                return False
+            cbx.blockSignals(True)
+            try:
+                cbx.setLayer(layer)
+            finally:
+                cbx.blockSignals(False)
+
+        self.persist_dem_layer_selection()
+        self.log_message(
+            self.tr(
+                'MDEs atribuídos automaticamente pela resolução espacial: '
+                'referência={0} (GSD≈{1:.3f}), teste={2} (GSD≈{3:.3f}).'
+            ).format(layer_ref.name(), gsd_ref, layer_test.name(), gsd_test),
+            'INFO',
+        )
+        return True
 
     def save_plugin_settings_to_project(self, dic_param: dict) -> bool:
         pf = self.dic_prj.get('project_file')
