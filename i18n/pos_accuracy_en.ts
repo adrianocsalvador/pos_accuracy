@@ -48,6 +48,54 @@
         <translation><![CDATA[No normalization]]></translation>
     </message>
     <message>
+        <source><![CDATA[Equação original (eq:dm-buffer-duplo)]]></source>
+        <translation><![CDATA[Original equation (eq:dm-buffer-duplo)]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Nova equação (eq:dm-buffer-duplo-media)]]></source>
+        <translation><![CDATA[New equation (eq:dm-buffer-duplo-media)]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[dmᵢ = π · x · (A₂ᵢ − A₃ᵢ) / A₁ᵢ
+
+dmᵢ — discrepância média do par i
+π — constante pi
+x — PEC (raio do buffer) da escala/classe
+A₁ — área do buffer da feição de teste
+A₂ — área do buffer da feição de referência
+A₃ — área da interseção dos buffers]]></source>
+        <translation><![CDATA[dmᵢ = π · x · (A₂ᵢ − A₃ᵢ) / A₁ᵢ
+
+dmᵢ — mean discrepancy of pair i
+π — pi constant
+x — PEC (buffer radius) for the scale/class
+A₁ — test feature buffer area
+A₂ — reference feature buffer area
+A₃ — buffer intersection area]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[dmᵢ = π · x · ((A₁ᵢ + A₂ᵢ)/2 − A₃ᵢ) / ((A₁ᵢ + A₂ᵢ)/2)
+
+A média (A₁ + A₂)/2 entra no numerador (no lugar de A₂) e no denominador (no lugar de A₁), tratando os dois erros de extensão com o mesmo peso.
+
+dmᵢ — discrepância média do par i
+π — constante pi
+x — PEC (raio do buffer) da escala/classe
+A₁ — área do buffer da feição de teste
+A₂ — área do buffer da feição de referência
+A₃ — área da interseção dos buffers]]></source>
+        <translation><![CDATA[dmᵢ = π · x · ((A₁ᵢ + A₂ᵢ)/2 − A₃ᵢ) / ((A₁ᵢ + A₂ᵢ)/2)
+
+The average (A₁ + A₂)/2 is used in the numerator (instead of A₂) and in the denominator (instead of A₁), treating both length errors with equal weight.
+
+dmᵢ — mean discrepancy of pair i
+π — pi constant
+x — PEC (buffer radius) for the scale/class
+A₁ — test feature buffer area
+A₂ — reference feature buffer area
+A₃ — buffer intersection area]]></translation>
+    </message>
+    <message>
         <source><![CDATA[Config]]></source>
         <translation><![CDATA[Settings]]></translation>
     </message>
@@ -80,8 +128,8 @@
         <translation><![CDATA[Test DEM:]]></translation>
     </message>
     <message>
-        <source><![CDATA[info]]></source>
-        <translation><![CDATA[info]]></translation>
+        <source><![CDATA[Informações do MDE selecionado]]></source>
+        <translation><![CDATA[Informações do MDE selecionado]]></translation>
     </message>
     <message>
         <source><![CDATA[Definição da área de estudos:]]></source>
@@ -132,12 +180,30 @@
         <translation><![CDATA[Use all values]]></translation>
     </message>
     <message>
+        <source><![CDATA[Abrir o relatório]]></source>
+        <translation><![CDATA[Abrir o relatório]]></translation>
+    </message>
+    <message>
         <source><![CDATA[Avaliar]]></source>
         <translation><![CDATA[Evaluate]]></translation>
     </message>
     <message>
         <source><![CDATA[LOG:]]></source>
         <translation><![CDATA[LOG:]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Caixa: abrir automaticamente após a avaliação.
+Clique no texto para abrir o último relatório PDF.]]></source>
+        <translation><![CDATA[Caixa: abrir automaticamente após a avaliação.
+Clique no texto para abrir o último relatório PDF.]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Nenhum relatório disponível para abrir.]]></source>
+        <translation><![CDATA[Nenhum relatório disponível para abrir.]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Não foi possível abrir o relatório: {0}]]></source>
+        <translation><![CDATA[Não foi possível abrir o relatório: {0}]]></translation>
     </message>
     <message>
         <source><![CDATA[Abrir projeto]]></source>
@@ -284,6 +350,10 @@
         <translation><![CDATA[GRASS OK — morphology can run. Algorithms: {0}.]]></translation>
     </message>
     <message>
+        <source><![CDATA[MDE ({0}) NÃO DEFINIDO]]></source>
+        <translation><![CDATA[DEM ({0}) IS NOT DEFINED]]></translation>
+    </message>
+    <message>
         <source><![CDATA[=======================================
 ]]></source>
         <translation><![CDATA[=======================================
@@ -354,10 +424,6 @@
 ]]></source>
         <translation><![CDATA[  Pixel size Y: {0:.3f}
 ]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[MDE ({0}) NÃO DEFINIDO]]></source>
-        <translation><![CDATA[DEM ({0}) IS NOT DEFINED]]></translation>
     </message>
     <message>
         <source><![CDATA[Defina o projeto (.pa.gpkg): menu ⋯ → Abrir ou Novo.]]></source>
@@ -446,6 +512,10 @@
         <translation><![CDATA[High RAM before morphology — r.watershed (GRASS) may fail. Close other applications, restart QGIS if needed, or reduce «Grass GIS memory limit» in plugin settings.]]></translation>
     </message>
     <message>
+        <source><![CDATA[AVISO: projeto/MDE sob OneDrive ou «Área de Trabalho» (caminho com acentos). Isto causa falhas intermitentes no GRASS no Windows. Copie o projeto e os rasters para um caminho local sem acentos (ex.: C:\dados\mdepa\) e pause a sincronização do OneDrive durante o processamento.]]></source>
+        <translation><![CDATA[AVISO: projeto/MDE sob OneDrive ou «Área de Trabalho» (caminho com acentos). Isto causa falhas intermitentes no GRASS no Windows. Copie o projeto e os rasters para um caminho local sem acentos (ex.: C:\dados\mdepa\) e pause a sincronização do OneDrive durante o processamento.]]></translation>
+    </message>
+    <message>
         <source><![CDATA[[__Linhas_de_Correspondencia__] Camadas de morfologia indisponíveis para tipo {0}.]]></source>
         <translation><![CDATA[[__Linhas_de_Correspondencia__] Morphology layers unavailable for type {0}.]]></translation>
     </message>
@@ -496,6 +566,10 @@ Suggestions:
     <message>
         <source><![CDATA[GSD do MDE de teste inválido — não é possível converter pixels em distância no mapa.]]></source>
         <translation><![CDATA[Invalid test DEM GSD — cannot convert pixels to map distance.]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Extensão total da amostra: {0} m]]></source>
+        <translation><![CDATA[Extensão total da amostra: {0} m]]></translation>
     </message>
     <message>
         <source><![CDATA[Camada __Linhas_de_Correspondencia__: {0} pares. Edite, remova ou adicione linhas (meio teste → meio referência); atributos: tipo, fid_r, fid_t. Prima Continuar.]]></source>
@@ -718,6 +792,10 @@ Suggestions:
         <translation><![CDATA[Could not save PEC report: {0} ({1})]]></translation>
     </message>
     <message>
+        <source><![CDATA[Estado]]></source>
+        <translation><![CDATA[Estado]]></translation>
+    </message>
+    <message>
         <source><![CDATA[(camada de interseção indisponível)]]></source>
         <translation><![CDATA[(intersection layer unavailable)]]></translation>
     </message>
@@ -726,16 +804,16 @@ Suggestions:
         <translation><![CDATA[(empty extent — run DEM intersection)]]></translation>
     </message>
     <message>
-        <source><![CDATA[Envelope ({0}): Xmin={1}, Ymin={2}, Xmax={3}, Ymax={4}]]></source>
-        <translation><![CDATA[Envelope ({0}): Xmin={1}, Ymin={2}, Xmax={3}, Ymax={4}]]></translation>
+        <source><![CDATA[(sem CRS)]]></source>
+        <translation><![CDATA[(sem CRS)]]></translation>
     </message>
     <message>
-        <source><![CDATA[Envelope: Xmin={0}, Ymin={1}, Xmax={2}, Ymax={3}]]></source>
-        <translation><![CDATA[Envelope: Xmin={0}, Ymin={1}, Xmax={2}, Ymax={3}]]></translation>
+        <source><![CDATA[Envelope ({0})]]></source>
+        <translation><![CDATA[Envelope ({0})]]></translation>
     </message>
     <message>
-        <source><![CDATA[(transformação para {0} indisponível)]]></source>
-        <translation><![CDATA[(reprojection to {0} unavailable)]]></translation>
+        <source><![CDATA[(transformação indisponível)]]></source>
+        <translation><![CDATA[(transformação indisponível)]]></translation>
     </message>
     <message>
         <source><![CDATA[(ainda não há resultados de PEC nesta sessão — execute a análise até ao fim.)]]></source>
@@ -750,40 +828,16 @@ Suggestions:
         <translation><![CDATA[7.2 Vertical PEC]]></translation>
     </message>
     <message>
-        <source><![CDATA[Escalar k (L_ref / L_teste) — média: {0}]]></source>
-        <translation><![CDATA[Scalar k (L_ref / L_test) — mean: {0}]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Escalar k — mínima: {0}]]></source>
-        <translation><![CDATA[Scalar k — minimum: {0}]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Escalar k — máxima: {0}]]></source>
-        <translation><![CDATA[Scalar k — maximum: {0}]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Escalar k — desvio padrão: {0}]]></source>
-        <translation><![CDATA[Scalar k — standard deviation: {0}]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[(sem pares homólogos definidos — execute a correspondência de linhas.)]]></source>
-        <translation><![CDATA[(no homologous pairs defined — run line matching.)]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[6. Pares homólogos — estatísticas]]></source>
-        <translation><![CDATA[6. Homologous pairs — statistics]]></translation>
-    </message>
-    <message>
         <source><![CDATA[Método de normalização de progressivas]]></source>
         <translation><![CDATA[Chainage normalization method]]></translation>
     </message>
     <message>
-        <source><![CDATA[Ficheiro WKT dos perfis]]></source>
-        <translation><![CDATA[Profiles WKT file]]></translation>
-    </message>
-    <message>
         <source><![CDATA[Total de pares]]></source>
         <translation><![CDATA[Total pairs]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Ficheiro WKT dos perfis]]></source>
+        <translation><![CDATA[Profiles WKT file]]></translation>
     </message>
     <message>
         <source><![CDATA[Escalar (k)]]></source>
@@ -806,16 +860,20 @@ Suggestions:
         <translation><![CDATA[Standard deviation]]></translation>
     </message>
     <message>
-        <source><![CDATA[Perfil ref. (WKT compatibilizado)]]></source>
-        <translation><![CDATA[Ref. profile (compatibilized WKT)]]></translation>
+        <source><![CDATA[(sem pares homólogos definidos — execute a correspondência de linhas.)]]></source>
+        <translation><![CDATA[(no homologous pairs defined — run line matching.)]]></translation>
     </message>
     <message>
-        <source><![CDATA[Perfil teste (WKT compatibilizado)]]></source>
-        <translation><![CDATA[Test profile (compatibilized WKT)]]></translation>
+        <source><![CDATA[6. Pares homólogos — estatísticas]]></source>
+        <translation><![CDATA[6. Homologous pairs — statistics]]></translation>
     </message>
     <message>
-        <source><![CDATA[Total de pares: {0}]]></source>
-        <translation><![CDATA[Total pairs: {0}]]></translation>
+        <source><![CDATA[Opção]]></source>
+        <translation><![CDATA[Option]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Valor]]></source>
+        <translation><![CDATA[Value]]></translation>
     </message>
     <message>
         <source><![CDATA[Data/hora]]></source>
@@ -838,8 +896,8 @@ Suggestions:
         <translation><![CDATA[ref_layer]]></translation>
     </message>
     <message>
-        <source><![CDATA[wkt_ref]]></source>
-        <translation><![CDATA[wkt_ref]]></translation>
+        <source><![CDATA[Perfil ref. (WKT compatibilizado)]]></source>
+        <translation><![CDATA[Ref. profile (compatibilized WKT)]]></translation>
     </message>
     <message>
         <source><![CDATA[test_id]]></source>
@@ -850,8 +908,8 @@ Suggestions:
         <translation><![CDATA[test_layer]]></translation>
     </message>
     <message>
-        <source><![CDATA[wkt_test]]></source>
-        <translation><![CDATA[wkt_test]]></translation>
+        <source><![CDATA[Perfil teste (WKT compatibilizado)]]></source>
+        <translation><![CDATA[Test profile (compatibilized WKT)]]></translation>
     </message>
     <message>
         <source><![CDATA[Escalar k (linear)]]></source>
@@ -870,6 +928,22 @@ Suggestions:
         <translation><![CDATA[(not selected)]]></translation>
     </message>
     <message>
+        <source><![CDATA[Área de estudo]]></source>
+        <translation><![CDATA[Área de estudo]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Extensão mínima da amostra]]></source>
+        <translation><![CDATA[Extensão mínima da amostra]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Extensão da amostra]]></source>
+        <translation><![CDATA[Extensão da amostra]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Número de pares homólogos]]></source>
+        <translation><![CDATA[Número de pares homólogos]]></translation>
+    </message>
+    <message>
         <source><![CDATA[Relatório — MDE AP — Acurácia Posicional]]></source>
         <translation><![CDATA[Report — MDE AP — Positional Accuracy]]></translation>
     </message>
@@ -886,16 +960,12 @@ Suggestions:
         <translation><![CDATA[1. Study area location]]></translation>
     </message>
     <message>
+        <source><![CDATA[Envelope]]></source>
+        <translation><![CDATA[Envelope]]></translation>
+    </message>
+    <message>
         <source><![CDATA[2. Fluxo de trabalho]]></source>
         <translation><![CDATA[2. Workflow]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Opção]]></source>
-        <translation><![CDATA[Option]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Valor]]></source>
-        <translation><![CDATA[Value]]></translation>
     </message>
     <message>
         <source><![CDATA[Definição da área de estudos]]></source>
@@ -946,12 +1016,68 @@ Suggestions:
         <translation><![CDATA[7. PEC results]]></translation>
     </message>
     <message>
-        <source><![CDATA[Defina um projeto (.pa.gpkg) para exportar o relatório.]]></source>
-        <translation><![CDATA[Define a project (.pa.gpkg) to export the report.]]></translation>
+        <source><![CDATA[Auditoria]]></source>
+        <translation><![CDATA[Auditoria]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Auditoria concluída]]></source>
+        <translation><![CDATA[Auditoria concluída]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Defina um projeto (.pa.gpkg) para exportar a auditoria.]]></source>
+        <translation><![CDATA[Define a project (.pa.gpkg) to export the audit.]]></translation>
     </message>
     <message>
         <source><![CDATA[Não foi possível criar a pasta do projeto: {0}]]></source>
         <translation><![CDATA[Could not create the project folder: {0}]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Auditoria horizontal: nenhuma escala definida.]]></source>
+        <translation><![CDATA[Horizontal audit: no scale defined.]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Auditoria horizontal: sem pares homólogos.]]></source>
+        <translation><![CDATA[Horizontal audit: no homologous pairs.]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Falha ao carregar gerador de auditoria: {0}]]></source>
+        <translation><![CDATA[Failed to load audit generator: {0}]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[A gerar relatório de auditoria horizontal ({0} pares)…]]></source>
+        <translation><![CDATA[Generating horizontal audit report ({0} pairs)…]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Falha na auditoria horizontal: {0}]]></source>
+        <translation><![CDATA[Horizontal audit failed: {0}]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Auditoria horizontal gravada: {0} ({1} páginas)]]></source>
+        <translation><![CDATA[Horizontal audit saved: {0} ({1} pages)]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Auditoria vertical: nenhuma escala definida.]]></source>
+        <translation><![CDATA[Vertical audit: no scale defined.]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Auditoria vertical: sem pares homólogos.]]></source>
+        <translation><![CDATA[Vertical audit: no homologous pairs.]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[A gerar relatório de auditoria vertical ({0} pares)…]]></source>
+        <translation><![CDATA[Generating vertical audit report ({0} pairs)…]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Falha na auditoria vertical: {0}]]></source>
+        <translation><![CDATA[Vertical audit failed: {0}]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Auditoria vertical gravada: {0} ({1} páginas)]]></source>
+        <translation><![CDATA[Vertical audit saved: {0} ({1} pages)]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Defina um projeto (.pa.gpkg) para exportar o relatório.]]></source>
+        <translation><![CDATA[Define a project (.pa.gpkg) to export the report.]]></translation>
     </message>
     <message>
         <source><![CDATA[Falha ao gerar ficheiro WKT dos perfis: {0} ({1})]]></source>
@@ -998,12 +1124,24 @@ Suggestions:
         <translation><![CDATA[{0} {1} - {2}]]></translation>
     </message>
     <message>
+        <source><![CDATA[Falha ao gravar limite ({0}): {1}]]></source>
+        <translation><![CDATA[Falha ao gravar limite ({0}): {1}]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[commitChanges falhou em {0}: {1}]]></source>
+        <translation><![CDATA[commitChanges falhou em {0}: {1}]]></translation>
+    </message>
+    <message>
         <source><![CDATA[Foram identificados {0} valores atípicos (excluídos do cálculo PEC). Prima OK para continuar.]]></source>
         <translation><![CDATA[{0} outlier values were identified (excluded from ACC calculation). Click OK to continue.]]></translation>
     </message>
     <message>
         <source><![CDATA[Falha ao exportar relatórios.]]></source>
         <translation><![CDATA[Failed to export reports.]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Falha na auditoria: {0}]]></source>
+        <translation><![CDATA[Audit failed: {0}]]></translation>
     </message>
     <message>
         <source><![CDATA[Parâmetros]]></source>
@@ -1064,6 +1202,22 @@ Suggestions:
     <message>
         <source><![CDATA[Método para Normalização]]></source>
         <translation><![CDATA[Normalization method]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Fórmula para cálculo da Discrepância Média]]></source>
+        <translation><![CDATA[Formula for Mean Discrepancy calculation]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Relatório de Auditoria]]></source>
+        <translation><![CDATA[Audit Report]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Horizontal]]></source>
+        <translation><![CDATA[Horizontal]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Vertical]]></source>
+        <translation><![CDATA[Vertical]]></translation>
     </message>
     <message>
         <source><![CDATA[Restaurar]]></source>

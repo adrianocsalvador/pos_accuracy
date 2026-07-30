@@ -18,6 +18,56 @@ from qgis.core import (QgsApplication, QgsCoordinateReferenceSystem, QgsFeature,
 DM_ABS_MAX_SANE = 1000.0
 PROFILE_PROG_OFFSET = 10000.0
 
+# Fórmula DM (buffer duplo) — índice em step_dm_formula / dm_formula
+DM_FORMULA_ORIGINAL = 0  # eq:dm-buffer-duplo
+DM_FORMULA_MEDIA = 1  # eq:dm-buffer-duplo-media
+
+
+def calc_dm_buffer_duplo(area_a1, area_a2, area_a3, x, formula=DM_FORMULA_ORIGINAL):
+    """
+    Discrepância média por buffer duplo.
+
+    A1 — área do buffer da feição de teste
+    A2 — área do buffer da feição de referência
+    A3 — área da interseção dos buffers
+    x  — PEC (raio do buffer) da escala/classe
+
+    formula 0 (eq:dm-buffer-duplo):
+      dm = π · x · (A2 − A3) / A1
+    formula 1 (eq:dm-buffer-duplo-media):
+      dm = π · x · ((A1+A2)/2 − A3) / ((A1+A2)/2)
+    """
+    try:
+        a1 = float(area_a1)
+        a2 = float(area_a2)
+        a3 = float(area_a3)
+        xv = float(x)
+    except (TypeError, ValueError, OverflowError):
+        return float('nan')
+    if not (
+        math.isfinite(a1)
+        and math.isfinite(a2)
+        and math.isfinite(a3)
+        and math.isfinite(xv)
+    ):
+        return float('nan')
+    try:
+        formula_i = int(formula)
+    except (TypeError, ValueError):
+        formula_i = DM_FORMULA_ORIGINAL
+    if formula_i == DM_FORMULA_MEDIA:
+        denom = 0.5 * (a1 + a2)
+        if denom <= 0:
+            return float('nan')
+        dm = math.pi * xv * (denom - a3) / denom
+    else:
+        if a1 <= 0:
+            return float('nan')
+        dm = math.pi * xv * (a2 - a3) / a1
+    if not math.isfinite(dm):
+        return float('nan')
+    return dm
+
 
 def _profile_line_points(geom: QgsGeometry):
     wkbt = geom.wkbType()
@@ -1104,6 +1154,10 @@ class BufferThread(QThread):
         self.dic_pec_mm = dic_['dic_pec_mm']
         self.dic_pec_v = dic_['dic_pec_v']
         self.norm_type = dic_['norm_type']
+        try:
+            self.dm_formula = int(dic_.get('dm_formula', DM_FORMULA_ORIGINAL))
+        except (TypeError, ValueError):
+            self.dm_formula = DM_FORMULA_ORIGINAL
 
         self.dic_values = {}
         self.nr_procs = 0
@@ -1174,9 +1228,9 @@ class BufferThread(QThread):
         area_br_p = geom_prof_br.area()
         area_i_p = geom_prof_i.area()
         area_bt = geom_prof_bt.area()
-        if not math.isfinite(area_bt) or area_bt <= 0:
-            return float('nan')
-        dm_prof = math.pi * pec_v * (area_br_p - area_i_p) / area_bt
+        dm_prof = calc_dm_buffer_duplo(
+            area_bt, area_br_p, area_i_p, pec_v, self.dm_formula
+        )
         if not math.isfinite(dm_prof):
             return float('nan')
         if abs(dm_prof) > DM_ABS_MAX_SANE:
@@ -1192,6 +1246,7 @@ class BufferThread(QThread):
                 id_t,
                 [
                     f'pec_v={pec_v!r} len_ref={len_r!r} len_teste={len_t!r} k_t={k_t!r}',
+                    f'dm_formula={self.dm_formula}',
                     f'áreas perfil (ref/teste/inter): {area_br_p!r} / {area_bt!r} / {area_i_p!r}',
                 ],
             )
@@ -1263,38 +1318,30 @@ class BufferThread(QThread):
                             feat_i.setAttributes([count_ + 30000, scale_, class_, None, 'Intersecao'])
 
                             pair_feats.extend((feat_br, feat_bt, feat_i))
-                            # CÁLCULO DO DM HORIZONTAL (área do buffer teste nula → divisão indefinida / explosão numérica)
+                            # CÁLCULO DO DM HORIZONTAL (A1=teste, A2=ref, A3=interseção)
                             area_bt = geom_bt.area()
                             area_br = geom_br.area()
                             area_i = geom_i.area()
-                            if (
-                                not math.isfinite(area_bt)
-                                or area_bt <= 0
-                                or not math.isfinite(area_br)
-                                or not math.isfinite(area_i)
-                            ):
+                            dm_h = calc_dm_buffer_duplo(
+                                area_bt, area_br, area_i, pec_h, self.dm_formula
+                            )
+                            if math.isfinite(dm_h) and abs(dm_h) > DM_ABS_MAX_SANE:
+                                self._warn_dm_absurd(
+                                    'dm_h',
+                                    dm_h,
+                                    tag_,
+                                    scale_,
+                                    class_,
+                                    layer_r.name(),
+                                    id_r,
+                                    layer_t.name(),
+                                    id_t,
+                                    [
+                                        f'pec_h={pec_h!r} dm_formula={self.dm_formula}',
+                                        f'áreas buffer ref/teste/inter: {area_br!r} / {area_bt!r} / {area_i!r}',
+                                    ],
+                                )
                                 dm_h = float('nan')
-                            else:
-                                dm_h = math.pi * pec_h * (area_br - area_i) / area_bt
-                                if not math.isfinite(dm_h):
-                                    dm_h = float('nan')
-                                elif abs(dm_h) > DM_ABS_MAX_SANE:
-                                    self._warn_dm_absurd(
-                                        'dm_h',
-                                        dm_h,
-                                        tag_,
-                                        scale_,
-                                        class_,
-                                        layer_r.name(),
-                                        id_r,
-                                        layer_t.name(),
-                                        id_t,
-                                        [
-                                            f'pec_h={pec_h!r}',
-                                            f'áreas buffer ref/teste/inter: {area_br!r} / {area_bt!r} / {area_i!r}',
-                                        ],
-                                    )
-                                    dm_h = float('nan')
                             self.dic_values[scale_][class_][count_]['dm_h'] = dm_h
                             dm_v = self.calc_dm_v(
                                 scale_,

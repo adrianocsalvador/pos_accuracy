@@ -2596,6 +2596,33 @@ class Wd1(QWidget):
         self.dic_pec_alt = DIC_PEC_ALT
         self.list_norm_type = [
             tr_ui('Linear'), tr_ui('Por Proximidade'), tr_ui('Sem Normalização')]
+        self.list_dm_formula = [
+            tr_ui('Equação original (eq:dm-buffer-duplo)'),
+            tr_ui('Nova equação (eq:dm-buffer-duplo-media)'),
+        ]
+        self.list_dm_formula_tooltips = [
+            tr_ui(
+                'dmᵢ = π · x · (A₂ᵢ − A₃ᵢ) / A₁ᵢ\n\n'
+                'dmᵢ — discrepância média do par i\n'
+                'π — constante pi\n'
+                'x — PEC (raio do buffer) da escala/classe\n'
+                'A₁ — área do buffer da feição de teste\n'
+                'A₂ — área do buffer da feição de referência\n'
+                'A₃ — área da interseção dos buffers'
+            ),
+            tr_ui(
+                'dmᵢ = π · x · ((A₁ᵢ + A₂ᵢ)/2 − A₃ᵢ) / ((A₁ᵢ + A₂ᵢ)/2)\n\n'
+                'A média (A₁ + A₂)/2 entra no numerador (no lugar de A₂) e no '
+                'denominador (no lugar de A₁), tratando os dois erros de extensão '
+                'com o mesmo peso.\n\n'
+                'dmᵢ — discrepância média do par i\n'
+                'π — constante pi\n'
+                'x — PEC (raio do buffer) da escala/classe\n'
+                'A₁ — área do buffer da feição de teste\n'
+                'A₂ — área do buffer da feição de referência\n'
+                'A₃ — área da interseção dos buffers'
+            ),
+        ]
         self.settings_dlg = SettingsDlg(main=parent, parent=self)
         self.language_dlg = None
         self.list_morph = ['Cumeada', 'Hidrografia_Numerica']
@@ -5065,6 +5092,7 @@ class Wd1(QWidget):
                 dic_layers_line[tag_].update({i: layer_})
         # list_layers_buffer = self.create_buffers_layer()
         norm_type = self.settings_dlg.dic_param['step_normalize_prog']['fields']['norm_type']['value']
+        dm_formula = self._dm_formula_index()
         dic_={
             'step': 'buffers',
             'dic_layers_line': dic_layers_line,
@@ -5073,6 +5101,7 @@ class Wd1(QWidget):
             'dic_pec_mm': self.dic_pec_mm,
             'dic_pec_v': self.dic_pec_v,
             'norm_type': norm_type,
+            'dm_formula': dm_formula,
             'parent': self,
             'main': self.main}
         # Add tasks to queue
@@ -5181,6 +5210,7 @@ class Wd1(QWidget):
                         self.tr('Camada ausente ou inválida no GPKG: {0}').format(layer_name))
                 dic_layers_line[tag_][i] = layer_
         norm_type = self.settings_dlg.dic_param['step_normalize_prog']['fields']['norm_type']['value']
+        dm_formula = self._dm_formula_index()
         bt = BufferThread(
             self.main,
             self,
@@ -5192,6 +5222,7 @@ class Wd1(QWidget):
                 'dic_pec_mm': self.dic_pec_mm,
                 'dic_pec_v': self.dic_pec_v,
                 'norm_type': norm_type,
+                'dm_formula': dm_formula,
             },
         )
         bt.run()
@@ -5717,6 +5748,13 @@ class Wd1(QWidget):
         try:
             return int(
                 self.settings_dlg.dic_param['step_normalize_prog']['fields']['norm_type']['value'])
+        except (TypeError, ValueError, KeyError):
+            return 0
+
+    def _dm_formula_index(self) -> int:
+        try:
+            return int(
+                self.settings_dlg.dic_param['step_dm_formula']['fields']['dm_formula']['value'])
         except (TypeError, ValueError, KeyError):
             return 0
 
@@ -6852,6 +6890,33 @@ class Wd1(QWidget):
         }
         self.list_norm_type = [
             tr_ui('Linear'), tr_ui('Por Proximidade'), tr_ui('Sem Normalização')]
+        self.list_dm_formula = [
+            tr_ui('Equação original (eq:dm-buffer-duplo)'),
+            tr_ui('Nova equação (eq:dm-buffer-duplo-media)'),
+        ]
+        self.list_dm_formula_tooltips = [
+            tr_ui(
+                'dmᵢ = π · x · (A₂ᵢ − A₃ᵢ) / A₁ᵢ\n\n'
+                'dmᵢ — discrepância média do par i\n'
+                'π — constante pi\n'
+                'x — PEC (raio do buffer) da escala/classe\n'
+                'A₁ — área do buffer da feição de teste\n'
+                'A₂ — área do buffer da feição de referência\n'
+                'A₃ — área da interseção dos buffers'
+            ),
+            tr_ui(
+                'dmᵢ = π · x · ((A₁ᵢ + A₂ᵢ)/2 − A₃ᵢ) / ((A₁ᵢ + A₂ᵢ)/2)\n\n'
+                'A média (A₁ + A₂)/2 entra no numerador (no lugar de A₂) e no '
+                'denominador (no lugar de A₁), tratando os dois erros de extensão '
+                'com o mesmo peso.\n\n'
+                'dmᵢ — discrepância média do par i\n'
+                'π — constante pi\n'
+                'x — PEC (raio do buffer) da escala/classe\n'
+                'A₁ — área do buffer da feição de teste\n'
+                'A₂ — área do buffer da feição de referência\n'
+                'A₃ — área da interseção dos buffers'
+            ),
+        ]
 
         self.lb_title_proj.setText(self.tr('Projeto (.pa.gpkg):'))
         self.pb_config.setToolTip(self.tr('Config'))
@@ -6917,8 +6982,18 @@ class Wd1(QWidget):
 
         if refresh_open_language and self.language_dlg and self.language_dlg.isVisible():
             self.language_dlg.apply_language_live()
-        if refresh_open_settings and self.settings_dlg and self.settings_dlg.isVisible():
-            self.settings_dlg.apply_language_live()
+        # Sempre retraduzir a janela de parâmetros se existir (aberta ou fechada).
+        # Antes só atualizava quando estava visível — ao reabrir ficava no idioma antigo.
+        if self.settings_dlg is not None and (refresh_open_settings or rebuild_settings):
+            if rebuild_settings and not self.settings_dlg.isVisible():
+                old_dlg = self.settings_dlg
+                self.settings_dlg = None
+                if old_dlg is not None:
+                    old_dlg.deleteLater()
+                self.settings_dlg = SettingsDlg(main=self.parent, parent=self)
+                self.reload_settings_from_project_file()
+            else:
+                self.settings_dlg.apply_language_live()
         elif rebuild_settings:
             old_dlg = self.settings_dlg
             self.settings_dlg = None
@@ -6943,5 +7018,10 @@ class Wd1(QWidget):
         if not self.settings_dlg:
             self.settings_dlg = SettingsDlg(main=self.parent, parent=self)
             self.reload_settings_from_project_file()
+        else:
+            # Garante idioma atual (ex.: mudou idioma com a janela fechada).
+            self.settings_dlg.apply_language_live()
         self.settings_dlg.show()
+        self.settings_dlg.raise_()
+        self.settings_dlg.activateWindow()
 

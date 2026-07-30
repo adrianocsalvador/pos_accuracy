@@ -12,7 +12,8 @@ from qgis.PyQt.QtGui import QPixmap, QIcon, QFont, QPalette, QColor, QTextCharFo
 from qgis.PyQt.QtWidgets import (QAction, QScrollArea, QGridLayout, QPushButton, QLabel, QWidget, QSizePolicy,
                                  QSpacerItem, QDockWidget, QSplitter, QComboBox, QLineEdit, QDialog, QFrame, QCheckBox,
                                  QHBoxLayout, QVBoxLayout, QFileDialog, QTableWidget,
-                                 QProgressBar, QDateEdit, QWidget, QVBoxLayout, QPushButton, QPlainTextEdit)
+                                 QProgressBar, QDateEdit, QWidget, QVBoxLayout, QPushButton, QPlainTextEdit,
+                                 QRadioButton, QButtonGroup)
 from qgis.core import QgsVectorFileWriter, QgsWkbTypes, QgsCoordinateTransformContext, QgsCoordinateReferenceSystem, \
     QgsFeature, QgsVectorLayer, QgsFields, QgsField, QgsProject, QgsMapLayerProxyModel, QgsLayerTreeLayer
 from qgis.gui import QgsMapLayerComboBox
@@ -109,6 +110,19 @@ class SettingsDlg(QDialog):
                             'obj': None},
                     },
                 },
+                'step_dm_formula': {
+                    'label': tr_ui('Fórmula para cálculo da Discrepância Média'),
+                    'fields': {
+                        'dm_formula': {
+                            'label': '',
+                            'type': 'radio',
+                            'list': self.parent.list_dm_formula,
+                            'tooltips': self.parent.list_dm_formula_tooltips,
+                            'value': 0,
+                            'default': 0,
+                            'obj': None},
+                    },
+                },
                 'step_audit_report': {
                     'label': tr_ui('Relatório de Auditoria'),
                     'fields': {
@@ -158,6 +172,13 @@ class SettingsDlg(QDialog):
         dp['step_normalize_prog']['fields']['norm_type']['label'] = tr_ui(
             'Método para Normalização')
         dp['step_normalize_prog']['fields']['norm_type']['list'] = self.parent.list_norm_type
+        if 'step_dm_formula' in dp:
+            dp['step_dm_formula']['label'] = tr_ui(
+                'Fórmula para cálculo da Discrepância Média')
+            dp['step_dm_formula']['fields']['dm_formula']['list'] = (
+                self.parent.list_dm_formula)
+            dp['step_dm_formula']['fields']['dm_formula']['tooltips'] = (
+                self.parent.list_dm_formula_tooltips)
         if 'step_audit_report' in dp:
             dp['step_audit_report']['label'] = tr_ui('Relatório de Auditoria')
             dp['step_audit_report']['fields']['audit_horizontal']['label'] = tr_ui(
@@ -175,15 +196,33 @@ class SettingsDlg(QDialog):
         for item_i, block in self.dic_param.items():
             if not item_i.startswith('step_'):
                 continue
-            lb_sec = self.findChild(QLabel, item_i.replace('sch', 'lb'))
+            lb_sec = block.get('label_obj')
+            if lb_sec is None:
+                lb_sec = self.findChild(QLabel, item_i.replace('sch', 'lb'))
             if lb_sec is not None:
                 lb_sec.setText(block['label'])
             for item_j, meta in block['fields'].items():
-                lb_f = self.findChild(QLabel, 'lb_' + item_j.lower())
+                lb_f = meta.get('label_obj')
+                if lb_f is None:
+                    lb_f = self.findChild(QLabel, 'lb_' + item_j.lower())
                 if lb_f is not None:
-                    lb_f.setText(meta['label'])
+                    lb_f.setText(meta.get('label') or '')
                 obj = meta.get('obj')
-                if obj is None or 'list' not in meta:
+                if obj is None:
+                    continue
+                if meta.get('type') == 'checkbox':
+                    continue
+                if meta.get('type') == 'radio':
+                    tips = meta.get('tooltips') or []
+                    labels = meta.get('list') or []
+                    for btn in obj.buttons():
+                        idx = obj.id(btn)
+                        if 0 <= idx < len(labels):
+                            btn.setText(labels[idx])
+                        if 0 <= idx < len(tips):
+                            btn.setToolTip(tips[idx])
+                    continue
+                if 'list' not in meta:
                     continue
                 idx = obj.currentIndex()
                 obj.blockSignals(True)
@@ -244,6 +283,16 @@ class SettingsDlg(QDialog):
                     obj.blockSignals(True)
                     obj.setChecked(checked)
                     obj.blockSignals(False)
+                elif meta.get('type') == 'radio':
+                    try:
+                        idx = int(val)
+                    except (TypeError, ValueError):
+                        idx = 0
+                    btn = obj.button(idx)
+                    if btn is None and obj.buttons():
+                        btn = obj.button(0)
+                    if btn is not None:
+                        btn.setChecked(True)
                 elif 'list' in meta:
                     try:
                         idx = int(val)
@@ -269,15 +318,21 @@ class SettingsDlg(QDialog):
                 lb_.setFont(QFont('MS Shell Dlg 2', 14))
                 lb_.setObjectName(item_i.replace('sch', 'lb'))
                 lb_.setMinimumWidth(25)
+                self.dic_param[item_i]['label_obj'] = lb_
                 gl_.addWidget(lb_, r_, 0, 1, 3)
                 
                 for j, item_j in enumerate(self.dic_param[item_i]['fields']):
                     r_ += 1
 
-                    lb_ = QLabel(self.dic_param[item_i]['fields'][item_j]['label'])
-                    lb_.setObjectName('lb_' + item_j.lower())
-                    gl_.addWidget(lb_, r_, 1)
                     meta = self.dic_param[item_i]['fields'][item_j]
+                    field_label = meta.get('label') or ''
+                    if field_label:
+                        lb_ = QLabel(field_label)
+                        lb_.setObjectName('lb_' + item_j.lower())
+                        meta['label_obj'] = lb_
+                        gl_.addWidget(lb_, r_, 1)
+                    else:
+                        meta['label_obj'] = None
                     if meta.get('type') == 'checkbox':
                         cb_ = QCheckBox(self)
                         try:
@@ -287,9 +342,32 @@ class SettingsDlg(QDialog):
                         cb_.setChecked(checked)
                         if meta.get('enabled') is False:
                             cb_.setEnabled(False)
-                            lb_.setEnabled(False)
+                            if field_label:
+                                lb_.setEnabled(False)
                         meta['obj'] = cb_
                         gl_.addWidget(cb_, r_, 2)
+                    elif meta.get('type') == 'radio':
+                        bg = QButtonGroup(self)
+                        bg.setExclusive(True)
+                        vl_radio = QVBoxLayout()
+                        vl_radio.setContentsMargins(0, 0, 0, 0)
+                        tips = meta.get('tooltips') or []
+                        try:
+                            selected = int(meta.get('value', 0))
+                        except (TypeError, ValueError):
+                            selected = 0
+                        for idx, text in enumerate(meta.get('list') or []):
+                            rb = QRadioButton(str(text), self)
+                            if idx < len(tips):
+                                rb.setToolTip(str(tips[idx]))
+                            bg.addButton(rb, idx)
+                            if idx == selected:
+                                rb.setChecked(True)
+                            vl_radio.addWidget(rb)
+                        if bg.checkedId() < 0 and bg.buttons():
+                            bg.button(0).setChecked(True)
+                        meta['obj'] = bg
+                        gl_.addLayout(vl_radio, r_, 1, 1, 2)
                     elif 'list' in meta:
                         cmb_ = QComboBox(self)
                         if 'string' in meta:
@@ -369,6 +447,10 @@ class SettingsDlg(QDialog):
                     continue
                 if meta.get('type') == 'checkbox':
                     value_ = 1 if obj.isChecked() else 0
+                elif meta.get('type') == 'radio':
+                    value_ = obj.checkedId()
+                    if value_ < 0:
+                        value_ = 0
                 elif 'list' in meta:
                     value_ = obj.currentIndex()
                 else:
@@ -393,6 +475,12 @@ class SettingsDlg(QDialog):
                         continue
                     if meta.get('type') == 'checkbox':
                         obj.setChecked(bool(int(default_)))
+                    elif meta.get('type') == 'radio':
+                        btn = obj.button(int(default_))
+                        if btn is None and obj.buttons():
+                            btn = obj.button(0)
+                        if btn is not None:
+                            btn.setChecked(True)
                     elif 'list' in meta:
                         obj.setCurrentIndex(default_)
                     else:

@@ -40,6 +40,7 @@ from mods.mod_worker_threads import (  # noqa: E402
     PROFILE_PROG_OFFSET,
     _profile_line_points,
     build_compatibilized_profile_geometries,
+    calc_dm_buffer_duplo,
     orient_line_high_to_low,
 )
 from manual_paths import LINES_GPKG  # noqa: E402
@@ -191,6 +192,7 @@ def rebuild(
     method='less_dist',
     lines_gpkg=DEFAULT_LINES_GPKG,
     results_dir=None,
+    dm_formula=0,
 ):
     key = str(method).strip().lower()
     if key not in NORM_BY_METHOD:
@@ -202,7 +204,13 @@ def rebuild(
     gpkg_out = os.path.join(results_dir, 'Result.gpkg')
     os.makedirs(results_dir, exist_ok=True)
 
+    try:
+        dm_formula = int(dm_formula)
+    except (TypeError, ValueError):
+        dm_formula = 0
+
     print(f'Método: {method} (norm_type={norm_type}) → {folder}')
+    print(f'DM formula: {dm_formula}')
     print(f'Linhas: {lines_gpkg}')
     print(f'Saída:  {gpkg_out}')
 
@@ -284,23 +292,24 @@ def rebuild(
                         geom_br = geom_r.buffer(pec_h, BUFFER_SEGMENTS)
                         geom_i = geom_bt.intersection(geom_br)
                         area_bt = geom_bt.area() or 0.0
-                        dm_h = (
-                            math.pi * pec_h * (geom_br.area() - geom_i.area()) / area_bt
-                            if area_bt
-                            else float('nan')
+                        dm_h = calc_dm_buffer_duplo(
+                            area_bt,
+                            geom_br.area(),
+                            geom_i.area(),
+                            pec_h,
+                            dm_formula,
                         )
 
                         geom_prof_br = geom_prof_r.buffer(pec_v, BUFFER_SEGMENTS)
                         geom_prof_bt = geom_prof_t.buffer(pec_v, BUFFER_SEGMENTS)
                         geom_prof_i = geom_prof_bt.intersection(geom_prof_br)
                         area_pt = geom_prof_bt.area() or 0.0
-                        dm_v = (
-                            math.pi
-                            * pec_v
-                            * (geom_prof_br.area() - geom_prof_i.area())
-                            / area_pt
-                            if area_pt
-                            else float('nan')
+                        dm_v = calc_dm_buffer_duplo(
+                            area_pt,
+                            geom_prof_br.area(),
+                            geom_prof_i.area(),
+                            pec_v,
+                            dm_formula,
                         )
 
                         feat_bt = QgsFeature(layer_bt.fields())
@@ -352,6 +361,13 @@ def main(argv=None):
         default=None,
         help='Pasta de saída (default: Results/Geral_linear|proximidade|sem_compatibilizacao)',
     )
+    p.add_argument(
+        '--dm-formula',
+        type=int,
+        default=0,
+        choices=(0, 1),
+        help='0=eq:dm-buffer-duplo (original); 1=eq:dm-buffer-duplo-media',
+    )
     args = p.parse_args(argv)
     init_standalone_qgis()
     try:
@@ -359,6 +375,7 @@ def main(argv=None):
             method=args.method,
             lines_gpkg=args.lines,
             results_dir=args.results_dir,
+            dm_formula=args.dm_formula,
         )
         print(f'OK: {written}')
     finally:

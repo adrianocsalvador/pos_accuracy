@@ -276,6 +276,47 @@ EXTRA_EN: dict[str, str] = {
     'Falha ao exportar relatórios.': 'Failed to export reports.',
     'Relatório de Auditoria': 'Audit Report',
     'Horizontal': 'Horizontal',
+    'Fórmula para cálculo da Discrepância Média': (
+        'Formula for Mean Discrepancy calculation'),
+    'Equação original (eq:dm-buffer-duplo)': (
+        'Original equation (eq:dm-buffer-duplo)'),
+    'Nova equação (eq:dm-buffer-duplo-media)': (
+        'New equation (eq:dm-buffer-duplo-media)'),
+    'dmᵢ = π · x · (A₂ᵢ − A₃ᵢ) / A₁ᵢ\n\n'
+    'dmᵢ — discrepância média do par i\n'
+    'π — constante pi\n'
+    'x — PEC (raio do buffer) da escala/classe\n'
+    'A₁ — área do buffer da feição de teste\n'
+    'A₂ — área do buffer da feição de referência\n'
+    'A₃ — área da interseção dos buffers': (
+        'dmᵢ = π · x · (A₂ᵢ − A₃ᵢ) / A₁ᵢ\n\n'
+        'dmᵢ — mean discrepancy of pair i\n'
+        'π — pi constant\n'
+        'x — PEC (buffer radius) for the scale/class\n'
+        'A₁ — test feature buffer area\n'
+        'A₂ — reference feature buffer area\n'
+        'A₃ — buffer intersection area'),
+    'dmᵢ = π · x · ((A₁ᵢ + A₂ᵢ)/2 − A₃ᵢ) / ((A₁ᵢ + A₂ᵢ)/2)\n\n'
+    'A média (A₁ + A₂)/2 entra no numerador (no lugar de A₂) e no '
+    'denominador (no lugar de A₁), tratando os dois erros de extensão '
+    'com o mesmo peso.\n\n'
+    'dmᵢ — discrepância média do par i\n'
+    'π — constante pi\n'
+    'x — PEC (raio do buffer) da escala/classe\n'
+    'A₁ — área do buffer da feição de teste\n'
+    'A₂ — área do buffer da feição de referência\n'
+    'A₃ — área da interseção dos buffers': (
+        'dmᵢ = π · x · ((A₁ᵢ + A₂ᵢ)/2 − A₃ᵢ) / ((A₁ᵢ + A₂ᵢ)/2)\n\n'
+        'The average (A₁ + A₂)/2 is used in the numerator (instead of A₂) and '
+        'in the denominator (instead of A₁), treating both length errors with '
+        'equal weight.\n\n'
+        'dmᵢ — mean discrepancy of pair i\n'
+        'π — pi constant\n'
+        'x — PEC (buffer radius) for the scale/class\n'
+        'A₁ — test feature buffer area\n'
+        'A₂ — reference feature buffer area\n'
+        'A₃ — buffer intersection area'),
+    'Vertical': 'Vertical',
     'Vertical': 'Vertical',
     'Defina um projeto (.pa.gpkg) para exportar a auditoria.': (
         'Define a project (.pa.gpkg) to export the audit.'),
@@ -417,6 +458,47 @@ EXTRA_ES: dict[str, str] = {
     'Parâmetros': 'Parámetros',
     'Relatório de Auditoria': 'Informe de Auditoría',
     'Horizontal': 'Horizontal',
+    'Fórmula para cálculo da Discrepância Média': (
+        'Fórmula para el cálculo de la Discrepancia Media'),
+    'Equação original (eq:dm-buffer-duplo)': (
+        'Ecuación original (eq:dm-buffer-duplo)'),
+    'Nova equação (eq:dm-buffer-duplo-media)': (
+        'Nueva ecuación (eq:dm-buffer-duplo-media)'),
+    'dmᵢ = π · x · (A₂ᵢ − A₃ᵢ) / A₁ᵢ\n\n'
+    'dmᵢ — discrepância média do par i\n'
+    'π — constante pi\n'
+    'x — PEC (raio do buffer) da escala/classe\n'
+    'A₁ — área do buffer da feição de teste\n'
+    'A₂ — área do buffer da feição de referência\n'
+    'A₃ — área da interseção dos buffers': (
+        'dmᵢ = π · x · (A₂ᵢ − A₃ᵢ) / A₁ᵢ\n\n'
+        'dmᵢ — discrepancia media del par i\n'
+        'π — constante pi\n'
+        'x — PEC (radio del buffer) de la escala/clase\n'
+        'A₁ — área del buffer de la entidad de prueba\n'
+        'A₂ — área del buffer de la entidad de referencia\n'
+        'A₃ — área de la intersección de los buffers'),
+    'dmᵢ = π · x · ((A₁ᵢ + A₂ᵢ)/2 − A₃ᵢ) / ((A₁ᵢ + A₂ᵢ)/2)\n\n'
+    'A média (A₁ + A₂)/2 entra no numerador (no lugar de A₂) e no '
+    'denominador (no lugar de A₁), tratando os dois erros de extensão '
+    'com o mesmo peso.\n\n'
+    'dmᵢ — discrepância média do par i\n'
+    'π — constante pi\n'
+    'x — PEC (raio do buffer) da escala/classe\n'
+    'A₁ — área do buffer da feição de teste\n'
+    'A₂ — área do buffer da feição de referência\n'
+    'A₃ — área da interseção dos buffers': (
+        'dmᵢ = π · x · ((A₁ᵢ + A₂ᵢ)/2 − A₃ᵢ) / ((A₁ᵢ + A₂ᵢ)/2)\n\n'
+        'La media (A₁ + A₂)/2 entra en el numerador (en lugar de A₂) y en el '
+        'denominador (en lugar de A₁), tratando ambos errores de extensión '
+        'con el mismo peso.\n\n'
+        'dmᵢ — discrepancia media del par i\n'
+        'π — constante pi\n'
+        'x — PEC (radio del buffer) de la escala/clase\n'
+        'A₁ — área del buffer de la entidad de prueba\n'
+        'A₂ — área del buffer de la entidad de referencia\n'
+        'A₃ — área de la intersección de los buffers'),
+    'Vertical': 'Vertical',
     'Vertical': 'Vertical',
     'Defina um projeto (.pa.gpkg) para exportar a auditoria.': (
         'Defina un proyecto (.pa.gpkg) para exportar la auditoría.'),
