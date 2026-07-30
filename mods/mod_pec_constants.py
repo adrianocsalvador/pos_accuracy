@@ -29,8 +29,8 @@ DIC_EQ_BY_NOMINAL_SCALE = {
     50: 20,
     100: 50,
     250: 100,
-    500: 200,
-    1000: 200,
+    500: 100,
+    1000: 100,
 }
 
 # Limites PEC/EP altimétricos absolutos (escalas 50, 100, 250)
