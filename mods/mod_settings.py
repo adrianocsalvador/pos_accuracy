@@ -13,7 +13,7 @@ from qgis.PyQt.QtWidgets import (QAction, QScrollArea, QGridLayout, QPushButton,
                                  QSpacerItem, QDockWidget, QSplitter, QComboBox, QLineEdit, QDialog, QFrame, QCheckBox,
                                  QHBoxLayout, QVBoxLayout, QFileDialog, QTableWidget,
                                  QProgressBar, QDateEdit, QWidget, QVBoxLayout, QPushButton, QPlainTextEdit,
-                                 QRadioButton, QButtonGroup)
+                                 QRadioButton, QButtonGroup, QDoubleSpinBox)
 from qgis.core import QgsVectorFileWriter, QgsWkbTypes, QgsCoordinateTransformContext, QgsCoordinateReferenceSystem, \
     QgsFeature, QgsVectorLayer, QgsFields, QgsField, QgsProject, QgsMapLayerProxyModel, QgsLayerTreeLayer
 from qgis.gui import QgsMapLayerComboBox
@@ -35,12 +35,6 @@ class SettingsDlg(QDialog):
         self.setWindowIcon(QIcon(":/plugins/mod_cut_pan/icons/icon_cut.png")) ##
         self.dic_param = None
         self.aux_tools = AuxTools(parent=self)
-        geom = self.aux_tools.get_geometry()
-        if geom:
-            self.restoreGeometry(geom)
-        else:
-            x_, y_, w_, h_ = 100, 100, 300, 300
-            self.setGeometry(x_, y_, w_, h_)
         self.list_scale = list(self.parent.dic_pec_v)
         self.dic_param = \
             {
@@ -77,6 +71,13 @@ class SettingsDlg(QDialog):
                 'step_buffers': {
                     'label': tr_ui('Definições para Geração Buffers'),
                     'fields': {
+                        'accuracy_standard': {
+                            'label': '',
+                            'type': 'radio',
+                            'list': self.parent.list_accuracy_standard,
+                            'value': 0,
+                            'default': 0,
+                            'obj': None},
                         'max_scale': {
                             'label': tr_ui('Máxima Escala'),
                             'list': self.list_scale,
@@ -90,6 +91,26 @@ class SettingsDlg(QDialog):
                             'string': '1:{}.000',
                             'value': 10,
                             'default': 10,
+                            'obj': None},
+                        'ce90_max_h': {
+                            'label': tr_ui('Máximo Horizontal (pixels do MDE de teste)'),
+                            'type': 'doublespin',
+                            'value': 5.0,
+                            'default': 5.0,
+                            'min': 0.1,
+                            'max': 100.0,
+                            'decimals': 1,
+                            'step': 0.5,
+                            'obj': None},
+                        'ce90_max_v': {
+                            'label': tr_ui('Máximo Vertical (pixels do MDE de teste)'),
+                            'type': 'doublespin',
+                            'value': 2.0,
+                            'default': 2.0,
+                            'min': 0.1,
+                            'max': 100.0,
+                            'decimals': 1,
+                            'step': 0.5,
                             'obj': None},
                         'show_buffers_on_map': {
                             'label': tr_ui('Mostrar buffers no mapa durante o processamento'),
@@ -146,6 +167,18 @@ class SettingsDlg(QDialog):
         self.get_dic_from_settings()
         dlgLayout = self.create_layout()
         self.setLayout(dlgLayout)
+        # Restaurar depois do layout — senão o sizeHint do formulário sobrescreve.
+        self._restore_window_geometry()
+
+    def _restore_window_geometry(self):
+        geom = self.aux_tools.get_geometry()
+        if geom:
+            self.restoreGeometry(geom)
+        else:
+            self.setGeometry(100, 100, 480, 560)
+
+    def _save_window_geometry(self):
+        self.aux_tools.save_geometry(self)
 
     def _retranslate_dic_param(self):
         """Actualiza rótulos traduzíveis em dic_param (valores dos widgets mantêm-se)."""
@@ -161,8 +194,17 @@ class SettingsDlg(QDialog):
         dp['step_match']['fields']['percent_area']['label'] = tr_ui(
             'Diferença % entre área dos mínimos envelopes')
         dp['step_buffers']['label'] = tr_ui('Definições para Geração Buffers')
+        if 'accuracy_standard' in dp['step_buffers']['fields']:
+            dp['step_buffers']['fields']['accuracy_standard']['list'] = (
+                self.parent.list_accuracy_standard)
         dp['step_buffers']['fields']['max_scale']['label'] = tr_ui('Máxima Escala')
         dp['step_buffers']['fields']['min_scale']['label'] = tr_ui('Mínima Escala')
+        if 'ce90_max_h' in dp['step_buffers']['fields']:
+            dp['step_buffers']['fields']['ce90_max_h']['label'] = tr_ui(
+                'Máximo Horizontal (pixels do MDE de teste)')
+        if 'ce90_max_v' in dp['step_buffers']['fields']:
+            dp['step_buffers']['fields']['ce90_max_v']['label'] = tr_ui(
+                'Máximo Vertical (pixels do MDE de teste)')
         dp['step_buffers']['fields']['show_buffers_on_map']['label'] = tr_ui(
             'Mostrar buffers no mapa durante o processamento')
         dp['step_buffers']['fields']['show_buffers_on_map']['list'] = [
@@ -222,6 +264,8 @@ class SettingsDlg(QDialog):
                         if 0 <= idx < len(tips):
                             btn.setToolTip(tips[idx])
                     continue
+                if meta.get('type') == 'doublespin':
+                    continue
                 if 'list' not in meta:
                     continue
                 idx = obj.currentIndex()
@@ -240,6 +284,7 @@ class SettingsDlg(QDialog):
                 if 0 <= idx < obj.count():
                     obj.setCurrentIndex(idx)
                 obj.blockSignals(False)
+        self._sync_buffer_standard_visibility()
 
     def get_dic_from_settings(self):
         dic_from_settings = self.aux_tools.get_dic(key_='dic_param')
@@ -293,6 +338,14 @@ class SettingsDlg(QDialog):
                         btn = obj.button(0)
                     if btn is not None:
                         btn.setChecked(True)
+                elif meta.get('type') == 'doublespin':
+                    try:
+                        obj.setValue(float(val))
+                    except (TypeError, ValueError):
+                        try:
+                            obj.setValue(float(meta.get('default', 0)))
+                        except (TypeError, ValueError):
+                            pass
                 elif 'list' in meta:
                     try:
                         idx = int(val)
@@ -306,6 +359,7 @@ class SettingsDlg(QDialog):
                         obj.setCurrentIndex(max(0, min(idx, n - 1)))
                 else:
                     obj.setText('' if val is None else str(val))
+        self._sync_buffer_standard_visibility()
 
     def create_layout(self):
         r_ = 0
@@ -368,6 +422,18 @@ class SettingsDlg(QDialog):
                             bg.button(0).setChecked(True)
                         meta['obj'] = bg
                         gl_.addLayout(vl_radio, r_, 1, 1, 2)
+                    elif meta.get('type') == 'doublespin':
+                        sp = QDoubleSpinBox(self)
+                        sp.setMinimum(float(meta.get('min', 0.0)))
+                        sp.setMaximum(float(meta.get('max', 100.0)))
+                        sp.setDecimals(int(meta.get('decimals', 2)))
+                        sp.setSingleStep(float(meta.get('step', 0.5)))
+                        try:
+                            sp.setValue(float(meta.get('value', meta.get('default', 0))))
+                        except (TypeError, ValueError):
+                            sp.setValue(float(meta.get('default', 0)))
+                        meta['obj'] = sp
+                        gl_.addWidget(sp, r_, 2)
                     elif 'list' in meta:
                         cmb_ = QComboBox(self)
                         if 'string' in meta:
@@ -429,7 +495,44 @@ class SettingsDlg(QDialog):
         vl_.addWidget(sla_)
 
         self.trigger_actions()
+        self._wire_accuracy_standard_visibility()
         return vl_
+
+    def _set_field_row_visible(self, meta, visible: bool):
+        lb = meta.get('label_obj')
+        if lb is not None:
+            lb.setVisible(visible)
+        obj = meta.get('obj')
+        if obj is None:
+            return
+        if meta.get('type') == 'radio':
+            for btn in obj.buttons():
+                btn.setVisible(visible)
+        else:
+            obj.setVisible(visible)
+
+    def _sync_buffer_standard_visibility(self):
+        fields = self.dic_param.get('step_buffers', {}).get('fields', {})
+        std = fields.get('accuracy_standard', {})
+        bg = std.get('obj')
+        try:
+            is_ce90 = int(bg.checkedId()) == 1 if bg is not None else False
+        except (TypeError, ValueError):
+            is_ce90 = False
+        for key in ('max_scale', 'min_scale'):
+            if key in fields:
+                self._set_field_row_visible(fields[key], not is_ce90)
+        for key in ('ce90_max_h', 'ce90_max_v'):
+            if key in fields:
+                self._set_field_row_visible(fields[key], is_ce90)
+
+    def _wire_accuracy_standard_visibility(self):
+        fields = self.dic_param.get('step_buffers', {}).get('fields', {})
+        bg = fields.get('accuracy_standard', {}).get('obj')
+        if bg is None:
+            return
+        bg.buttonClicked.connect(lambda *_: self._sync_buffer_standard_visibility())
+        self._sync_buffer_standard_visibility()
 
     def trigger_actions(self):
         self.pb_save.clicked.connect(self.set_dic_param)
@@ -451,6 +554,8 @@ class SettingsDlg(QDialog):
                     value_ = obj.checkedId()
                     if value_ < 0:
                         value_ = 0
+                elif meta.get('type') == 'doublespin':
+                    value_ = float(obj.value())
                 elif 'list' in meta:
                     value_ = obj.currentIndex()
                 else:
@@ -481,11 +586,14 @@ class SettingsDlg(QDialog):
                             btn = obj.button(0)
                         if btn is not None:
                             btn.setChecked(True)
+                    elif meta.get('type') == 'doublespin':
+                        obj.setValue(float(default_))
                     elif 'list' in meta:
                         obj.setCurrentIndex(default_)
                     else:
                         obj.setText(default_)
                     meta['value'] = default_
+        self._sync_buffer_standard_visibility()
 
     def fill_inf(self):
         self.pb_remove.setEnabled(True)
@@ -580,5 +688,11 @@ class SettingsDlg(QDialog):
 
 
     def closeEvent(self, evt):
-        self.aux_tools.save_geometry(self)
+        self._save_window_geometry()
+        super().closeEvent(evt)
+
+    def hideEvent(self, evt):
+        # Janela reutilizada com show()/hide() — grava posição/tamanho
+        self._save_window_geometry()
+        super().hideEvent(evt)
 

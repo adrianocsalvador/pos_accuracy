@@ -22,6 +22,157 @@ PROFILE_PROG_OFFSET = 10000.0
 DM_FORMULA_ORIGINAL = 0  # eq:dm-buffer-duplo
 DM_FORMULA_MEDIA = 1  # eq:dm-buffer-duplo-media
 
+try:
+    from .mod_pec_constants import (
+        ACCURACY_STANDARD_BR,
+        ACCURACY_STANDARD_CE90,
+        CE90_THRESHOLD_DECIMALS,
+        CLASS_CE90,
+        CLASS_LE90,
+        EP_RATIO_H,
+        EP_RATIO_V,
+        ce90_threshold_decimals,
+    )
+except ImportError:  # pragma: no cover
+    ACCURACY_STANDARD_BR = 0
+    ACCURACY_STANDARD_CE90 = 1
+    CE90_THRESHOLD_DECIMALS = 1
+    CLASS_CE90 = 'CE90'
+    CLASS_LE90 = 'LE90'
+    EP_RATIO_H = 0.17 / 0.28
+    EP_RATIO_V = 0.17 / 0.27
+
+    def ce90_threshold_decimals(pixel_m):
+        try:
+            px = float(pixel_m)
+        except (TypeError, ValueError):
+            return CE90_THRESHOLD_DECIMALS
+        if px > 0.0 and px < 5.0:
+            return 2
+        return CE90_THRESHOLD_DECIMALS
+
+
+def _ce90_pec_limit(pec_, decimals=CE90_THRESHOLD_DECIMALS):
+    try:
+        return round(float(pec_), int(decimals))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _ce90_check_norm(values):
+    if len(values) < 3:
+        return False
+    try:
+        from scipy.stats import shapiro
+        result = shapiro(values)
+        return result[0] >= result[1]
+    except Exception:
+        return False
+
+
+def _ce90_mark_outliers_iqr(group, dm_key, outlier_key):
+    vals = []
+    for rec in group.values():
+        try:
+            v = float(rec.get(dm_key))
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(v):
+            vals.append(v)
+    if len(vals) < 2:
+        for rec in group.values():
+            rec[outlier_key] = False
+        return
+    quant_ = statistics.quantiles(data=vals)
+    iqr_ = quant_[2] - quant_[0]
+    ls_ = quant_[2] + 1.5 * iqr_
+    li_ = quant_[0] - 1.5 * iqr_
+    for rec in group.values():
+        try:
+            v = float(rec.get(dm_key))
+        except (TypeError, ValueError):
+            rec[outlier_key] = False
+            continue
+        if not math.isfinite(v):
+            rec[outlier_key] = False
+        elif v < li_ or v > ls_:
+            rec[outlier_key] = True
+        else:
+            rec[outlier_key] = False
+
+
+def _ce90_group_evaluate(group, dm_key, pec_raw, ep_raw, decimals=CE90_THRESHOLD_DECIMALS):
+    """Avalia grupo CE90/LE90. Retorna (ok, info)."""
+    outlier_key = 'outlier_h' if dm_key == 'dm_h' else 'outlier_v'
+    _ce90_mark_outliers_iqr(group, dm_key, outlier_key)
+    values = []
+    extents = []
+    n_out = 0
+    for rec in group.values():
+        if rec.get(outlier_key):
+            n_out += 1
+            continue
+        try:
+            v = float(rec.get(dm_key))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(v):
+            continue
+        values.append(v)
+        try:
+            ext = float(rec.get('extent_ref') or 0.0)
+        except (TypeError, ValueError):
+            ext = 0.0
+        extents.append(ext if math.isfinite(ext) and ext > 0 else 0.0)
+
+    pec_lim = _ce90_pec_limit(pec_raw, decimals)
+    try:
+        ep_v = float(ep_raw)
+    except (TypeError, ValueError):
+        ep_v = float('nan')
+    info = {
+        'n_outliers': n_out,
+        'n_valid': len(values),
+        'pec_lim': pec_lim,
+        'ep': ep_v,
+        'perc_q': 0.0,
+        'perc_e': 0.0,
+        'rms': float('nan'),
+        'norm_ok': False,
+        'pec_ok_q': False,
+        'pec_ok_e': False,
+        'ep_ok': False,
+    }
+    if not values:
+        return False, info
+    info['norm_ok'] = _ce90_check_norm(values)
+    if not info['norm_ok']:
+        return False, info
+    perc_q = sum(1 for v in values if v <= pec_lim) / len(values)
+    total_ext = sum(extents)
+    if total_ext <= 0:
+        perc_e = 0.0
+    else:
+        perc_e = sum(
+            ext for v, ext in zip(values, extents) if v <= pec_lim
+        ) / total_ext
+    rms_ = math.sqrt(sum(v * v for v in values) / len(values))
+    info['perc_q'] = perc_q
+    info['perc_e'] = perc_e
+    info['rms'] = rms_
+    info['pec_ok_q'] = perc_q >= 0.90
+    info['pec_ok_e'] = perc_e >= 0.90
+    info['ep_ok'] = math.isfinite(rms_) and math.isfinite(ep_v) and rms_ <= ep_v
+    ok = info['pec_ok_q'] and info['pec_ok_e'] and info['ep_ok']
+    return ok, info
+
+
+def _ce90_group_passes(group, dm_key, pec_raw, ep_raw, decimals=CE90_THRESHOLD_DECIMALS):
+    """Aprova se normalidade + PEC quant/ext ≥90% + RMS ≤ EP."""
+    ok, _info = _ce90_group_evaluate(
+        group, dm_key, pec_raw, ep_raw, decimals=decimals)
+    return ok
+
 
 def calc_dm_buffer_duplo(area_a1, area_a2, area_a3, x, formula=DM_FORMULA_ORIGINAL):
     """
@@ -1149,7 +1300,7 @@ class BufferThread(QThread):
         self.parent = parent
 
         self.dic_layers_line = dic_['dic_layers_line']
-        self.list_scale = dic_['list_scale']
+        self.list_scale = dic_.get('list_scale') or []
         self.dic_match = dic_['dic_match']
         self.dic_pec_mm = dic_['dic_pec_mm']
         self.dic_pec_v = dic_['dic_pec_v']
@@ -1158,14 +1309,49 @@ class BufferThread(QThread):
             self.dm_formula = int(dic_.get('dm_formula', DM_FORMULA_ORIGINAL))
         except (TypeError, ValueError):
             self.dm_formula = DM_FORMULA_ORIGINAL
+        try:
+            self.accuracy_standard = int(
+                dic_.get('accuracy_standard', ACCURACY_STANDARD_BR))
+        except (TypeError, ValueError):
+            self.accuracy_standard = ACCURACY_STANDARD_BR
+        try:
+            self.gsd = float(dic_.get('gsd') or 0.0)
+        except (TypeError, ValueError):
+            self.gsd = 0.0
+        try:
+            self.ce90_max_h = float(dic_.get('ce90_max_h', 5.0))
+        except (TypeError, ValueError):
+            self.ce90_max_h = 5.0
+        try:
+            self.ce90_max_v = float(dic_.get('ce90_max_v', 2.0))
+        except (TypeError, ValueError):
+            self.ce90_max_v = 2.0
 
         self.dic_values = {}
         self.nr_procs = 0
-        for tag_ in self.dic_match:
-            for vet_ in self.dic_match[tag_]:
-                for scale_ in self.list_scale:
-                    for class_ in self.dic_pec_mm['H']:
-                        self.nr_procs += 1
+        self._progress_count = 0
+        if self.accuracy_standard == ACCURACY_STANDARD_CE90:
+            n_pairs = sum(len(v) for v in self.dic_match.values())
+            max_r = max(self.ce90_max_h, self.ce90_max_v) * max(self.gsd, 1e-6)
+            dec = ce90_threshold_decimals(self.gsd)
+            n_iters = max(8, int(math.ceil(math.log2(max(max_r / (10 ** (-dec)), 2)))) + 3)
+            self.nr_procs = max(1, n_pairs * n_iters * 2)
+        else:
+            for tag_ in self.dic_match:
+                for vet_ in self.dic_match[tag_]:
+                    for scale_ in self.list_scale:
+                        for class_ in self.dic_pec_mm['H']:
+                            self.nr_procs += 1
+
+    def _emit_progress(self, msg):
+        self._progress_count += 1
+        for key in (0, 1):
+            self.sig_status.emit({
+                'key': key,
+                'value': self._progress_count,
+                'msg': msg,
+                'progress_only': True,
+            })
 
     def _warn_dm_absurd(
         self,
@@ -1206,9 +1392,11 @@ class BufferThread(QThread):
         layer_t_name: str,
         id_r,
         id_t,
+        pec_v=None,
     ):
         # create profile geometries with (progressive, elevation) coordinates for ref and test
-        pec_v = self.dic_pec_v[scale_] * self.dic_pec_mm['V'][class_]['pec']
+        if pec_v is None:
+            pec_v = self.dic_pec_v[scale_] * self.dic_pec_mm['V'][class_]['pec']
         # ep_v = self.dic_pec_v[scale_] * self.dic_pec_mm['V'][class_]['ep']
 
         profiles = build_compatibilized_profile_geometries(geom_r, geom_t, self.norm_type)
@@ -1253,134 +1441,630 @@ class BufferThread(QThread):
             return float('nan')
         return dm_prof
 
+    def _collect_match_pairs(self):
+        pairs = []
+        for tag_ in self.dic_match:
+            layer_r = self.dic_layers_line[tag_][0]
+            layer_t = self.dic_layers_line[tag_][1]
+            self.sig_status.emit(
+                {'logonly': f'---{tag_}---{layer_r.name()}---{layer_t.name()}---'}
+            )
+            for i, vet_ in enumerate(self.dic_match[tag_]):
+                id_r = vet_[0]
+                feat_r = layer_r.getFeature(id_r)
+                geom_r = orient_line_high_to_low(QgsGeometry(feat_r.geometry()))
+                id_t = vet_[1]
+                feat_t = layer_t.getFeature(id_t)
+                geom_t = orient_line_high_to_low(QgsGeometry(feat_t.geometry()))
+                try:
+                    len_r = float(vet_[4]) if len(vet_) > 4 else geom_r.length()
+                except (TypeError, ValueError, IndexError):
+                    len_r = geom_r.length()
+                if not math.isfinite(len_r) or len_r <= 0:
+                    len_r = geom_r.length()
+                pairs.append({
+                    'tag': tag_,
+                    'i': i,
+                    'vet': vet_,
+                    'id_r': id_r,
+                    'id_t': id_t,
+                    'geom_r': geom_r,
+                    'geom_t': geom_t,
+                    'layer_r': layer_r,
+                    'layer_t': layer_t,
+                    'extent_ref': (
+                        float(len_r) if math.isfinite(len_r) and len_r > 0 else 0.0
+                    ),
+                })
+        return pairs
+
+    def _ce90_snap_radius(self, radius) -> float:
+        """Raio na grade de precisão (= valor mostrado / usado no buffer)."""
+        dec = ce90_threshold_decimals(self.gsd)
+        try:
+            r = float(radius)
+        except (TypeError, ValueError):
+            return 0.0
+        if not math.isfinite(r) or r <= 0:
+            return 0.0
+        return round(r, dec)
+
+    def _build_dm_h_group(self, pairs, radius, class_name=CLASS_CE90):
+        radius = self._ce90_snap_radius(radius)
+        group = {}
+        pair_feats = []
+        count_ = 0
+        for p in pairs:
+            count_ += 1
+            geom_r = p['geom_r']
+            geom_t = p['geom_t']
+            layer_r = p['layer_r']
+            layer_t = p['layer_t']
+            id_r = p['id_r']
+            id_t = p['id_t']
+            tag_ = p['tag']
+            vet_ = p['vet']
+            group[count_] = {
+                'layer_r': layer_r.name(),
+                'morph_tag': tag_,
+                'fid_r': vet_[0],
+                'layer_t': layer_t.name(),
+                'fid_t': vet_[1],
+                'extent_ref': p['extent_ref'],
+                'dm_v': float('nan'),
+            }
+            geom_br = geom_r.buffer(radius, 20)
+            feat_br = QgsFeature()
+            feat_br.setGeometry(geom_br)
+            feat_br.setAttributes(
+                [radius, class_name, id_r, layer_r.name()])
+            geom_bt = geom_t.buffer(radius, 20)
+            feat_bt = QgsFeature()
+            feat_bt.setGeometry(geom_bt)
+            feat_bt.setAttributes(
+                [radius, class_name, id_t, layer_t.name()])
+            geom_i = geom_bt.intersection(geom_br)
+            feat_i = QgsFeature()
+            feat_i.setGeometry(geom_i)
+            feat_i.setAttributes(
+                [radius, class_name, None, 'Intersecao'])
+            pair_feats.extend((feat_br, feat_bt, feat_i))
+            area_bt = geom_bt.area()
+            area_br = geom_br.area()
+            area_i = geom_i.area()
+            dm_h = calc_dm_buffer_duplo(
+                area_bt, area_br, area_i, radius, self.dm_formula
+            )
+            if math.isfinite(dm_h) and abs(dm_h) > DM_ABS_MAX_SANE:
+                self._warn_dm_absurd(
+                    'dm_h', dm_h, tag_, radius, class_name,
+                    layer_r.name(), id_r, layer_t.name(), id_t,
+                    [
+                        f'pec_h={radius!r} dm_formula={self.dm_formula}',
+                        f'áreas buffer ref/teste/inter: {area_br!r} / {area_bt!r} / {area_i!r}',
+                    ],
+                )
+                dm_h = float('nan')
+            group[count_]['dm_h'] = dm_h
+            dec = ce90_threshold_decimals(self.gsd)
+            self._emit_progress(f'CE90 {radius:.{dec}f} m — {tag_} {p["i"]}')
+        if pair_feats:
+            dec = ce90_threshold_decimals(self.gsd)
+            self.sig_status.emit({
+                'key': 0,
+                'value': self._progress_count,
+                'msg': self.parent.tr(
+                    'CE90 {0} m — {1} geometrias'
+                ).format(f'{radius:.{dec}f}', len(pair_feats)),
+                'feats_batch': pair_feats,
+            })
+        return group
+
+    def _build_dm_v_group(self, pairs, radius, class_name=CLASS_LE90):
+        radius = self._ce90_snap_radius(radius)
+        group = {}
+        count_ = 0
+        for p in pairs:
+            count_ += 1
+            geom_r = p['geom_r']
+            geom_t = p['geom_t']
+            layer_r = p['layer_r']
+            layer_t = p['layer_t']
+            tag_ = p['tag']
+            vet_ = p['vet']
+            group[count_] = {
+                'layer_r': layer_r.name(),
+                'morph_tag': tag_,
+                'fid_r': vet_[0],
+                'layer_t': layer_t.name(),
+                'fid_t': vet_[1],
+                'extent_ref': p['extent_ref'],
+                'dm_h': float('nan'),
+            }
+            dm_v = self.calc_dm_v(
+                radius,
+                class_name,
+                geom_r,
+                geom_t,
+                tag_=tag_,
+                layer_r_name=layer_r.name(),
+                layer_t_name=layer_t.name(),
+                id_r=p['id_r'],
+                id_t=p['id_t'],
+                pec_v=radius,
+            )
+            group[count_]['dm_v'] = dm_v
+            dec = ce90_threshold_decimals(self.gsd)
+            self._emit_progress(f'LE90 {radius:.{dec}f} m — {tag_} {p["i"]}')
+        return group
+
+    def _binary_search_threshold(self, pairs, max_r, dimension):
+        """Busca o menor raio (m) que aprova PEC+EP; 0 = reprovado (sem cálculo).
+
+        Retorna (result_r, best_group, ok, trials, trials_meta).
+        trials_meta[raio] = {ciclo, ok} onde ciclo = RODADA da busca
+        (RODADA 1 = 0/meio/máx; RODADA 2 = próximo meio; …).
+        """
+        tr = getattr(self.parent, 'tr', lambda s: s)
+        dec = ce90_threshold_decimals(self.gsd)
+        step = 10 ** (-dec)
+        max_r = round(float(max_r), dec)
+        trials = {}
+        trials_meta = {}
+        if max_r <= 0:
+            return None, {}, False, trials, trials_meta
+
+        build = self._build_dm_h_group if dimension == 'H' else self._build_dm_v_group
+        class_name = CLASS_CE90 if dimension == 'H' else CLASS_LE90
+        ep_ratio = EP_RATIO_H if dimension == 'H' else EP_RATIO_V
+        label = 'CE90' if dimension == 'H' else 'LE90'
+        gsd = self.gsd if self.gsd and self.gsd > 0 else None
+
+        def fmt_m(v):
+            return f'{float(v):.{dec}f}'
+
+        def empty_fail_group():
+            """Grupo vazio para limiar 0 (reprovado sem buffer/DM)."""
+            return {}
+
+        def evaluate(radius, ciclo):
+            if radius is None:
+                return False, {}
+            try:
+                radius = float(radius)
+            except (TypeError, ValueError):
+                return False, {}
+            ciclo = int(ciclo)
+            if radius <= 0:
+                key = 0.0
+                group = empty_fail_group()
+                ok = False
+                trials[key] = group
+                trials_meta[key] = {'ciclo': ciclo, 'ok': False}
+                self.sig_status.emit({
+                    'logonly': tr(
+                        '{0} RODADA {1}: valor=0.0 m → FALHOU '
+                        '(limite inferior; sem buffer/DM)'
+                    ).format(label, ciclo),
+                })
+                return False, group
+
+            # Valor mostrado = valor do buffer (mesma grade de precisão).
+            key = self._ce90_snap_radius(radius)
+            if key in trials_meta:
+                ok = bool(trials_meta[key].get('ok'))
+                group = trials.get(key) or {}
+                # Reutiliza resultado já calculado; mantém ciclo original na meta
+                self.sig_status.emit({
+                    'logonly': tr(
+                        '{0} RODADA {1}: valor={2} m → {3} '
+                        '(já avaliado na RODADA {4})'
+                    ).format(
+                        label,
+                        ciclo,
+                        fmt_m(key),
+                        tr('PASSOU') if ok else tr('FALHOU'),
+                        trials_meta[key].get('ciclo', '?'),
+                    ),
+                })
+                return ok, group
+
+            group = build(pairs, key, class_name=class_name)
+            ep_raw = round(key * ep_ratio, dec)
+            ok, info = _ce90_group_evaluate(
+                group,
+                'dm_h' if dimension == 'H' else 'dm_v',
+                key,
+                ep_raw,
+                decimals=dec,
+            )
+            trials[key] = group
+            trials_meta[key] = {'ciclo': ciclo, 'ok': bool(ok)}
+            px_txt = ''
+            if gsd:
+                px_txt = tr(
+                    ' ({0:.1f} pixels do MDE de teste)'
+                ).format(key / gsd)
+            if not info['n_valid']:
+                detail = tr('sem amostras válidas')
+            elif not info['norm_ok']:
+                detail = tr('normalidade FALHOU, {0} amostras').format(
+                    info['n_valid'])
+            else:
+                rms_show = (
+                    round(info['rms'], 2) if math.isfinite(info['rms'])
+                    else float('nan')
+                )
+                detail = tr(
+                    'n={0} (out={1}); quant {2:.0f}% <= {3}; '
+                    'ext {4:.0f}% <= {3}; RMS={5} EP={6}'
+                ).format(
+                    info['n_valid'],
+                    info['n_outliers'],
+                    info['perc_q'] * 100,
+                    info['pec_lim'],
+                    info['perc_e'] * 100,
+                    rms_show if math.isfinite(rms_show) else tr('n/d'),
+                    info['ep'],
+                )
+            self.sig_status.emit({
+                'logonly': tr(
+                    '{0} RODADA {1}: valor={2} m{3} → {4} [{5}]'
+                ).format(
+                    label,
+                    ciclo,
+                    fmt_m(key),
+                    px_txt,
+                    tr('PASSOU') if ok else tr('FALHOU'),
+                    detail,
+                ),
+            })
+            return ok, group
+
+        self.sig_status.emit({
+            'logonly': tr(
+                '--- {0}: busca entre 0.0 m e {1} m (passo {2:g} m) ---'
+            ).format(label, fmt_m(max_r), step),
+        })
+
+        # RODADA 1: 0 (reprovado), intermediário e máximo (ex.: 0, 90, 180)
+        mid1 = round(max_r / 2.0, dec)
+        self.sig_status.emit({
+            'logonly': tr(
+                '{0} RODADA 1: candidatos = 0.0 , {1} , {2} m '
+                '(mínimo, meio do intervalo, máximo)'
+            ).format(label, fmt_m(mid1), fmt_m(max_r)),
+        })
+        evaluate(0.0, 1)
+        ok_max, group_max = evaluate(max_r, 1)
+        ok_mid, group_mid = (False, {})
+        if mid1 > 0 and abs(mid1 - max_r) > step / 2:
+            ok_mid, group_mid = evaluate(mid1, 1)
+
+        if not ok_max:
+            self.sig_status.emit({
+                'logonly': tr(
+                    '{0}: reprovado no máximo {1} m — limiar não encontrado.'
+                ).format(label, fmt_m(max_r)),
+            })
+            return max_r, group_max, False, trials, trials_meta
+
+        if ok_mid:
+            low, high = 0.0, mid1
+            best_r, best_group = mid1, group_mid
+            self.sig_status.emit({
+                'logonly': tr(
+                    '{0} após RODADA 1: {1} m PASSOU → '
+                    'próxima busca no intervalo ({2} , {3}] m'
+                ).format(label, fmt_m(mid1), fmt_m(low), fmt_m(high)),
+            })
+        else:
+            low, high = mid1, max_r
+            best_r, best_group = max_r, group_max
+            self.sig_status.emit({
+                'logonly': tr(
+                    '{0} após RODADA 1: {1} m FALHOU e {2} m PASSOU → '
+                    'próxima busca no intervalo ({3} , {4}] m'
+                ).format(
+                    label, fmt_m(mid1), fmt_m(max_r),
+                    fmt_m(low), fmt_m(high)),
+            })
+
+        ciclo = 1
+        while high - low > step + 1e-12:
+            ciclo += 1
+            mid = round((low + high) / 2.0, dec)
+            if mid <= low or mid >= high:
+                # Meio caiu na borda: avança um passo a partir de low
+                mid = round(low + step, dec)
+                if mid >= high or mid <= low:
+                    break
+            self.sig_status.emit({
+                'logonly': tr(
+                    '{0} RODADA {1}: intervalo ({2} , {3}] m → '
+                    'candidato = meio = {4} m'
+                ).format(
+                    label, ciclo, fmt_m(low), fmt_m(high), fmt_m(mid)),
+            })
+            ok, group = evaluate(mid, ciclo)
+            if ok:
+                best_r, best_group = mid, group
+                high = mid
+                self.sig_status.emit({
+                    'logonly': tr(
+                        '{0} RODADA {1}: {2} m PASSOU → '
+                        'reduz intervalo para ({3} , {4}] m'
+                    ).format(
+                        label, ciclo, fmt_m(mid), fmt_m(low), fmt_m(high)),
+                })
+            else:
+                low = mid
+                self.sig_status.emit({
+                    'logonly': tr(
+                        '{0} RODADA {1}: {2} m FALHOU → '
+                        'sobe intervalo para ({3} , {4}] m'
+                    ).format(
+                        label, ciclo, fmt_m(mid), fmt_m(low), fmt_m(high)),
+                })
+
+        # Limiar = menor valor na grade que passou (= high / best_r já na grade)
+        result = round(float(best_r), dec)
+        if result > max_r:
+            result = max_r
+        # Se por algum motivo o best ainda não está na meta, garante avaliação
+        if round(result, dec) not in trials_meta:
+            ciclo += 1
+            self.sig_status.emit({
+                'logonly': tr(
+                    '{0} RODADA {1}: confirma limiar {2} m'
+                ).format(label, ciclo, fmt_m(result)),
+            })
+            ok, group = evaluate(result, ciclo)
+            if ok:
+                best_group = group
+            else:
+                r = result
+                while r < max_r - 1e-12:
+                    r = round(r + step, dec)
+                    ciclo += 1
+                    self.sig_status.emit({
+                        'logonly': tr(
+                            '{0} RODADA {1}: {2} m FALHOU → tenta '
+                            'próximo passo {3} m'
+                        ).format(label, ciclo, fmt_m(result), fmt_m(r)),
+                    })
+                    ok, group = evaluate(r, ciclo)
+                    if ok:
+                        result, best_group = r, group
+                        break
+                else:
+                    result, best_group = max_r, group_max
+        elif not trials_meta[round(result, dec)].get('ok'):
+            # best_r inconsistente: sobe na grade até passar
+            r = result
+            while r < max_r - 1e-12:
+                r = round(r + step, dec)
+                if r in trials_meta and trials_meta[r].get('ok'):
+                    result = r
+                    best_group = trials.get(r) or best_group
+                    break
+                ciclo += 1
+                ok, group = evaluate(r, ciclo)
+                if ok:
+                    result, best_group = r, group
+                    break
+            else:
+                result, best_group = max_r, group_max
+
+        ciclo_final = (trials_meta.get(round(result, dec)) or {}).get(
+            'ciclo', ciclo)
+        px_final = ''
+        if gsd:
+            px_final = tr(
+                ' ({0:.1f} pixels do MDE de teste)'
+            ).format(result / gsd)
+        self.sig_status.emit({
+            'logonly': tr(
+                '{0} limiar adotado: {1} m (RODADA {2}){3}'
+            ).format(label, fmt_m(result), ciclo_final, px_final),
+        })
+        return result, best_group, True, trials, trials_meta
+
+    def _run_ce90_le90(self):
+        pairs = self._collect_match_pairs()
+        dec = ce90_threshold_decimals(self.gsd)
+        self.ce90_meta = {
+            'gsd': self.gsd,
+            'threshold_decimals': dec,
+            'max_h_px': self.ce90_max_h,
+            'max_v_px': self.ce90_max_v,
+            'final_h': None,
+            'final_v': None,
+            'ok_h': False,
+            'ok_v': False,
+            'trials_h': {},
+            'trials_v': {},
+        }
+        if not pairs:
+            self.dic_values = {}
+            return
+        max_h = self.ce90_max_h * self.gsd
+        max_v = self.ce90_max_v * self.gsd
+        tr = getattr(self.parent, 'tr', lambda s: s)
+        self.sig_status.emit({
+            'logonly': tr(
+                'CE90/LE90: {0} pares; pixel MDE teste={1:.3f} m; '
+                'precisão limiar={2} casa(s) decimal(is); '
+                'máx. H={3:g} pixels do MDE de teste ({4} m); '
+                'máx. V={5:g} pixels do MDE de teste ({6} m).'
+            ).format(
+                len(pairs), self.gsd, dec,
+                self.ce90_max_h, f'{max_h:.{dec}f}',
+                self.ce90_max_v, f'{max_v:.{dec}f}',
+            ),
+        })
+        r_h, group_h, ok_h, trials_h, meta_h = self._binary_search_threshold(
+            pairs, max_h, 'H')
+        r_v, group_v, ok_v, trials_v, meta_v = self._binary_search_threshold(
+            pairs, max_v, 'V')
+        self.ce90_meta.update({
+            'final_h': r_h,
+            'final_v': r_v,
+            'ok_h': bool(ok_h),
+            'ok_v': bool(ok_v),
+            'trials_h': meta_h,
+            'trials_v': meta_v,
+            'max_h_m': max_h,
+            'max_v_m': max_v,
+        })
+        self.dic_values = {}
+        for key_h, group in trials_h.items():
+            self.dic_values.setdefault(key_h, {})[CLASS_CE90] = group
+        for key_v, group in trials_v.items():
+            self.dic_values.setdefault(key_v, {})[CLASS_LE90] = group
+        if r_h is not None:
+            key_h = round(float(r_h), dec)
+            self.dic_values.setdefault(key_h, {})[CLASS_CE90] = group_h
+        if r_v is not None:
+            key_v = round(float(r_v), dec)
+            self.dic_values.setdefault(key_v, {})[CLASS_LE90] = group_v
+
     def run(self):
         for i in [0, 1]:
             self.sig_status.emit({'key': i, 'quant': self.nr_procs})
         nr_ = 0
         count_ = 0
         try:
-            for tag_ in self.dic_match:
-                layer_r = self.dic_layers_line[tag_][0]
-                layer_t = self.dic_layers_line[tag_][1]
-                self.sig_status.emit(
-                    {'logonly': f'---{tag_}---{layer_r.name()}---{layer_t.name()}---'}
-                )
-                for i, vet_ in enumerate(self.dic_match[tag_]):
-                    # print('vet_', vet_)
-                    id_r = vet_[0]
-                    feat_r = layer_r.getFeature(id_r)
-                    geom_r = orient_line_high_to_low(QgsGeometry(feat_r.geometry()))
-                    id_t = vet_[1]
-                    feat_t = layer_t.getFeature(id_t)
-                    geom_t = orient_line_high_to_low(QgsGeometry(feat_t.geometry()))
-                    pair_feats = []
-                    for scale_ in self.list_scale:
-                        if scale_ not in self.dic_values:
-                            self.dic_values[scale_] = {}
-                        # print('scale_', scale_)
-                        for class_ in self.dic_pec_mm['H']:
-                            if class_ not in self.dic_values[scale_]:
-                                self.dic_values[scale_][class_] = {}
-                            # print('class_', class_)
-                            count_ += 1
-                            self.dic_values[scale_][class_][count_] = {}
-                            pec_h = scale_ * self.dic_pec_mm['H'][class_]['pec']
-                            # ep_h = scale_ * self.dic_pec_mm['H'][class_]['ep']
+            if self.accuracy_standard == ACCURACY_STANDARD_CE90:
+                self._run_ce90_le90()
+                self.sig_status.emit({
+                    'key': 0,
+                    'dic_values': self.dic_values,
+                    'ce90_meta': getattr(self, 'ce90_meta', None),
+                })
+            else:
+                for tag_ in self.dic_match:
+                    layer_r = self.dic_layers_line[tag_][0]
+                    layer_t = self.dic_layers_line[tag_][1]
+                    self.sig_status.emit(
+                        {'logonly': f'---{tag_}---{layer_r.name()}---{layer_t.name()}---'}
+                    )
+                    for i, vet_ in enumerate(self.dic_match[tag_]):
+                        # print('vet_', vet_)
+                        id_r = vet_[0]
+                        feat_r = layer_r.getFeature(id_r)
+                        geom_r = orient_line_high_to_low(QgsGeometry(feat_r.geometry()))
+                        id_t = vet_[1]
+                        feat_t = layer_t.getFeature(id_t)
+                        geom_t = orient_line_high_to_low(QgsGeometry(feat_t.geometry()))
+                        pair_feats = []
+                        for scale_ in self.list_scale:
+                            if scale_ not in self.dic_values:
+                                self.dic_values[scale_] = {}
+                            # print('scale_', scale_)
+                            for class_ in self.dic_pec_mm['H']:
+                                if class_ not in self.dic_values[scale_]:
+                                    self.dic_values[scale_][class_] = {}
+                                # print('class_', class_)
+                                count_ += 1
+                                self.dic_values[scale_][class_][count_] = {}
+                                pec_h = scale_ * self.dic_pec_mm['H'][class_]['pec']
+                                # ep_h = scale_ * self.dic_pec_mm['H'][class_]['ep']
 
-                            self.dic_values[scale_][class_][count_]['layer_r'] = layer_r.name()
-                            self.dic_values[scale_][class_][count_]['morph_tag'] = tag_
-                            self.dic_values[scale_][class_][count_]['fid_r'] = vet_[0]
-                            self.dic_values[scale_][class_][count_]['layer_t'] = layer_t.name()
-                            self.dic_values[scale_][class_][count_]['fid_t'] = vet_[1]
-                            try:
-                                len_r = float(vet_[4]) if len(vet_) > 4 else geom_r.length()
-                            except (TypeError, ValueError, IndexError):
-                                len_r = geom_r.length()
-                            if not math.isfinite(len_r) or len_r <= 0:
-                                len_r = geom_r.length()
-                            self.dic_values[scale_][class_][count_]['extent_ref'] = (
-                                float(len_r) if math.isfinite(len_r) and len_r > 0 else 0.0
-                            )
+                                self.dic_values[scale_][class_][count_]['layer_r'] = layer_r.name()
+                                self.dic_values[scale_][class_][count_]['morph_tag'] = tag_
+                                self.dic_values[scale_][class_][count_]['fid_r'] = vet_[0]
+                                self.dic_values[scale_][class_][count_]['layer_t'] = layer_t.name()
+                                self.dic_values[scale_][class_][count_]['fid_t'] = vet_[1]
+                                try:
+                                    len_r = float(vet_[4]) if len(vet_) > 4 else geom_r.length()
+                                except (TypeError, ValueError, IndexError):
+                                    len_r = geom_r.length()
+                                if not math.isfinite(len_r) or len_r <= 0:
+                                    len_r = geom_r.length()
+                                self.dic_values[scale_][class_][count_]['extent_ref'] = (
+                                    float(len_r) if math.isfinite(len_r) and len_r > 0 else 0.0
+                                )
 
-                            geom_br = geom_r.buffer(pec_h, 20)
-                            feat_br = QgsFeature()
-                            feat_br.setGeometry(geom_br)
-                            feat_br.setAttributes([count_ + 10000, scale_, class_, id_r, layer_r.name()])
+                                geom_br = geom_r.buffer(pec_h, 20)
+                                feat_br = QgsFeature()
+                                feat_br.setGeometry(geom_br)
+                                feat_br.setAttributes([scale_, class_, id_r, layer_r.name()])
 
-                            geom_bt = geom_t.buffer(pec_h, 20)
-                            feat_bt = QgsFeature()
-                            feat_bt.setGeometry(geom_bt)
-                            feat_bt.setAttributes([count_ + 20000, scale_, class_, id_t, layer_t.name()])
+                                geom_bt = geom_t.buffer(pec_h, 20)
+                                feat_bt = QgsFeature()
+                                feat_bt.setGeometry(geom_bt)
+                                feat_bt.setAttributes([scale_, class_, id_t, layer_t.name()])
 
-                            geom_i = geom_bt.intersection(geom_br)
-                            feat_i = QgsFeature()
-                            feat_i.setGeometry(geom_i)
-                            feat_i.setAttributes([count_ + 30000, scale_, class_, None, 'Intersecao'])
+                                geom_i = geom_bt.intersection(geom_br)
+                                feat_i = QgsFeature()
+                                feat_i.setGeometry(geom_i)
+                                feat_i.setAttributes([scale_, class_, None, 'Intersecao'])
 
-                            pair_feats.extend((feat_br, feat_bt, feat_i))
-                            # CÁLCULO DO DM HORIZONTAL (A1=teste, A2=ref, A3=interseção)
-                            area_bt = geom_bt.area()
-                            area_br = geom_br.area()
-                            area_i = geom_i.area()
-                            dm_h = calc_dm_buffer_duplo(
-                                area_bt, area_br, area_i, pec_h, self.dm_formula
-                            )
-                            if math.isfinite(dm_h) and abs(dm_h) > DM_ABS_MAX_SANE:
-                                self._warn_dm_absurd(
-                                    'dm_h',
-                                    dm_h,
-                                    tag_,
+                                pair_feats.extend((feat_br, feat_bt, feat_i))
+                                # CÁLCULO DO DM HORIZONTAL (A1=teste, A2=ref, A3=interseção)
+                                area_bt = geom_bt.area()
+                                area_br = geom_br.area()
+                                area_i = geom_i.area()
+                                dm_h = calc_dm_buffer_duplo(
+                                    area_bt, area_br, area_i, pec_h, self.dm_formula
+                                )
+                                if math.isfinite(dm_h) and abs(dm_h) > DM_ABS_MAX_SANE:
+                                    self._warn_dm_absurd(
+                                        'dm_h',
+                                        dm_h,
+                                        tag_,
+                                        scale_,
+                                        class_,
+                                        layer_r.name(),
+                                        id_r,
+                                        layer_t.name(),
+                                        id_t,
+                                        [
+                                            f'pec_h={pec_h!r} dm_formula={self.dm_formula}',
+                                            f'áreas buffer ref/teste/inter: {area_br!r} / {area_bt!r} / {area_i!r}',
+                                        ],
+                                    )
+                                    dm_h = float('nan')
+                                self.dic_values[scale_][class_][count_]['dm_h'] = dm_h
+                                dm_v = self.calc_dm_v(
                                     scale_,
                                     class_,
-                                    layer_r.name(),
-                                    id_r,
-                                    layer_t.name(),
-                                    id_t,
-                                    [
-                                        f'pec_h={pec_h!r} dm_formula={self.dm_formula}',
-                                        f'áreas buffer ref/teste/inter: {area_br!r} / {area_bt!r} / {area_i!r}',
-                                    ],
+                                    geom_r,
+                                    geom_t,
+                                    tag_=tag_,
+                                    layer_r_name=layer_r.name(),
+                                    layer_t_name=layer_t.name(),
+                                    id_r=id_r,
+                                    id_t=id_t,
                                 )
-                                dm_h = float('nan')
-                            self.dic_values[scale_][class_][count_]['dm_h'] = dm_h
-                            dm_v = self.calc_dm_v(
-                                scale_,
-                                class_,
-                                geom_r,
-                                geom_t,
-                                tag_=tag_,
-                                layer_r_name=layer_r.name(),
-                                layer_t_name=layer_t.name(),
-                                id_r=id_r,
-                                id_t=id_t,
-                            )
-                            self.dic_values[scale_][class_][count_]['dm_v'] = dm_v
+                                self.dic_values[scale_][class_][count_]['dm_v'] = dm_v
 
-                            prog_msg = f'{tag_} {i} {scale_} - {class_}'
+                                prog_msg = f'{tag_} {i} {scale_} - {class_}'
+                                self.sig_status.emit({
+                                    'key': 0,
+                                    'value': count_,
+                                    'msg': prog_msg,
+                                    'progress_only': True,
+                                })
+                                self.sig_status.emit({
+                                    'key': 1,
+                                    'value': count_,
+                                    'msg': prog_msg,
+                                    'progress_only': True,
+                                })
+
+                        if pair_feats:
                             self.sig_status.emit({
                                 'key': 0,
                                 'value': count_,
-                                'msg': prog_msg,
-                                'progress_only': True,
-                            })
-                            self.sig_status.emit({
-                                'key': 1,
-                                'value': count_,
-                                'msg': prog_msg,
-                                'progress_only': True,
+                                'msg': self.parent.tr(
+                                    '{0} par {1} (fid_r={2}, fid_t={3}) — {4} geometrias'
+                                ).format(tag_, i, id_r, id_t, len(pair_feats)),
+                                'feats_batch': pair_feats,
                             })
 
-                    if pair_feats:
-                        self.sig_status.emit({
-                            'key': 0,
-                            'value': count_,
-                            'msg': self.parent.tr(
-                                '{0} par {1} (fid_r={2}, fid_t={3}) — {4} geometrias'
-                            ).format(tag_, i, id_r, id_t, len(pair_feats)),
-                            'feats_batch': pair_feats,
-                        })
-
-            self.sig_status.emit({'key': 0, 'dic_values': self.dic_values})
+                self.sig_status.emit({'key': 0, 'dic_values': self.dic_values})
         except Exception as e:
             for i in [0, 1]:
                 self.sig_status.emit({'key': i, 'value': nr_, 'error': e})

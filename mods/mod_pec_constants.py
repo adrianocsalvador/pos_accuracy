@@ -61,6 +61,35 @@ DIC_EQ_V = {scale: DIC_EQ_BY_NOMINAL_SCALE[scale] for scale in DIC_PEC_V}
 
 CLASS_ORDER = ['A', 'B', 'C', 'D']
 
+# Padrão de acurácia (step_buffers.accuracy_standard)
+ACCURACY_STANDARD_BR = 0  # PEC-PCD (Brasil)
+ACCURACY_STANDARD_CE90 = 1  # CE90 / LE90 (busca por limiar × pixels do MDE de teste)
+
+# Classes sintéticas no modo CE90/LE90 (chaves em dic_values)
+CLASS_CE90 = 'CE90'
+CLASS_LE90 = 'LE90'
+
+# Razões EP/PEC da classe A (mesmos critérios de aprovação no modo CE90/LE90)
+EP_RATIO_H = DIC_PEC_MM['H']['A']['ep'] / DIC_PEC_MM['H']['A']['pec']
+EP_RATIO_V = DIC_PEC_MM['V']['A']['ep'] / DIC_PEC_MM['V']['A']['pec']
+
+# Precisão do limiar na busca binária (metros)
+# Pixel do MDE de teste < 5 m → 2 casas (ex.: 0,50 m); senão → 1 casa.
+CE90_THRESHOLD_DECIMALS = 1
+CE90_THRESHOLD_DECIMALS_FINE = 2
+CE90_PIXEL_FINE_M = 5.0
+
+
+def ce90_threshold_decimals(pixel_m) -> int:
+    """Casas decimais do limiar CE90/LE90 conforme o pixel do MDE de teste."""
+    try:
+        px = float(pixel_m)
+    except (TypeError, ValueError):
+        return CE90_THRESHOLD_DECIMALS
+    if px > 0.0 and px < CE90_PIXEL_FINE_M:
+        return CE90_THRESHOLD_DECIMALS_FINE
+    return CE90_THRESHOLD_DECIMALS
+
 LAYER_NAME_BUFFER_TEST = '__Buffer_Test__'
 EXTENT_REF_FIELD = 'extent_ref'
 

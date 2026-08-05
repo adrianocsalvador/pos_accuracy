@@ -42,7 +42,18 @@ from .mod_worker_threads import (
 )
 from .mod_settings import SettingsDlg
 from .mod_language_dlg import LanguageDlg
-from .mod_pec_constants import DIC_EQ_BY_NOMINAL_SCALE, DIC_PEC_ALT, DIC_PEC_MM
+from .mod_pec_constants import (
+    ACCURACY_STANDARD_BR,
+    ACCURACY_STANDARD_CE90,
+    CLASS_CE90,
+    CLASS_LE90,
+    DIC_EQ_BY_NOMINAL_SCALE,
+    DIC_PEC_ALT,
+    DIC_PEC_MM,
+    EP_RATIO_H,
+    EP_RATIO_V,
+    ce90_threshold_decimals,
+)
 from .plugin_i18n import (
     LOCALE_AUTO,
     PLUGIN_I18N_CONTEXT,
@@ -93,25 +104,28 @@ def _coerce_finite_extent_m(x):
     return v
 
 
-def pec_test_limit(pec_):
-    """Arredonda o limiar PEC para inteiro antes do teste."""
+def pec_test_limit(pec_, decimals=None):
+    """Limiar PEC para o teste: inteiro (PEC-PCD) ou casas decimais (CE90/LE90)."""
     try:
-        return int(round(float(pec_)))
+        v = float(pec_)
     except (TypeError, ValueError):
-        return 0
+        return 0 if decimals is None else 0.0
+    if decimals is None:
+        return int(round(v))
+    return round(v, int(decimals))
 
 
-def perc_pec_quant(values, pec_):
-    """Percentual de amostras com DM <= PEC (limiar inteiro)."""
+def perc_pec_quant(values, pec_, decimals=None):
+    """Percentual de amostras com DM <= PEC."""
     if not values:
         return 0.0
-    pec_lim = pec_test_limit(pec_)
+    pec_lim = pec_test_limit(pec_, decimals=decimals)
     return sum(1 for v in values if v <= pec_lim) / len(values)
 
 
-def perc_pec_ext(values, extents, pec_):
+def perc_pec_ext(values, extents, pec_, decimals=None):
     """Percentual da extensão total com DM <= PEC."""
-    pec_lim = pec_test_limit(pec_)
+    pec_lim = pec_test_limit(pec_, decimals=decimals)
     total_ext = sum(extents)
     if total_ext <= 0:
         return 0.0
@@ -326,6 +340,8 @@ def _pec_unpack_data_row(row, altimetric: bool):
     """Linha PEC: lista de células ou dict {cells, result_ok}."""
     if isinstance(row, dict):
         cells = row.get('cells') or []
+        if row.get('ce90_layout'):
+            altimetric = False
         status = _pec_result_flags_to_status(row.get('result_ok'), altimetric)
         return list(cells), status
     return list(row), {}
@@ -915,6 +931,9 @@ def _pec_results_table_head_html(
 ) -> str:
     """Cabeçalho HTML em 3 níveis (colspan/rowspan; sem width no thead — compatível QTextDocument)."""
     lb = header_labels or _default_pec_results_header_labels()
+    # CE90/LE90: mesma grelha planimétrica (valor | RODADA | …), sem coluna EQ/classe extra
+    if lb.get('ce90_layout'):
+        altimetric = False
     esc = html.escape
     _ = widths_pct
 
@@ -977,6 +996,8 @@ def _build_pec_results_tables_html_blocks(
     alt_data_rows=None,
     empty_message: str = '',
     header_labels: dict = None,
+    plan_header_labels: dict = None,
+    alt_header_labels: dict = None,
     col_widths: dict = None,
     plan_page_break: bool = True,
     alt_page_break: bool = True,
@@ -984,19 +1005,23 @@ def _build_pec_results_tables_html_blocks(
     """HTML das tabelas PEC (plugin e script TXT→PDF usam a mesma função)."""
     plan_data_rows = plan_data_rows or []
     alt_data_rows = alt_data_rows or []
+    plan_lb = plan_header_labels or header_labels
+    alt_lb = alt_header_labels or header_labels
 
     def cell(v):
         return html.escape('' if v is None else str(v))
 
-    def table_html(title, altimetric, rows, *, page_break=False):
+    def table_html(title, altimetric, rows, *, page_break=False, labels=None):
         if not rows:
             return ''
-        widths = _pec_report_col_widths(altimetric, col_widths)
+        labels = labels or header_labels
+        layout_alt = bool(altimetric) and not bool((labels or {}).get('ce90_layout'))
+        widths = _pec_report_col_widths(layout_alt, col_widths)
         thead = _pec_results_table_head_html(
-            altimetric=altimetric, header_labels=header_labels)
+            altimetric=layout_alt, header_labels=labels)
         body = ''
         for row in rows:
-            cells, status = _pec_unpack_data_row(row, altimetric)
+            cells, status = _pec_unpack_data_row(row, layout_alt)
             tds = _pec_row_tds_html(
                 cells, widths, cell, result_status_by_col=status)
             body += f'<tr>{tds}</tr>'
@@ -1010,9 +1035,13 @@ def _build_pec_results_tables_html_blocks(
     if (intro or '').strip():
         chunks.append(f'<p>{html.escape(intro.strip())}</p>')
     if plan_data_rows:
-        chunks.append(table_html(plan_title, False, plan_data_rows, page_break=plan_page_break))
+        chunks.append(table_html(
+            plan_title, False, plan_data_rows,
+            page_break=plan_page_break, labels=plan_lb))
     if alt_data_rows:
-        chunks.append(table_html(alt_title, True, alt_data_rows, page_break=alt_page_break))
+        chunks.append(table_html(
+            alt_title, True, alt_data_rows,
+            page_break=alt_page_break, labels=alt_lb))
     if not plan_data_rows and not alt_data_rows and empty_message:
         chunks.append(f'<p>{html.escape(empty_message)}</p>')
     return '\n'.join(chunks)
@@ -2032,7 +2061,12 @@ def load_plugin_settings_from_mdepa_path(mdepa_path: str, dic_param: dict) -> in
                         meta['value'] = 1 if str(valor).strip().lower() in (
                             '1', 'true', 'sim', 'yes',
                         ) else 0
-                elif 'list' in meta:
+                elif meta.get('type') == 'doublespin':
+                    try:
+                        meta['value'] = float(valor)
+                    except (TypeError, ValueError):
+                        continue
+                elif meta.get('type') == 'radio' or 'list' in meta:
                     try:
                         meta['value'] = int(valor)
                     except (TypeError, ValueError):
@@ -2612,6 +2646,10 @@ class Wd1(QWidget):
         self.dic_pec_alt = DIC_PEC_ALT
         self.list_norm_type = [
             tr_ui('Linear'), tr_ui('Por Proximidade'), tr_ui('Sem Normalização')]
+        self.list_accuracy_standard = [
+            tr_ui('Padrão Brasileiro - PEC PCD'),
+            tr_ui('CE90 e LE90'),
+        ]
         self.list_dm_formula = [
             tr_ui('Equação original (eq:dm-buffer-duplo)'),
             tr_ui('Nova equação (eq:dm-buffer-duplo-media)'),
@@ -3136,9 +3174,14 @@ class Wd1(QWidget):
         )
         self.check_prj_folder(self.dic_prj['project_file'])
         self.reload_settings_from_project_file()
+        n_layers = self._load_project_layers_into_map()
         self._log_grass_provider_check()
         self.log_message(
             self.tr('Projeto aberto: {0}').format(self.dic_prj['project_file']), 'INFO')
+        if n_layers:
+            self.log_message(
+                self.tr('Camadas do projeto carregadas no mapa: {0}').format(n_layers),
+                'INFO')
 
     def new_project_dialog(self):
         # Mesma lógica que «Abrir projeto»: last_project_dir (gravado ao abrir/criar), não a chave legacy project_file.
@@ -3679,6 +3722,86 @@ class Wd1(QWidget):
         if self._find_map_layer_for_project(iname) is None:
             self.get_gpkg_layer(prefix_=iname, gpkg_path=self.gpkg_path)
         return True
+
+    def _project_vector_layer_names_preferred(self) -> list:
+        """Ordem de carregamento (primeira = fundo do grupo; última = topo)."""
+        names = [
+            f'__Limit_{self.dic_prj["dems"][0]["type"]}__',
+            f'__Limit_{self.dic_prj["dems"][1]["type"]}__',
+            self.intersection_name,
+        ]
+        names.extend(self._morphology_gpkg_layer_names())
+        names.append(self.match_lines_layer_name)
+        names.append(self.buffer_name)
+        return names
+
+    def _list_gpkg_geometry_layer_names(self, gpkg_path: str = None) -> list:
+        """Nomes das camadas com geometria no .pa.gpkg (exclui tabelas de config)."""
+        path = gpkg_path or self.gpkg_path
+        if not path or not os.path.isfile(path):
+            return []
+        skip = {
+            PA_SETTINGS_TABLE,
+            PIPELINE_ETAPAS_TABLE,
+            'gpkg_contents',
+            'gpkg_geometry_columns',
+            'gpkg_spatial_ref_sys',
+            'gpkg_tile_matrix',
+            'gpkg_tile_matrix_set',
+            'gpkg_metadata',
+            'gpkg_metadata_reference',
+            'gpkg_extensions',
+        }
+        names = []
+        ds = ogr.Open(path, 0)
+        if ds is None:
+            return []
+        try:
+            for i in range(ds.GetLayerCount()):
+                lyr = ds.GetLayerByIndex(i)
+                if lyr is None:
+                    continue
+                name = lyr.GetName()
+                if not name or name in skip or name.startswith('rtree_'):
+                    continue
+                # Só camadas com geometria (não tabelas atributo)
+                try:
+                    if lyr.GetGeomType() == ogr.wkbNone:
+                        continue
+                except Exception:
+                    pass
+                names.append(name)
+        finally:
+            ds = None
+        return names
+
+    def _load_project_layers_into_map(self) -> int:
+        """Ao abrir .pa.gpkg: carrega no mapa as camadas vetoriais já existentes no ficheiro."""
+        if not self.gpkg_path or not os.path.isfile(self.gpkg_path):
+            return 0
+        preferred = self._project_vector_layer_names_preferred()
+        present = set(self._list_gpkg_geometry_layer_names(self.gpkg_path))
+        if not present:
+            return 0
+        # Preferidas na ordem definida; restantes __* no fim
+        ordered = [n for n in preferred if n in present]
+        extras = sorted(
+            n for n in present
+            if n not in ordered and (n.startswith('__') or n in preferred)
+        )
+        ordered.extend(extras)
+        loaded = 0
+        for name in ordered:
+            if self._find_map_layer_for_project(name, self.gpkg_path) is not None:
+                loaded += 1
+                continue
+            if not self._gpkg_layer_valid(name):
+                continue
+            lyr = self.get_gpkg_layer(
+                prefix_=name, gpkg_path=self.gpkg_path, show=True)
+            if lyr is not None and lyr.isValid():
+                loaded += 1
+        return loaded
 
     def _clear_gpkg_vector_layer_features(self, layer_name: str) -> bool:
         """Esvazia feições da camada nomeada no .pa.gpkg (só do projeto ativo)."""
@@ -4907,7 +5030,8 @@ class Wd1(QWidget):
 
         layer_0 = QgsVectorLayer(f'multipolygon?crs={self.crs_epsg}&index=yes', self.buffer_name, "memory")
         schema_ = QgsFields()
-        schema_.append(QgsField('scale', QVariant.Int))
+        # Double: escalas nominais (PEC) e raios CE90/LE90 em metros
+        schema_.append(QgsField('scale', QVariant.Double))
         schema_.append(QgsField('class', QVariant.String))
         schema_.append(QgsField('id_origem', QVariant.Int))
         schema_.append(QgsField('camada_origem', QVariant.String))
@@ -4926,6 +5050,19 @@ class Wd1(QWidget):
         layer_ = self.get_gpkg_layer(
             prefix_=self.buffer_name, gpkg_path=self.gpkg_path, show=show_on_map)
         return layer_
+
+    def _reset_buffers_layer_for_run(self) -> None:
+        """Esvazia/recria __Buffers__ antes de uma nova geração (evita conflito de fid)."""
+        bn = self.buffer_name
+        try:
+            self._clear_gpkg_vector_layer_features(bn)
+        except Exception:
+            pass
+        try:
+            self._remove_project_layers_named(bn)
+        except Exception:
+            pass
+        self.layer_buffers = None
 
     def _show_buffers_on_map_setting(self) -> bool:
         """Config step_buffers: 0 = não mostrar no mapa durante processamento."""
@@ -4957,6 +5094,34 @@ class Wd1(QWidget):
                 ).format(QgsWkbTypes.displayString(lyr.wkbType())),
                 'INFO',
             )
+        fields = lyr.fields()
+        # Índices por nome — nunca gravar 'fid' (PK do GeoPackage)
+        idx_scale = fields.indexOf('scale')
+        idx_class = fields.indexOf('class')
+        idx_id = fields.indexOf('id_origem')
+        idx_cam = fields.indexOf('camada_origem')
+
+        def _attrs_from_source(feat_src):
+            """Extrai scale/class/id_origem/camada_origem sem reutilizar fid."""
+            src = list(feat_src.attributes() or [])
+            # Formatos históricos: [fid_sintetico, scale, class, id, camada] ou [scale, class, id, camada]
+            if len(src) >= 5:
+                scale_v, class_v, id_v, cam_v = src[1], src[2], src[3], src[4]
+            elif len(src) >= 4:
+                scale_v, class_v, id_v, cam_v = src[0], src[1], src[2], src[3]
+            else:
+                scale_v = class_v = id_v = cam_v = None
+            out = [None] * fields.count()
+            if idx_scale >= 0:
+                out[idx_scale] = scale_v
+            if idx_class >= 0:
+                out[idx_class] = class_v
+            if idx_id >= 0:
+                out[idx_id] = id_v
+            if idx_cam >= 0:
+                out[idx_cam] = cam_v
+            return out
+
         lyr.startEditing()
         n_ok, n_skip, n_add_fail = 0, 0, 0
         for feat_ in feats:
@@ -4965,8 +5130,9 @@ class Wd1(QWidget):
             if g_adj is None:
                 n_skip += 1
                 continue
-            feat_adj = QgsFeature(feat_)
+            feat_adj = QgsFeature(fields)
             feat_adj.setGeometry(g_adj)
+            feat_adj.setAttributes(_attrs_from_source(feat_))
             if not lyr.addFeature(feat_adj):
                 n_add_fail += 1
             else:
@@ -5139,7 +5305,7 @@ class Wd1(QWidget):
     def define_buffers(self):
         self._buffer_geom_diag_counts = {}
         self._buffers_layer_target_logged = False
-        self.layer_buffers = None
+        self._reset_buffers_layer_for_run()
         self._buffers_map_deferred = not self._show_buffers_on_map_setting()
         self._begin_buffers_map_canvas_freeze()
         rebuilt = self._dic_match_from_match_lines_layer()
@@ -5165,7 +5331,31 @@ class Wd1(QWidget):
         mss_ = self.tr('=======================================\n')
         mss_ += self.tr('DEFININDO BUFFERS')
         self.log_message(mss_, 'INFO')
-        list_scale = self.get_list_scale()
+        accuracy_standard = self._accuracy_standard_index()
+        gsd = self._test_dem_gsd()
+        list_scale = [] if accuracy_standard == ACCURACY_STANDARD_CE90 else self.get_list_scale()
+        if accuracy_standard == ACCURACY_STANDARD_CE90:
+            if not gsd or gsd <= 0:
+                self.log_message(
+                    self.tr(
+                        'CE90/LE90: resolução do MDE de teste indisponível. '
+                        'Selecione o raster de teste e tente novamente.'),
+                    'ERROR')
+                return
+            max_h, max_v = self._ce90_max_gsd_multipliers()
+            dec = ce90_threshold_decimals(gsd)
+            self.log_message(
+                self.tr(
+                    'Modo CE90/LE90 — pixel MDE teste={0:.3f} m; '
+                    'precisão limiar={1} casa(s) decimal(is); '
+                    'máx. H={2:g} pixels do MDE de teste ({3} m); '
+                    'máx. V={4:g} pixels do MDE de teste ({5} m).'
+                ).format(
+                    gsd, dec,
+                    max_h, f'{max_h * gsd:.{dec}f}',
+                    max_v, f'{max_v * gsd:.{dec}f}',
+                ),
+                'INFO')
         dic_layers_line = {}
         for tag_ in self.dic_match:
             dic_layers_line[tag_] = {}
@@ -5177,6 +5367,7 @@ class Wd1(QWidget):
         # list_layers_buffer = self.create_buffers_layer()
         norm_type = self.settings_dlg.dic_param['step_normalize_prog']['fields']['norm_type']['value']
         dm_formula = self._dm_formula_index()
+        max_h_mult, max_v_mult = self._ce90_max_gsd_multipliers()
         dic_={
             'step': 'buffers',
             'dic_layers_line': dic_layers_line,
@@ -5186,6 +5377,10 @@ class Wd1(QWidget):
             'dic_pec_v': self.dic_pec_v,
             'norm_type': norm_type,
             'dm_formula': dm_formula,
+            'accuracy_standard': accuracy_standard,
+            'gsd': gsd,
+            'ce90_max_h': max_h_mult,
+            'ce90_max_v': max_v_mult,
             'parent': self,
             'main': self.main}
         # Add tasks to queue
@@ -5279,8 +5474,14 @@ class Wd1(QWidget):
             raise RuntimeError(
                 self.tr('Sem pares válidos em __Linhas_de_Correspondencia__ no projeto.'))
         self.dic_match = rebuilt
-        list_scale = self.get_list_scale()
-        if not list_scale:
+        accuracy_standard = self._accuracy_standard_index()
+        gsd = self._test_dem_gsd()
+        list_scale = [] if accuracy_standard == ACCURACY_STANDARD_CE90 else self.get_list_scale()
+        if accuracy_standard == ACCURACY_STANDARD_CE90:
+            if not gsd or gsd <= 0:
+                raise RuntimeError(
+                    self.tr('CE90/LE90: resolução do MDE de teste indisponível.'))
+        elif not list_scale:
             raise RuntimeError(self.tr('Lista de escalas vazia - verifique parâmetros de buffers.'))
         dic_layers_line = {}
         for tag_ in self.dic_match:
@@ -5295,6 +5496,7 @@ class Wd1(QWidget):
                 dic_layers_line[tag_][i] = layer_
         norm_type = self.settings_dlg.dic_param['step_normalize_prog']['fields']['norm_type']['value']
         dm_formula = self._dm_formula_index()
+        max_h_mult, max_v_mult = self._ce90_max_gsd_multipliers()
         bt = BufferThread(
             self.main,
             self,
@@ -5307,9 +5509,14 @@ class Wd1(QWidget):
                 'dic_pec_v': self.dic_pec_v,
                 'norm_type': norm_type,
                 'dm_formula': dm_formula,
+                'accuracy_standard': accuracy_standard,
+                'gsd': gsd,
+                'ce90_max_h': max_h_mult,
+                'ce90_max_v': max_v_mult,
             },
         )
         bt.run()
+        self._ce90_meta = getattr(bt, 'ce90_meta', None)
         return bt.dic_values
 
     def calc_pec(self, dic_values):
@@ -5321,11 +5528,23 @@ class Wd1(QWidget):
             self.tr('Avaliar individualmente'),
             self.tr('Usar todos'),
         )
-        self._pec_report_pec_intro = self.tr('Tratamento de outliers (PEC): {0}').format(
-            om_names[om] if 0 <= om < len(om_names) else str(om))
+        is_ce90 = self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
+        if is_ce90:
+            self._pec_report_pec_intro = self.tr(
+                'Tratamento de outliers (CE90/LE90): {0}'
+            ).format(om_names[om] if 0 <= om < len(om_names) else str(om))
+        else:
+            self._pec_report_pec_intro = self.tr('Tratamento de outliers (PEC): {0}').format(
+                om_names[om] if 0 <= om < len(om_names) else str(om))
 
         self._log_null_dm_samples(dic_values, 'dm_h')
         self._log_null_dm_samples(dic_values, 'dm_v')
+
+        if is_ce90:
+            self._calc_ce90_le90_report(dic_values)
+            self._write_pec_results_txt()
+            self._sync_panel_extent_after_pec(dic_values)
+            return
 
         mss_ = self.tr('=======================================\n')
         mss_ += self.tr('CALCULANDO PEC PLANIMÉTRICO')
@@ -5361,6 +5580,102 @@ class Wd1(QWidget):
 
         self._write_pec_results_txt()
         self._sync_panel_extent_after_pec(dic_values)
+
+    def _calc_ce90_le90_report(self, dic_values):
+        """Relatório CE90/LE90: uma linha por candidato avaliado na busca."""
+        gsd = self._test_dem_gsd() or 0.0
+        meta = getattr(self, '_ce90_meta', None) or {}
+        if gsd <= 0:
+            try:
+                gsd = float(meta.get('gsd') or 0.0)
+            except (TypeError, ValueError):
+                gsd = 0.0
+        dec = self._ce90_threshold_decimals()
+        final_h = meta.get('final_h')
+        final_v = meta.get('final_v')
+        trials_h = meta.get('trials_h') or {}
+        trials_v = meta.get('trials_v') or {}
+
+        def _is_final(scale_, final_):
+            if final_ is None:
+                return False
+            try:
+                return abs(float(scale_) - float(final_)) < (10 ** (-dec)) / 2.0
+            except (TypeError, ValueError):
+                return False
+
+        def _meta_for(scale_, trials_map):
+            try:
+                key = round(float(scale_), dec)
+            except (TypeError, ValueError):
+                key = scale_
+            info = trials_map.get(key) or trials_map.get(scale_) or {}
+            if not info and isinstance(scale_, (int, float)):
+                for k, v in trials_map.items():
+                    try:
+                        if abs(float(k) - float(scale_)) < 1e-9:
+                            return v or {}
+                    except (TypeError, ValueError):
+                        continue
+            return info or {}
+
+        mss_ = self.tr('=======================================\n')
+        mss_ += self.tr('TABELA CE90 (todos os limiares avaliados)')
+        self.log_message(mss_, 'INFO')
+        for scale_ in sorted(k for k in dic_values if isinstance(k, (int, float))):
+            if CLASS_CE90 not in dic_values[scale_]:
+                continue
+            pec_h = float(scale_)
+            ep_h = round(pec_h * EP_RATIO_H, dec)
+            tmeta = _meta_for(scale_, trials_h)
+            row, str_ = self._calc_pec_group_report(
+                dic_values, scale_, CLASS_CE90, 'dm_h', pec_h, ep_h,
+                dimension='H', pec_decimals=dec)
+            row['ce90_final'] = _is_final(scale_, final_h)
+            row['ce90_ciclo'] = tmeta.get('ciclo')
+            if pec_h <= 0:
+                str_ = self.tr(
+                    'CE90={0} m — RODADA 1 — FALHOU (sem buffer/DM)'
+                ).format(self._format_ce90_m(0.0, dec))
+            else:
+                if row.get('ce90_ciclo') is not None:
+                    str_ = self.tr('RODADA {0} — {1}').format(
+                        row['ce90_ciclo'], str_)
+                if gsd > 0:
+                    str_ += self.tr(
+                        ' ({0:.1f} pixels do MDE de teste)'
+                    ).format(pec_h / gsd)
+            self.log_message(str_, 'INFO')
+            self._pec_report_plan_rows.append(row)
+
+        mss_ = self.tr('=======================================\n')
+        mss_ += self.tr('TABELA LE90 (todos os limiares avaliados)')
+        self.log_message(mss_, 'INFO')
+        for scale_ in sorted(k for k in dic_values if isinstance(k, (int, float))):
+            if CLASS_LE90 not in dic_values[scale_]:
+                continue
+            pec_v = float(scale_)
+            ep_v = round(pec_v * EP_RATIO_V, dec)
+            tmeta = _meta_for(scale_, trials_v)
+            row, str_ = self._calc_pec_group_report(
+                dic_values, scale_, CLASS_LE90, 'dm_v', pec_v, ep_v,
+                dimension='V', pec_decimals=dec)
+            row['ce90_final'] = _is_final(scale_, final_v)
+            row['ce90_ciclo'] = tmeta.get('ciclo')
+            if pec_v <= 0:
+                str_ = self.tr(
+                    'LE90={0} m — RODADA 1 — FALHOU (sem buffer/DM)'
+                ).format(self._format_ce90_m(0.0, dec))
+            else:
+                if row.get('ce90_ciclo') is not None:
+                    str_ = self.tr('RODADA {0} — {1}').format(
+                        row['ce90_ciclo'], str_)
+                if gsd > 0:
+                    str_ += self.tr(
+                        ' ({0:.1f} pixels do MDE de teste)'
+                    ).format(pec_v / gsd)
+            self.log_message(str_, 'INFO')
+            self._pec_report_alt_rows.append(row)
 
     @staticmethod
     def _extent_km_from_m(ext_m):
@@ -5508,13 +5823,22 @@ class Wd1(QWidget):
 
     def _calc_pec_group_report(
         self, dic_values, scale_, class_, dm_key, pec_raw, ep_raw, *,
-        dimension='H', eq=None,
+        dimension='H', eq=None, pec_decimals=None,
     ):
         samples, outlier_ids = self._pec_samples_group(
             dic_values, scale_, class_, dm_key)
         values = [s['dm'] for s in samples]
         extents = [s['extent'] for s in samples]
-        pec_lim = pec_test_limit(pec_raw)
+        pec_lim = pec_test_limit(pec_raw, decimals=pec_decimals)
+        is_ce = class_ in (CLASS_CE90, CLASS_LE90)
+        if is_ce and pec_decimals is not None:
+            pec_lim_txt = self._format_ce90_m(pec_lim, pec_decimals)
+            ep_txt = self._format_ce90_m(ep_raw, pec_decimals)
+            scale_txt = self._format_ce90_m(scale_, pec_decimals)
+        else:
+            pec_lim_txt = pec_lim
+            ep_txt = ep_raw
+            scale_txt = scale_
         reprov_ids = sorted({
             s['fid_r'] for s in samples
             if s['fid_r'] is not None and s['dm'] > pec_lim
@@ -5525,7 +5849,10 @@ class Wd1(QWidget):
             row = self._pec_norm_fail_row(
                 scale_, class_, pec_lim, samples, outlier_ids,
                 dimension=dimension, eq=eq)
-            if dimension == 'V':
+            if is_ce:
+                str_ = self.tr('{0}={1} m — {2}, {3} amostras').format(
+                    class_, scale_txt, norm_fail, len(values))
+            elif dimension == 'V':
                 str_ = self.tr('EQ {0} — 1:{1}.000-{2}= {3}, {4} amostras').format(
                     eq, scale_, class_, norm_fail, len(values))
             else:
@@ -5533,8 +5860,8 @@ class Wd1(QWidget):
                     scale_, class_, norm_fail, len(values))
             return row, str_
 
-        perc_q = perc_pec_quant(values, pec_raw)
-        perc_e = perc_pec_ext(values, extents, pec_raw)
+        perc_q = perc_pec_quant(values, pec_raw, decimals=pec_decimals)
+        perc_e = perc_pec_ext(values, extents, pec_raw, decimals=pec_decimals)
         pec_ok_q = perc_q >= 0.90
         pec_ok_e = perc_e >= 0.90
         rms_ = self.rms(values)
@@ -5558,10 +5885,10 @@ class Wd1(QWidget):
             'perc_e': perc_e_pct,
             'result_e': self.tr('PASSOU') if pec_ok_e else self.tr('FALHOU'),
             'result_e_ok': pec_ok_e,
-            'teste_pec_q': f'{perc_q_pct} % <= {pec_lim}',
-            'teste_pec_e': f'{perc_e_pct} % <= {pec_lim}',
+            'teste_pec_q': f'{perc_q_pct} % <= {pec_lim_txt}',
+            'teste_pec_e': f'{perc_e_pct} % <= {pec_lim_txt}',
             'teste_ep': (
-                f'{rms_show} {cmp_ep} {ep_raw} EP'
+                f'{rms_show} {cmp_ep} {ep_txt} EP'
                 if math.isfinite(rms_show) else ''
             ),
             'result_ep': self.tr('PASSOU') if ep_ok else self.tr('FALHOU'),
@@ -5570,7 +5897,13 @@ class Wd1(QWidget):
             'reprovados_ids': ', '.join(str(i) for i in reprov_ids),
         }
 
-        if dimension == 'V':
+        if is_ce:
+            str_ = self.tr(
+                '{0}={1} m — quant {2}% <= {3} - {4}, ext {5}% <= {3} - {6},'
+            ).format(
+                class_, scale_txt, perc_q_pct, pec_lim_txt, row['result_q'],
+                perc_e_pct, row['result_e'])
+        elif dimension == 'V':
             str_ = self.tr(
                 'EQ {0} — 1:{1}.000-{2}= quant {3}% <= {4} - {5}, ext {6}% <= {4} - {7},'
             ).format(
@@ -5585,15 +5918,58 @@ class Wd1(QWidget):
         if ep_ok:
             str_ += self.tr(' {0} <= {1} EP - PASSOU, {2}').format(
                 rms_show if math.isfinite(rms_show) else self.tr('n/d'),
-                ep_raw, len(values))
+                ep_txt if is_ce else ep_raw, len(values))
         else:
             str_ += self.tr(' {0} > {1} EP - FALHOU, {2}').format(
                 rms_show if math.isfinite(rms_show) else self.tr('n/d'),
-                ep_raw, len(values))
+                ep_txt if is_ce else ep_raw, len(values))
         return row, str_
 
     def _pec_row_data_cells(self, row, dimension='H'):
         """Células de dados na ordem das colunas do relatório (plan. 11 cols / alt. 12 cols)."""
+        is_ce = row.get('class') in (CLASS_CE90, CLASS_LE90)
+        if is_ce:
+            dec = self._ce90_threshold_decimals()
+            try:
+                lim_m = float(row['scale'])
+            except (TypeError, ValueError):
+                lim_m = row['scale']
+            if isinstance(lim_m, (int, float)):
+                lim_txt = self._format_ce90_m(lim_m, dec)
+            else:
+                lim_txt = str(lim_m)
+            ciclo = row.get('ce90_ciclo')
+            if ciclo is None and isinstance(lim_m, (int, float)) and lim_m <= 0:
+                ciclo = 1
+            ciclo_txt = '' if ciclo is None else str(int(ciclo))
+            # CE/LE (m) | RODADA — mesma grelha nas duas tabelas (11 colunas)
+            head = [lim_txt, ciclo_txt]
+            blank_stats = (
+                (isinstance(lim_m, (int, float)) and lim_m <= 0)
+                or int(row.get('n_valid') or 0) == 0
+            )
+            pec_lim_txt = self._format_ce90_m(row.get('pec_lim'), dec)
+            if blank_stats:
+                n_out = n_val = ext_km = ''
+                t_q = t_e = t_ep = ''
+                failed = self.tr('FALHOU')
+                r_q = r_e = r_ep = failed
+            else:
+                n_out = row['n_outliers']
+                n_val = row['n_valid']
+                ext_km = row['ext_km']
+                t_q = row.get(
+                    'teste_pec_q',
+                    f"{row.get('perc_q', '')} % <= {pec_lim_txt}")
+                t_e = row.get(
+                    'teste_pec_e',
+                    f"{row.get('perc_e', '')} % <= {pec_lim_txt}")
+                t_ep = row.get('teste_ep', '')
+                r_q = row['result_q']
+                r_e = row['result_e']
+                r_ep = row['result_ep']
+            tail = [n_out, n_val, ext_km, t_q, r_q, t_e, r_e, t_ep, r_ep]
+            return head + tail
         if dimension == 'V':
             head = [
                 self.tr('1:{0}.000').format(row['scale']),
@@ -5618,8 +5994,29 @@ class Wd1(QWidget):
         ]
         return head + tail
 
-    def _pec_results_header_labels(self):
-        """Rótulos comuns do cabeçalho (padrão dissertação LaTeX)."""
+    def _pec_results_header_labels(self, altimetric=False):
+        """Rótulos do cabeçalho (PEC-PCD ou CE90/LE90)."""
+        if self._accuracy_standard_index() == ACCURACY_STANDARD_CE90:
+            return {
+                'escala': self.tr('LE (m)') if altimetric else self.tr('CE (m)'),
+                'eq': '',
+                'classe': self.tr('RODADA'),
+                'ce90_layout': True,
+                'outliers': self.tr('Outliers'),
+                'amostras': self.tr('Amostras Válidas'),
+                'quant': self.tr('Quant.'),
+                'ext_km': self.tr('Ext. (km)'),
+                'pec_group': (
+                    self.tr('LE90 (90% d_i ≤ limiar)')
+                    if altimetric
+                    else self.tr('CE90 (90% d_i ≤ limiar)')
+                ),
+                'pec_quant': self.tr('Quantitativo'),
+                'pec_ext': self.tr('Extensão'),
+                'teste': self.tr('Teste'),
+                'resultado': self.tr('Resultado'),
+                'ep_group': self.tr('EP (RMS ≤ EP)'),
+            }
         return {
             'escala': self.tr('Escala'),
             'eq': self.tr('EQ (m)'),
@@ -5639,17 +6036,18 @@ class Wd1(QWidget):
     def _pec_results_table_head_html(self, altimetric=False, widths_pct=None) -> str:
         return _pec_results_table_head_html(
             altimetric=altimetric,
-            header_labels=self._pec_results_header_labels(),
+            header_labels=self._pec_results_header_labels(altimetric=altimetric),
             widths_pct=widths_pct,
         )
 
     def _pec_results_table_head_txt_rows(self, altimetric=False):
         """Três linhas de cabeçalho tabulado (mesma estrutura lógica do LaTeX)."""
-        lb = self._pec_results_header_labels()
-        n = 12 if altimetric else 11
+        lb = self._pec_results_header_labels(altimetric=altimetric)
+        use_alt = bool(altimetric) and not bool(lb.get('ce90_layout'))
+        n = 12 if use_alt else 11
         blank = [''] * n
 
-        if altimetric:
+        if use_alt:
             row1 = [
                 lb['escala'], lb['eq'], lb['classe'], lb['outliers'],
                 lb['amostras'], '',
@@ -5666,7 +6064,7 @@ class Wd1(QWidget):
             ]
             row2 = blank[:3] + ['', ''] + [lb['pec_quant'], '', lb['pec_ext'], ''] + ['', '']
 
-        row3 = blank[:4] if altimetric else blank[:3]
+        row3 = blank[:4] if use_alt else blank[:3]
         row3 += [lb['quant'], lb['ext_km']]
         row3 += [lb['teste'], lb['resultado'], lb['teste'], lb['resultado']]
         row3 += [lb['teste'], lb['resultado']]
@@ -5677,13 +6075,22 @@ class Wd1(QWidget):
 
     def _pec_row_snapshot_entry(self, row, dimension='H') -> dict:
         """Entrada PEC no snapshot/PDF: texto traduzido + flags pass/fail (idioma-independente)."""
+        cells = []
+        for c in self._pec_row_to_cells(row, dimension):
+            if c is None or c == '':
+                cells.append('')
+            else:
+                cells.append(str(c))
+        # CE90/LE90 usam grelha de 11 colunas (como planimétrico)
+        is_ce = row.get('class') in (CLASS_CE90, CLASS_LE90)
         return {
-            'cells': [str(c) for c in self._pec_row_to_cells(row, dimension)],
+            'cells': cells,
             'result_ok': [
                 row.get('result_q_ok'),
                 row.get('result_e_ok'),
                 row.get('result_ep_ok'),
             ],
+            'ce90_layout': is_ce,
         }
 
     def _write_pec_results_txt(self):
@@ -5725,6 +6132,26 @@ class Wd1(QWidget):
         if not isinstance(meta, dict):
             return ''
         val = meta.get('value')
+        if meta.get('type') == 'checkbox':
+            try:
+                on = bool(int(val))
+            except (TypeError, ValueError):
+                on = bool(val)
+            return self.tr('gerar') if on else self.tr('não gerar')
+        if meta.get('type') == 'radio':
+            lst = meta.get('list') or []
+            try:
+                idx = int(val)
+            except (TypeError, ValueError):
+                idx = 0
+            if 0 <= idx < len(lst):
+                return str(lst[idx])
+            return '' if val is None else str(val)
+        if meta.get('type') == 'doublespin':
+            try:
+                return str(float(val))
+            except (TypeError, ValueError):
+                return '' if val is None else str(val)
         if 'list' in meta:
             lst = meta['list']
             try:
@@ -5735,9 +6162,18 @@ class Wd1(QWidget):
                 except (TypeError, ValueError):
                     idx = 0
             if isinstance(lst, (list, tuple)) and 0 <= idx < len(lst):
-                return str(lst[idx])
-            return str(val)
-        return '' if val is None else str(val)
+                item = lst[idx]
+                if 'string' in meta:
+                    try:
+                        return meta['string'].format(item)
+                    except (TypeError, ValueError, IndexError):
+                        return str(item)
+                return str(item)
+            # índice da opção em branco no fim do combo de escalas
+            if isinstance(lst, (list, tuple)) and idx == len(lst):
+                return ''
+            return '' if val is None or val == '' else str(val)
+        return '' if val is None or val == '' else str(val)
 
     def _report_extent_intersection_rows(self) -> list:
         """Linhas da tabela de envelope (colunas Xmin, Ymin, Xmax, Ymax)."""
@@ -5814,16 +6250,22 @@ class Wd1(QWidget):
         if not plan_rows and not alt_rows:
             empty_msg = self.tr(
                 '(ainda não há resultados de PEC nesta sessão — execute a análise até ao fim.)')
+        is_ce90 = self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
         return _build_pec_results_tables_html_blocks(
             intro=intro,
-            plan_title=self.tr('7.1 PEC Planimétrico'),
-            alt_title=self.tr('7.2 PEC Altimétrico'),
+            plan_title=(
+                self.tr('7.1 CE90') if is_ce90 else self.tr('7.1 PEC Planimétrico')
+            ),
+            alt_title=(
+                self.tr('7.2 LE90') if is_ce90 else self.tr('7.2 PEC Altimétrico')
+            ),
             plan_data_rows=[
                 self._pec_row_snapshot_entry(row, 'H') for row in plan_rows],
             alt_data_rows=[
                 self._pec_row_snapshot_entry(row, 'V') for row in alt_rows],
             empty_message=empty_msg,
-            header_labels=self._pec_results_header_labels(),
+            plan_header_labels=self._pec_results_header_labels(altimetric=False),
+            alt_header_labels=self._pec_results_header_labels(altimetric=True),
             plan_page_break=True,
             alt_page_break=True,
         )
@@ -5841,6 +6283,65 @@ class Wd1(QWidget):
                 self.settings_dlg.dic_param['step_dm_formula']['fields']['dm_formula']['value'])
         except (TypeError, ValueError, KeyError):
             return 0
+
+    def _accuracy_standard_index(self) -> int:
+        try:
+            return int(
+                self.settings_dlg.dic_param['step_buffers']['fields']['accuracy_standard']['value'])
+        except (TypeError, ValueError, KeyError):
+            return ACCURACY_STANDARD_BR
+
+    def _ce90_max_gsd_multipliers(self):
+        fields = self.settings_dlg.dic_param['step_buffers']['fields']
+        try:
+            max_h = float(fields.get('ce90_max_h', {}).get('value', 5.0))
+        except (TypeError, ValueError):
+            max_h = 5.0
+        try:
+            max_v = float(fields.get('ce90_max_v', {}).get('value', 2.0))
+        except (TypeError, ValueError):
+            max_v = 2.0
+        return max(0.1, max_h), max(0.1, max_v)
+
+    def _test_dem_gsd(self):
+        try:
+            layer_ = self.dic_prj['dems'][1]['obj_cbx'].currentLayer()
+        except (TypeError, KeyError, AttributeError):
+            return None
+        if layer_ is None:
+            return None
+        try:
+            gsd = float(layer_.rasterUnitsPerPixelX())
+        except (TypeError, ValueError, AttributeError):
+            return None
+        if not math.isfinite(gsd) or gsd <= 0:
+            return None
+        return gsd
+
+    def _ce90_threshold_decimals(self) -> int:
+        """Casas decimais do limiar CE90/LE90 (pixel < 5 m → 2)."""
+        meta = getattr(self, '_ce90_meta', None) or {}
+        raw = meta.get('threshold_decimals')
+        if raw is not None:
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                pass
+        gsd = self._test_dem_gsd()
+        if gsd is None:
+            try:
+                gsd = float(meta.get('gsd') or 0.0)
+            except (TypeError, ValueError):
+                gsd = 0.0
+        return ce90_threshold_decimals(gsd)
+
+    def _format_ce90_m(self, value, decimals=None) -> str:
+        """Formata metros CE90/LE90 com as casas do limiar (para relatório/log)."""
+        dec = self._ce90_threshold_decimals() if decimals is None else int(decimals)
+        try:
+            return f'{float(value):.{dec}f}'
+        except (TypeError, ValueError):
+            return '' if value is None else str(value)
 
     @staticmethod
     def _geometry_wkt_for_report(geom) -> str:
@@ -6044,6 +6545,7 @@ class Wd1(QWidget):
 
         param_groups = []
         dlg = self.settings_dlg
+        is_ce90 = self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
         for sk, block in dlg.dic_param.items():
             if not isinstance(sk, str) or not sk.startswith('step_'):
                 continue
@@ -6053,10 +6555,17 @@ class Wd1(QWidget):
             for fk, meta in block['fields'].items():
                 if not isinstance(meta, dict):
                     continue
+                if sk == 'step_buffers':
+                    if is_ce90 and fk in ('max_scale', 'min_scale'):
+                        continue
+                    if not is_ce90 and fk in ('ce90_max_h', 'ce90_max_v'):
+                        continue
                 fields.append({
                     'label': meta.get('label', fk),
                     'value': self._format_param_value_for_report(meta),
                 })
+            if not fields:
+                continue
             param_groups.append({
                 'label': block.get('label', sk),
                 'fields': fields,
@@ -6086,6 +6595,24 @@ class Wd1(QWidget):
                 'value': str(self._panel_stats_cache.get('pair_nr') or '—'),
             },
         ]
+        if is_ce90:
+            dec = self._ce90_threshold_decimals()
+            gsd = self._test_dem_gsd()
+            if gsd is None:
+                meta = getattr(self, '_ce90_meta', None) or {}
+                try:
+                    gsd = float(meta.get('gsd') or 0.0) or None
+                except (TypeError, ValueError):
+                    gsd = None
+            stats_rows.append({
+                'label': self.tr('Precisão do limiar CE90/LE90'),
+                'value': self.tr('{0} casa(s) decimal(is)').format(dec),
+            })
+            if gsd:
+                stats_rows.append({
+                    'label': self.tr('Pixel do MDE de teste'),
+                    'value': f'{gsd:.3f} m',
+                })
 
         plan_rows = getattr(self, '_pec_report_plan_rows', None) or []
         alt_rows = getattr(self, '_pec_report_alt_rows', None) or []
@@ -6150,11 +6677,19 @@ class Wd1(QWidget):
                 },
                 'pairs': self._build_report_pairs_section(),
                 'pec': {
-                    'title': self.tr('7. Resultados PEC'),
+                    'title': (
+                        self.tr('7. Resultados CE90 / LE90')
+                        if self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
+                        else self.tr('7. Resultados PEC')
+                    ),
                     'intro': (getattr(self, '_pec_report_pec_intro', '') or '').strip(),
                     'header_labels': self._pec_results_header_labels(),
                     'plan': {
-                        'title': self.tr('7.1 PEC Planimétrico'),
+                        'title': (
+                            self.tr('7.1 CE90')
+                            if self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
+                            else self.tr('7.1 PEC Planimétrico')
+                        ),
                         'header_rows': list(self._pec_results_table_head_txt_rows(altimetric=False)),
                         'data_rows': [
                             self._pec_row_snapshot_entry(row, 'H')
@@ -6162,7 +6697,11 @@ class Wd1(QWidget):
                         ],
                     },
                     'alt': {
-                        'title': self.tr('7.2 PEC Altimétrico'),
+                        'title': (
+                            self.tr('7.2 LE90')
+                            if self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
+                            else self.tr('7.2 PEC Altimétrico')
+                        ),
                         'header_rows': list(self._pec_results_table_head_txt_rows(altimetric=True)),
                         'data_rows': [
                             self._pec_row_snapshot_entry(row, 'V')
@@ -6228,6 +6767,20 @@ class Wd1(QWidget):
         """Tabelas PEC-V / EQ no formato esperado pelo gerador de PDF."""
         pec_v_table = {}
         eq_v_table = {}
+        if self._accuracy_standard_index() == ACCURACY_STANDARD_CE90:
+            for scale in scales:
+                try:
+                    r = float(scale)
+                except (TypeError, ValueError):
+                    continue
+                eq_v_table[r] = r
+                pec_v_table[r] = {
+                    CLASS_LE90: {
+                        'pec': r,
+                        'ep': round(r * EP_RATIO_V, self._ce90_threshold_decimals()),
+                    }
+                }
+            return pec_v_table, eq_v_table
         for scale in scales:
             scale = int(scale)
             eq = self.dic_pec_v.get(scale)
@@ -6247,9 +6800,10 @@ class Wd1(QWidget):
         index = {}
         if not dic_values:
             return index
+        ce90 = self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
         for scale, by_class in dic_values.items():
             try:
-                scale_i = int(scale)
+                scale_i = float(scale) if ce90 else int(scale)
             except (TypeError, ValueError):
                 continue
             for class_, by_count in (by_class or {}).items():
@@ -6323,8 +6877,21 @@ class Wd1(QWidget):
         return pairs
 
     def _pec_h_tables_for_audit(self, scales):
-        """Tabela PEC-H (m) por escala/classe: scale × pec_mm."""
+        """Tabela PEC-H (m) por escala/classe: scale × pec_mm (ou limiar CE90)."""
         pec_h_table = {}
+        if self._accuracy_standard_index() == ACCURACY_STANDARD_CE90:
+            for scale in scales:
+                try:
+                    r = float(scale)
+                except (TypeError, ValueError):
+                    continue
+                pec_h_table[r] = {
+                    CLASS_CE90: {
+                        'pec': r,
+                        'ep': round(r * EP_RATIO_H, self._ce90_threshold_decimals()),
+                    }
+                }
+            return pec_h_table
         for scale in scales:
             scale = int(scale)
             pec_h_table[scale] = {}
@@ -6334,6 +6901,21 @@ class Wd1(QWidget):
                     'ep': float(scale) * float(self.dic_pec_mm['H'][class_]['ep']),
                 }
         return pec_h_table
+
+    def _audit_scales_for_dimension(self, dic_values, dimension='H'):
+        """Escalas (PEC-PCD) ou limiares (CE90/LE90) para auditoria."""
+        if self._accuracy_standard_index() == ACCURACY_STANDARD_CE90:
+            want = CLASS_CE90 if dimension == 'H' else CLASS_LE90
+            scales = []
+            if dic_values:
+                for scale_, classes in dic_values.items():
+                    if want in classes:
+                        try:
+                            scales.append(float(scale_))
+                        except (TypeError, ValueError):
+                            continue
+            return sorted(set(scales))
+        return self.get_list_scale() or []
 
     def _audit_progress_begin(self, total, msg=None):
         """Reinicia as duas barras (Referência/Teste) para a geração de auditoria."""
@@ -6395,7 +6977,7 @@ class Wd1(QWidget):
             )
             return []
 
-        scales = self.get_list_scale()
+        scales = self._audit_scales_for_dimension(dic_values, 'H')
         if not scales:
             self.log_message(
                 self.tr('Auditoria horizontal: nenhuma escala definida.'), 'WARNING'
@@ -6487,7 +7069,7 @@ class Wd1(QWidget):
             )
             return []
 
-        scales = self.get_list_scale()
+        scales = self._audit_scales_for_dimension(dic_values, 'V')
         if not scales:
             self.log_message(self.tr('Auditoria vertical: nenhuma escala definida.'), 'WARNING')
             return []
@@ -6553,9 +7135,15 @@ class Wd1(QWidget):
         if not audit_h and not audit_v:
             return
         pairs = self._build_audit_pair_specs(dic_values=dic_values)
-        scales = self.get_list_scale() or []
-        n_units = len(pairs) * len(scales) if pairs and scales else 0
-        total = n_units * (int(bool(audit_h)) + int(bool(audit_v)))
+        scales_h = self._audit_scales_for_dimension(dic_values, 'H') if audit_h else []
+        scales_v = self._audit_scales_for_dimension(dic_values, 'V') if audit_v else []
+        n_units = 0
+        if pairs:
+            if audit_h:
+                n_units += len(pairs) * max(len(scales_h), 1)
+            if audit_v:
+                n_units += len(pairs) * max(len(scales_v), 1)
+        total = n_units
         if total <= 0:
             # Ainda assim corre os exports (logs de aviso internos)
             if audit_h:
@@ -6911,6 +7499,8 @@ class Wd1(QWidget):
         elif 'dic_values' in dic_:
             self._finalize_buffers_map_display()
             dv = dic_['dic_values']
+            if 'ce90_meta' in dic_:
+                self._ce90_meta = dic_.get('ce90_meta')
             om = self.cbx_workflow_outliers.currentIndex()
             self._apply_outlier_workflow(dv)
             if om == 1:
@@ -6974,6 +7564,10 @@ class Wd1(QWidget):
         }
         self.list_norm_type = [
             tr_ui('Linear'), tr_ui('Por Proximidade'), tr_ui('Sem Normalização')]
+        self.list_accuracy_standard = [
+            tr_ui('Padrão Brasileiro - PEC PCD'),
+            tr_ui('CE90 e LE90'),
+        ]
         self.list_dm_formula = [
             tr_ui('Equação original (eq:dm-buffer-duplo)'),
             tr_ui('Nova equação (eq:dm-buffer-duplo-media)'),
@@ -7073,6 +7667,10 @@ class Wd1(QWidget):
                 old_dlg = self.settings_dlg
                 self.settings_dlg = None
                 if old_dlg is not None:
+                    try:
+                        old_dlg._save_window_geometry()
+                    except Exception:
+                        pass
                     old_dlg.deleteLater()
                 self.settings_dlg = SettingsDlg(main=self.parent, parent=self)
                 self.reload_settings_from_project_file()
@@ -7082,6 +7680,10 @@ class Wd1(QWidget):
             old_dlg = self.settings_dlg
             self.settings_dlg = None
             if old_dlg is not None:
+                try:
+                    old_dlg._save_window_geometry()
+                except Exception:
+                    pass
                 old_dlg.deleteLater()
             self.settings_dlg = SettingsDlg(main=self.parent, parent=self)
             self.reload_settings_from_project_file()

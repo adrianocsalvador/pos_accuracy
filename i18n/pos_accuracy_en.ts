@@ -1184,6 +1184,22 @@ Suggestions:
         <translation><![CDATA[Minimum scale]]></translation>
     </message>
     <message>
+        <source><![CDATA[Padrão Brasileiro - PEC PCD]]></source>
+        <translation><![CDATA[Brazilian Standard - PEC PCD]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[CE90 e LE90]]></source>
+        <translation><![CDATA[CE90 and LE90]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Máximo Horizontal (pixels do MDE de teste)]]></source>
+        <translation><![CDATA[Maximum Horizontal (test DEM pixels)]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Máximo Vertical (pixels do MDE de teste)]]></source>
+        <translation><![CDATA[Maximum Vertical (test DEM pixels)]]></translation>
+    </message>
+    <message>
         <source><![CDATA[Mostrar buffers no mapa durante o processamento]]></source>
         <translation><![CDATA[Show buffers on the map during processing]]></translation>
     </message>
