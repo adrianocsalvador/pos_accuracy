@@ -168,61 +168,20 @@ dic_pec_mm = {
         },
     },
 }
+# EQ por escala; PEC-V = EQ × coeficientes (sem tabela absoluta 50/100/250)
+dic_eq_v = {
+    1: 1, 2: 1, 5: 2, 10: 5, 25: 10,
+    50: 20, 100: 50, 250: 100, 500: 100, 1000: 100,
+}
 dic_pec_v = {
-    50: {
-        'A': {
-            'pec': 5.0,
-            'ep': 3.33
-        },
-        'B': {
-            'pec': 10.0,
-            'ep': 6.66
-        },
-        'C': {
-            'pec': 12.0,
-            'ep': 8.0
-        },
-        'D': {
-            'pec': 15.0,
-            'ep': 10.0
-        },
-    },
-    100: {
-        'A': {
-            'pec': 13.7,
-            'ep': 8.33
-        },
-        'B': {
-            'pec': 25.00,
-            'ep': 16.66
-        },
-        'C': {
-            'pec': 30.0,
-            'ep': 20.0
-        },
-        'D': {
-            'pec': 37.5,
-            'ep': 25.0
-        },
-    },
-    250: {
-        'A': {
-            'pec': 27.0,
-            'ep': 16.67
-        },
-        'B': {
-            'pec': 50.0,
-            'ep': 33.33
-        },
-        'C': {
-            'pec': 60.0,
-            'ep': 40.0
-        },
-        'D': {
-            'pec': 75.0,
-            'ep': 50.0
-        },
-    },
+    scale: {
+        class_: {
+            'pec': round(eq * dic_pec_mm['V'][class_]['pec'], 2),
+            'ep': round(eq * dic_pec_mm['V'][class_]['ep'], 2),
+        }
+        for class_ in dic_pec_mm['V']
+    }
+    for scale, eq in dic_eq_v.items()
 }
 vet_scale = list(dic_pec_v)
 dic_name_layer = {

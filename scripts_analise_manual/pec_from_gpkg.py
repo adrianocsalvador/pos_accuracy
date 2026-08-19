@@ -30,6 +30,7 @@ from mods.mod_pec_constants import (  # noqa: E402
     DIC_PEC_V,
     EXTENT_REF_FIELD,
     LAYER_NAME_BUFFER_TEST,
+    pec_v_from_eq,
 )
 from mods.mod_standalone_qgis import (  # noqa: E402
     exit_standalone_qgis,
@@ -405,8 +406,9 @@ def _pec_ep_limits(scale_, class_, dimension):
         pec = round(scale_ * DIC_PEC_MM['H'][class_]['pec'], 2)
         ep = round(scale_ * DIC_PEC_MM['H'][class_]['ep'], 2)
     else:
-        pec = round(DIC_PEC_V[scale_][class_]['pec'], 2)
-        ep = round(DIC_PEC_V[scale_][class_]['ep'], 2)
+        pec, ep = pec_v_from_eq(scale_, class_)
+        if pec is None:
+            raise KeyError(f'Sem EQ/PEC-V para escala {scale_} classe {class_}')
     return pec, ep
 
 

@@ -6,7 +6,7 @@ para validação fora do painel QGIS.
 
 O plugin NÃO depende desta pasta. Constantes PEC, auditoria PDF e QGIS headless
 estão em mods/:
-  mod_pec_constants.py      DIC_PEC_MM, DIC_PEC_V, CLASS_ORDER, …
+  mod_pec_constants.py      DIC_PEC_MM, DIC_EQ_*, DIC_PEC_V (=EQ×coef), …
   mod_standalone_qgis.py    init/exit QGIS, load_result_layer
   mod_gen_audit.py          gerador de PDFs de auditoria (+ CLI: python -m mods.mod_gen_audit)
 

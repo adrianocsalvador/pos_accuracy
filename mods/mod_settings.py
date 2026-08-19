@@ -66,6 +66,18 @@ class SettingsDlg(QDialog):
                             'value': '10',
                             'default': '10',
                             'obj': None},
+                        'percent_length': {
+                            'label': tr_ui(
+                                'Diferença % entre os comprimentos dos mínimos envelopes'),
+                            'value': '5',
+                            'default': '5',
+                            'obj': None},
+                        'min_extent_px': {
+                            'label': tr_ui(
+                                'Extensão mínima da feição de teste (Pixels do MDE de teste)'),
+                            'value': '10',
+                            'default': '10',
+                            'obj': None},
                     },
                 },
                 'step_buffers': {
@@ -161,6 +173,13 @@ class SettingsDlg(QDialog):
                             'default': 0,
                             'enabled': True,
                             'obj': None},
+                        'audit_csv_only': {
+                            'label': tr_ui('Apenas CSV (sem PDF)'),
+                            'type': 'checkbox',
+                            'value': 0,
+                            'default': 0,
+                            'enabled': True,
+                            'obj': None},
                     },
                 },
             }
@@ -193,6 +212,12 @@ class SettingsDlg(QDialog):
             'Distância máxima entre centróides (pixels do MDE de teste)')
         dp['step_match']['fields']['percent_area']['label'] = tr_ui(
             'Diferença % entre área dos mínimos envelopes')
+        if 'percent_length' in dp['step_match']['fields']:
+            dp['step_match']['fields']['percent_length']['label'] = tr_ui(
+                'Diferença % entre os comprimentos dos mínimos envelopes')
+        if 'min_extent_px' in dp['step_match']['fields']:
+            dp['step_match']['fields']['min_extent_px']['label'] = tr_ui(
+                'Extensão mínima da feição de teste (Pixels do MDE de teste)')
         dp['step_buffers']['label'] = tr_ui('Definições para Geração Buffers')
         if 'accuracy_standard' in dp['step_buffers']['fields']:
             dp['step_buffers']['fields']['accuracy_standard']['list'] = (
@@ -227,6 +252,9 @@ class SettingsDlg(QDialog):
                 'Horizontal')
             dp['step_audit_report']['fields']['audit_vertical']['label'] = tr_ui(
                 'Vertical')
+            if 'audit_csv_only' in dp['step_audit_report']['fields']:
+                dp['step_audit_report']['fields']['audit_csv_only']['label'] = tr_ui(
+                    'Apenas CSV (sem PDF)')
 
     def apply_language_live(self):
         """Actualiza textos da janela de parâmetros após mudança de idioma."""
@@ -235,6 +263,11 @@ class SettingsDlg(QDialog):
         self.setWindowTitle(tr_ui('Parâmetros'))
         self.pb_rest.setText(tr_ui('Restaurar'))
         self.pb_save.setText(tr_ui('Salvar'))
+        if getattr(self, 'pb_audit_csv', None) is not None:
+            self.pb_audit_csv.setText(tr_ui('Gerar CSV de auditoria'))
+            self.pb_audit_csv.setToolTip(tr_ui(
+                'Recalcula DM a partir do projeto e grava só os CSV '
+                '(Horizontal/Vertical conforme as opções acima). Sem PDF.'))
         for item_i, block in self.dic_param.items():
             if not item_i.startswith('step_'):
                 continue
@@ -473,6 +506,12 @@ class SettingsDlg(QDialog):
         # self.pb_remove.setEnabled(False)
         hl_.addWidget(self.pb_rest)
 
+        self.pb_audit_csv = QPushButton(tr_ui('Gerar CSV de auditoria'), self)
+        self.pb_audit_csv.setToolTip(tr_ui(
+            'Recalcula DM a partir do projeto e grava só os CSV '
+            '(Horizontal/Vertical conforme as opções acima). Sem PDF.'))
+        hl_.addWidget(self.pb_audit_csv)
+
         self.pb_save = QPushButton(tr_ui('Salvar'), self)
         # self.pb_save.setEnabled(False)
         hl_.addWidget(self.pb_save)
@@ -537,6 +576,24 @@ class SettingsDlg(QDialog):
     def trigger_actions(self):
         self.pb_save.clicked.connect(self.set_dic_param)
         self.pb_rest.clicked.connect(self.rest_default)
+        self.pb_audit_csv.clicked.connect(self._on_generate_audit_csv)
+
+    def _on_generate_audit_csv(self):
+        """Gera CSV de auditoria sem fechar a janela nem gerar PDF."""
+        self.flush_widgets_to_dic_param(log_values=False)
+        parent = self.parent
+        if parent is None or not hasattr(parent, 'export_audit_csvs_now'):
+            return
+        try:
+            parent.export_audit_csvs_now()
+        except Exception as e:
+            try:
+                parent.log_message(
+                    tr_ui('Falha ao gerar CSV de auditoria: {0}').format(e),
+                    'ERROR',
+                )
+            except Exception:
+                pass
 
     def flush_widgets_to_dic_param(self, log_values: bool = False):
         """Copia o estado atual dos widgets para dic_param[*]['fields'][*]['value']."""

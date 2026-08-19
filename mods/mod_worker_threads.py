@@ -1326,6 +1326,9 @@ class BufferThread(QThread):
             self.ce90_max_v = float(dic_.get('ce90_max_v', 2.0))
         except (TypeError, ValueError):
             self.ce90_max_v = 2.0
+        self.write_buffer_layer = bool(dic_.get('write_buffer_layer', True))
+        focus = str(dic_.get('recompute_focus') or 'full').strip().lower()
+        self.recompute_focus = focus if focus in ('full', 'alt', 'dm') else 'full'
 
         self.dic_values = {}
         self.nr_procs = 0
@@ -1335,6 +1338,8 @@ class BufferThread(QThread):
             max_r = max(self.ce90_max_h, self.ce90_max_v) * max(self.gsd, 1e-6)
             dec = ce90_threshold_decimals(self.gsd)
             n_iters = max(8, int(math.ceil(math.log2(max(max_r / (10 ** (-dec)), 2)))) + 3)
+            # Normalização: só LE90 muda de forma relevante; ainda assim recalculamos CE90
+            # para manter dm_h coerente no relatório (sem regravar a camada).
             self.nr_procs = max(1, n_pairs * n_iters * 2)
         else:
             for tag_ in self.dic_match:
@@ -1514,21 +1519,22 @@ class BufferThread(QThread):
                 'dm_v': float('nan'),
             }
             geom_br = geom_r.buffer(radius, 20)
-            feat_br = QgsFeature()
-            feat_br.setGeometry(geom_br)
-            feat_br.setAttributes(
-                [radius, class_name, id_r, layer_r.name()])
             geom_bt = geom_t.buffer(radius, 20)
-            feat_bt = QgsFeature()
-            feat_bt.setGeometry(geom_bt)
-            feat_bt.setAttributes(
-                [radius, class_name, id_t, layer_t.name()])
             geom_i = geom_bt.intersection(geom_br)
-            feat_i = QgsFeature()
-            feat_i.setGeometry(geom_i)
-            feat_i.setAttributes(
-                [radius, class_name, None, 'Intersecao'])
-            pair_feats.extend((feat_br, feat_bt, feat_i))
+            if self.write_buffer_layer:
+                feat_br = QgsFeature()
+                feat_br.setGeometry(geom_br)
+                feat_br.setAttributes(
+                    [radius, class_name, id_r, layer_r.name()])
+                feat_bt = QgsFeature()
+                feat_bt.setGeometry(geom_bt)
+                feat_bt.setAttributes(
+                    [radius, class_name, id_t, layer_t.name()])
+                feat_i = QgsFeature()
+                feat_i.setGeometry(geom_i)
+                feat_i.setAttributes(
+                    [radius, class_name, None, 'Intersecao'])
+                pair_feats.extend((feat_br, feat_bt, feat_i))
             area_bt = geom_bt.area()
             area_br = geom_br.area()
             area_i = geom_i.area()
@@ -1550,14 +1556,16 @@ class BufferThread(QThread):
             self._emit_progress(f'CE90 {radius:.{dec}f} m — {tag_} {p["i"]}')
         if pair_feats:
             dec = ce90_threshold_decimals(self.gsd)
-            self.sig_status.emit({
+            payload = {
                 'key': 0,
                 'value': self._progress_count,
                 'msg': self.parent.tr(
                     'CE90 {0} m — {1} geometrias'
                 ).format(f'{radius:.{dec}f}', len(pair_feats)),
-                'feats_batch': pair_feats,
-            })
+            }
+            if self.write_buffer_layer:
+                payload['feats_batch'] = pair_feats
+            self.sig_status.emit(payload)
         return group
 
     def _build_dm_v_group(self, pairs, radius, class_name=CLASS_LE90):
@@ -1987,21 +1995,19 @@ class BufferThread(QThread):
                                 )
 
                                 geom_br = geom_r.buffer(pec_h, 20)
-                                feat_br = QgsFeature()
-                                feat_br.setGeometry(geom_br)
-                                feat_br.setAttributes([scale_, class_, id_r, layer_r.name()])
-
                                 geom_bt = geom_t.buffer(pec_h, 20)
-                                feat_bt = QgsFeature()
-                                feat_bt.setGeometry(geom_bt)
-                                feat_bt.setAttributes([scale_, class_, id_t, layer_t.name()])
-
                                 geom_i = geom_bt.intersection(geom_br)
-                                feat_i = QgsFeature()
-                                feat_i.setGeometry(geom_i)
-                                feat_i.setAttributes([scale_, class_, None, 'Intersecao'])
-
-                                pair_feats.extend((feat_br, feat_bt, feat_i))
+                                if self.write_buffer_layer:
+                                    feat_br = QgsFeature()
+                                    feat_br.setGeometry(geom_br)
+                                    feat_br.setAttributes([scale_, class_, id_r, layer_r.name()])
+                                    feat_bt = QgsFeature()
+                                    feat_bt.setGeometry(geom_bt)
+                                    feat_bt.setAttributes([scale_, class_, id_t, layer_t.name()])
+                                    feat_i = QgsFeature()
+                                    feat_i.setGeometry(geom_i)
+                                    feat_i.setAttributes([scale_, class_, None, 'Intersecao'])
+                                    pair_feats.extend((feat_br, feat_bt, feat_i))
                                 # CÁLCULO DO DM HORIZONTAL (A1=teste, A2=ref, A3=interseção)
                                 area_bt = geom_bt.area()
                                 area_br = geom_br.area()
@@ -2055,14 +2061,16 @@ class BufferThread(QThread):
                                 })
 
                         if pair_feats:
-                            self.sig_status.emit({
+                            payload = {
                                 'key': 0,
                                 'value': count_,
                                 'msg': self.parent.tr(
                                     '{0} par {1} (fid_r={2}, fid_t={3}) — {4} geometrias'
                                 ).format(tag_, i, id_r, id_t, len(pair_feats)),
-                                'feats_batch': pair_feats,
-                            })
+                            }
+                            if self.write_buffer_layer:
+                                payload['feats_batch'] = pair_feats
+                            self.sig_status.emit(payload)
 
                 self.sig_status.emit({'key': 0, 'dic_values': self.dic_values})
         except Exception as e:

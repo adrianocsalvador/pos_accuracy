@@ -33,33 +33,52 @@ DIC_EQ_BY_NOMINAL_SCALE = {
     1000: 100,
 }
 
-# Limites PEC/EP altimétricos absolutos (escalas 50, 100, 250)
-DIC_PEC_V = {
-    50: {
-        'A': {'pec': 5.0, 'ep': 3.33},
-        'B': {'pec': 10.0, 'ep': 6.66},
-        'C': {'pec': 12.0, 'ep': 8.0},
-        'D': {'pec': 15.0, 'ep': 10.0},
-    },
-    100: {
-        'A': {'pec': 13.7, 'ep': 8.33},
-        'B': {'pec': 25.00, 'ep': 16.66},
-        'C': {'pec': 30.0, 'ep': 20.0},
-        'D': {'pec': 37.5, 'ep': 25.0},
-    },
-    250: {
-        'A': {'pec': 27.0, 'ep': 16.67},
-        'B': {'pec': 50.0, 'ep': 33.33},
-        'C': {'pec': 60.0, 'ep': 40.0},
-        'D': {'pec': 75.0, 'ep': 50.0},
-    },
-}
-
-DIC_PEC_ALT = DIC_PEC_V
-
-DIC_EQ_V = {scale: DIC_EQ_BY_NOMINAL_SCALE[scale] for scale in DIC_PEC_V}
+# Alias: EQ por escala (todas as escalas nominais)
+DIC_EQ_V = dict(DIC_EQ_BY_NOMINAL_SCALE)
 
 CLASS_ORDER = ['A', 'B', 'C', 'D']
+
+
+def pec_v_from_eq(scale, class_, *, eq_table=None, mm_table=None):
+    """PEC/EP altimétricos = EQ(escala) × coeficientes mm. Retorna (pec, ep) ou (None, None)."""
+    eq_map = eq_table if eq_table is not None else DIC_EQ_BY_NOMINAL_SCALE
+    mm_map = mm_table if mm_table is not None else DIC_PEC_MM
+    try:
+        scale_key = int(scale)
+    except (TypeError, ValueError):
+        scale_key = scale
+    eq = eq_map.get(scale_key)
+    if eq is None:
+        eq = eq_map.get(scale)
+    mm = (mm_map.get('V') or {}).get(class_)
+    if eq is None or not mm:
+        return None, None
+    try:
+        pec = float(eq) * float(mm['pec'])
+        ep = float(eq) * float(mm['ep'])
+    except (TypeError, ValueError, KeyError):
+        return None, None
+    return round(pec, 2), round(ep, 2)
+
+
+def _build_dic_pec_v_from_eq():
+    """Tabela derivada (compatibilidade): escala → classe → {pec, ep}."""
+    out = {}
+    for scale in DIC_EQ_BY_NOMINAL_SCALE:
+        by_class = {}
+        for class_ in DIC_PEC_MM['V']:
+            pec, ep = pec_v_from_eq(scale, class_)
+            if pec is None:
+                continue
+            by_class[class_] = {'pec': pec, 'ep': ep}
+        if by_class:
+            out[int(scale)] = by_class
+    return out
+
+
+# Antes havia limites absolutos só para 50/100/250; agora tudo vem de EQ×coef.
+DIC_PEC_V = _build_dic_pec_v_from_eq()
+DIC_PEC_ALT = DIC_PEC_V
 
 # Padrão de acurácia (step_buffers.accuracy_standard)
 ACCURACY_STANDARD_BR = 0  # PEC-PCD (Brasil)

@@ -15,11 +15,11 @@ from functools import partial
 # from sys import prefix
 
 from osgeo import ogr
-from qgis.PyQt.QtCore import (QSettings, Qt, QSize, QTranslator, QCoreApplication, QEvent, QThreadPool, QDateTime,
+from qgis.PyQt.QtCore import (QSettings, Qt, QSize, QSizeF, QTranslator, QCoreApplication, QEvent, QThreadPool, QDateTime,
                               QVariant, QRectF, QByteArray, QBuffer, QIODevice, QMarginsF, QUrl)
 from qgis.PyQt.QtGui import (
     QPixmap, QIcon, QFont, QPalette, QColor, QTextCharFormat, QBrush, QTextOption,
-    QTextDocument, QPainter, QDesktopServices, QCursor,
+    QTextDocument, QPainter, QDesktopServices, QCursor, QImage, qAlpha,
 )
 from qgis.PyQt.QtPrintSupport import QPrinter
 from qgis.PyQt.QtWidgets import (QAction, QScrollArea, QGridLayout, QHBoxLayout, QPushButton, QLabel, QWidget, QSizePolicy,
@@ -53,6 +53,7 @@ from .mod_pec_constants import (
     EP_RATIO_H,
     EP_RATIO_V,
     ce90_threshold_decimals,
+    pec_v_from_eq,
 )
 from .plugin_i18n import (
     LOCALE_AUTO,
@@ -147,13 +148,12 @@ def check_norm_values(values):
         return False
 
 
-def pec_alt_limits(scale_, class_, dic_pec_alt=None):
-    """Retorna (pec, ep) altimétricos arredondados para escala/classe."""
-    table = dic_pec_alt if dic_pec_alt is not None else DIC_PEC_ALT
-    limits = table.get(scale_, {}).get(class_)
-    if not limits:
-        return None, None
-    return round(float(limits['pec']), 2), round(float(limits['ep']), 2)
+def pec_alt_limits(scale_, class_, dic_pec_alt=None, dic_eq=None, dic_pec_mm=None):
+    """Retorna (pec, ep) altimétricos: EQ(escala) × coeficientes mm.
+
+    `dic_pec_alt` é ignorado (mantido só por compatibilidade de assinatura).
+    """
+    return pec_v_from_eq(scale_, class_, eq_table=dic_eq, mm_table=dic_pec_mm)
 
 
 def geometry_area_square_meters(geom: QgsGeometry, crs: QgsCoordinateReferenceSystem) -> float:
@@ -170,6 +170,10 @@ def geometry_area_square_meters(geom: QgsGeometry, crs: QgsCoordinateReferenceSy
 
 PLUGIN_ICON_BASENAME = 'icon_bfn'
 PPGEC_LOGO_FILENAME = 'PPGEC2025.png'
+UFV_LOGO_FILENAME = 'UFV.png'
+PLUGIN_GITHUB_URL = 'https://github.com/adrianocsalvador/pos_accuracy'
+UFV_WEBSITE_URL = 'https://www.ufv.br'
+PPGEC_WEBSITE_URL = 'https://posengenhariacivil.ufv.br/'
 
 
 def _ui_device_pixel_ratio() -> float:
@@ -183,9 +187,94 @@ def _ui_device_pixel_ratio() -> float:
     return 1.0
 
 
+def _first_existing_icon_path(*names: str) -> str:
+    """Primeiro ficheiro existente em icons/; SVG tem prioridade se for passado primeiro."""
+    for name in names:
+        path_ = os.path.normpath(os.path.join(plugin_path, 'icons', name))
+        if os.path.isfile(path_):
+            return path_
+    return ''
+
+
 def _resolve_ppgec_logo_path() -> str:
-    path_ = os.path.normpath(os.path.join(plugin_path, 'icons', PPGEC_LOGO_FILENAME))
-    return path_ if os.path.isfile(path_) else ''
+    stem = os.path.splitext(PPGEC_LOGO_FILENAME)[0]
+    return _first_existing_icon_path(f'{stem}.svg', PPGEC_LOGO_FILENAME)
+
+
+def _resolve_ufv_logo_path() -> str:
+    stem = os.path.splitext(UFV_LOGO_FILENAME)[0]
+    return _first_existing_icon_path(
+        f'{stem}.svg', UFV_LOGO_FILENAME, 'UFV_v2.png', 'icon_ufv.png')
+
+
+def _open_web_url(url: str) -> bool:
+    text = (url or '').strip()
+    if not text:
+        return False
+    if '://' not in text:
+        text = 'https://' + text.lstrip('/')
+    return QDesktopServices.openUrl(QUrl(text))
+
+
+def _bind_clickable_url_label(label: QLabel, url: str) -> None:
+    """Torna um QLabel clicável: abre `url` no browser."""
+    label.setCursor(QCursor(Qt.PointingHandCursor))
+    label.setFocusPolicy(Qt.StrongFocus)
+    label.setProperty('open_url', url)
+
+    def _on_release(event, lb=label):
+        if event.button() == Qt.LeftButton:
+            _open_web_url(str(lb.property('open_url') or ''))
+        QLabel.mouseReleaseEvent(lb, event)
+
+    label.mouseReleaseEvent = _on_release
+
+
+class ScaledPixmapLabel(QLabel):
+    """QLabel que desenha o PNG/SVG original a caber no widget (KeepAspectRatio).
+
+    Não recorta a arte nem usa ``setScaledContents`` (este distorce e pixeliza).
+    O scale é feito no ``paintEvent`` a partir do ficheiro original, com
+    ``SmoothPixmapTransform``.
+    """
+
+    def __init__(self, slot: QSize, parent: QWidget = None):
+        super().__init__(parent)
+        self._src = QPixmap()
+        self._slot = QSize(slot)
+        self.setFixedSize(slot)
+        self.setAlignment(Qt.AlignCenter)
+        self.setScaledContents(False)
+
+    def set_source(self, path_: str):
+        self._src = QPixmap(path_) if path_ and os.path.isfile(path_) else QPixmap()
+        if not self._src.isNull() and self._src.height() > 0:
+            dpr = float(self._src.devicePixelRatio() or 1.0)
+            src_w = self._src.width() / dpr
+            src_h = self._src.height() / dpr
+            max_w = max(1, self._slot.width())
+            max_h = max(1, self._slot.height())
+            scale = min(max_w / src_w, max_h / src_h)
+            self.setFixedSize(
+                max(1, int(round(src_w * scale))),
+                max(1, int(round(src_h * scale))),
+            )
+        self.update()
+
+    def paintEvent(self, event):
+        if self._src.isNull():
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        target = QRectF(self.contentsRect())
+        src_rect = QRectF(self._src.rect())
+        dpr = float(self._src.devicePixelRatio() or 1.0)
+        logical = QSizeF(src_rect.width() / dpr, src_rect.height() / dpr)
+        fitted = logical.scaled(target.size(), Qt.KeepAspectRatio)
+        dest = QRectF(0, 0, fitted.width(), fitted.height())
+        dest.moveCenter(target.center())
+        painter.drawPixmap(dest, self._src, src_rect)
 
 
 def _resolve_plugin_icon_path(prefer_svg: bool = True) -> str:
@@ -231,6 +320,52 @@ def _make_dem_info_button(parent: QWidget = None) -> QPushButton:
     return btn
 
 
+def _trim_image_alpha(img: QImage, alpha_min: int = 12) -> QImage:
+    """Recorta padding transparente para o logo ocupar mais pixels úteis."""
+    if img.isNull():
+        return img
+    w, h = img.width(), img.height()
+    min_x, min_y, max_x, max_y = w, h, -1, -1
+    for y in range(h):
+        for x in range(w):
+            if qAlpha(img.pixel(x, y)) >= alpha_min:
+                if x < min_x:
+                    min_x = x
+                if y < min_y:
+                    min_y = y
+                if x > max_x:
+                    max_x = x
+                if y > max_y:
+                    max_y = y
+    if max_x < min_x or max_y < min_y:
+        return img
+    pad = 1
+    min_x = max(0, min_x - pad)
+    min_y = max(0, min_y - pad)
+    max_x = min(w - 1, max_x + pad)
+    max_y = min(h - 1, max_y + pad)
+    if min_x == 0 and min_y == 0 and max_x == w - 1 and max_y == h - 1:
+        return img
+    return img.copy(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1)
+
+
+_PIXMAP_TRIM_CACHE = {}
+
+
+def _load_pixmap_maybe_trim(path_: str, trim_alpha: bool) -> QPixmap:
+    key = (path_, bool(trim_alpha))
+    cached = _PIXMAP_TRIM_CACHE.get(key)
+    if cached is not None:
+        return cached
+    pm = QPixmap(path_)
+    if trim_alpha and not pm.isNull():
+        trimmed = _trim_image_alpha(pm.toImage())
+        if not trimmed.isNull():
+            pm = QPixmap.fromImage(trimmed)
+    _PIXMAP_TRIM_CACHE[key] = pm
+    return pm
+
+
 def _pixmap_from_icon_path(
     path_: str,
     size: QSize,
@@ -238,6 +373,7 @@ def _pixmap_from_icon_path(
     smooth: bool = True,
     margin_ratio: float = 0.0,
     force_dpr: float = None,
+    trim_alpha: bool = False,
 ) -> QPixmap:
     """
     Renderiza ícone no tamanho pedido, com suporte HiDPI.
@@ -279,7 +415,7 @@ def _pixmap_from_icon_path(
         except Exception:
             pass
 
-    pm = QPixmap(path_)
+    pm = _load_pixmap_maybe_trim(path_, trim_alpha)
     if pm.isNull():
         return QPixmap()
     mode = Qt.SmoothTransformation if smooth else Qt.FastTransformation
@@ -1767,19 +1903,50 @@ PIPELINE_ETAPAS_DEF = (
 
 # Snapshot da última avaliação concluída (PEC): comparação em nova «Avaliar» para retomar só o necessário
 PIPELINE_SNAPSHOT_ETAPA = '__pipeline_last_ok__'
+# Último arranque de «Avaliar» (mesmo que o PEC não tenha concluído — p.ex. extensão mínima)
+PIPELINE_SNAPSHOT_ETAPA_LAST_RUN = '__pipeline_last_run__'
 PIPELINE_SNAPSHOT_CAMPO = 'config_json'
 
-# Bloco de Config → primeira etapa a repetir (o resto da cadeia segue como hoje)
+# Bloco de Config → etapa de retomada (a mais «básica»/cedo na lista ganha se houver várias)
 STEP_KEY_TO_RESTART_ETAPA = {
     'step_morfologia': 'morfologia_referencia',
     'step_match': 'correspondencia_linhas',
     'step_buffers': 'buffers',
-    'step_normalize_prog': 'buffers',
+    # Normalização afeta perfis altimétricos: refaz DM (e PEC) sem rematch nem limpar __Buffers__
+    'step_normalize_prog': 'buffers_alt',
+    # Só a fórmula DM: recalcula dm a partir das geometrias/raios, sem rematch
+    'step_dm_formula': 'dm_recalc',
 }
+
+# Alterações que não disparam reprocessamento da cadeia
+STEP_KEYS_IGNORED_FOR_RESTART = frozenset({
+    'step_audit_report',
+})
+
+# Campos que não mudam resultados geométricos (UI / visualização)
+STEP_FIELDS_IGNORED_FOR_RESTART = frozenset({
+    'step_buffers.show_buffers_on_map',
+})
+
+# Ordem de prioridade (índice menor = mais básico → refazer daí até ao fim)
+RESTART_ETAPA_PRIORITY = (
+    'morfologia_referencia',
+    'correspondencia_linhas',
+    'buffers',
+    'buffers_alt',
+    'dm_recalc',
+)
 
 
 def _pipeline_etapa_order_index():
     return {name: i for i, (_, name) in enumerate(PIPELINE_ETAPAS_DEF)}
+
+
+def _restart_etapa_priority_index(etapa: str) -> int:
+    try:
+        return RESTART_ETAPA_PRIORITY.index(etapa)
+    except ValueError:
+        return len(RESTART_ETAPA_PRIORITY) + 100
 
 
 def pipeline_has_completed_any_etapa(mdepa_path: str) -> bool:
@@ -1801,8 +1968,7 @@ def pipeline_has_completed_any_etapa(mdepa_path: str) -> bool:
         return False
 
 
-def load_pipeline_last_ok_snapshot(mdepa_path: str) -> dict:
-    """Último estado de parâmetros + DEMs após uma avaliação concluída com sucesso."""
+def _load_pipeline_snapshot(mdepa_path: str, etapa: str) -> dict:
     if not mdepa_path or not os.path.isfile(mdepa_path):
         return {}
     if not ensure_pa_settings_table(mdepa_path):
@@ -1812,7 +1978,7 @@ def load_pipeline_last_ok_snapshot(mdepa_path: str) -> dict:
         try:
             cur = conn.execute(
                 f'SELECT valor FROM {PA_SETTINGS_TABLE} WHERE etapa = ? AND campo = ?',
-                (PIPELINE_SNAPSHOT_ETAPA, PIPELINE_SNAPSHOT_CAMPO),
+                (etapa, PIPELINE_SNAPSHOT_CAMPO),
             )
             row = cur.fetchone()
             if not row or row[0] is None or str(row[0]).strip() == '':
@@ -1824,7 +1990,7 @@ def load_pipeline_last_ok_snapshot(mdepa_path: str) -> dict:
         return {}
 
 
-def save_pipeline_last_ok_snapshot(mdepa_path: str, flat: dict) -> bool:
+def _save_pipeline_snapshot(mdepa_path: str, etapa: str, flat: dict) -> bool:
     if not mdepa_path or not os.path.isfile(mdepa_path):
         return False
     if not ensure_pa_settings_table(mdepa_path):
@@ -1837,7 +2003,7 @@ def save_pipeline_last_ok_snapshot(mdepa_path: str, flat: dict) -> bool:
                 f'''INSERT INTO {PA_SETTINGS_TABLE} (etapa, campo, valor)
                     VALUES (?, ?, ?)
                     ON CONFLICT(etapa, campo) DO UPDATE SET valor = excluded.valor''',
-                (PIPELINE_SNAPSHOT_ETAPA, PIPELINE_SNAPSHOT_CAMPO, payload),
+                (etapa, PIPELINE_SNAPSHOT_CAMPO, payload),
             )
             conn.commit()
         finally:
@@ -1845,6 +2011,75 @@ def save_pipeline_last_ok_snapshot(mdepa_path: str, flat: dict) -> bool:
     except (sqlite3.Error, TypeError):
         return False
     return True
+
+
+def load_pipeline_last_ok_snapshot(mdepa_path: str) -> dict:
+    """Último estado de parâmetros + DEMs após uma avaliação concluída com sucesso."""
+    return _load_pipeline_snapshot(mdepa_path, PIPELINE_SNAPSHOT_ETAPA)
+
+
+def save_pipeline_last_ok_snapshot(mdepa_path: str, flat: dict) -> bool:
+    return _save_pipeline_snapshot(mdepa_path, PIPELINE_SNAPSHOT_ETAPA, flat)
+
+
+def load_pipeline_last_run_snapshot(mdepa_path: str) -> dict:
+    """Parâmetros do último «Avaliar», mesmo se o PEC não chegou a concluir."""
+    return _load_pipeline_snapshot(mdepa_path, PIPELINE_SNAPSHOT_ETAPA_LAST_RUN)
+
+
+def save_pipeline_last_run_snapshot(mdepa_path: str, flat: dict) -> bool:
+    return _save_pipeline_snapshot(mdepa_path, PIPELINE_SNAPSHOT_ETAPA_LAST_RUN, flat)
+
+
+def _snapshot_values_equal(a, b) -> bool:
+    """Igualdade tolerante a 3 vs 3.0 / vírgula decimal (evita falso 'morfologia mudou')."""
+    if a == b:
+        return True
+    sa, sb = str(a if a is not None else '').strip(), str(b if b is not None else '').strip()
+    if sa == sb:
+        return True
+    try:
+        fa = float(sa.replace(',', '.'))
+        fb = float(sb.replace(',', '.'))
+    except (TypeError, ValueError):
+        return False
+    if not (math.isfinite(fa) and math.isfinite(fb)):
+        return False
+    return abs(fa - fb) <= 1e-9 * max(1.0, abs(fa), abs(fb))
+
+
+def _snapshot_step_changed(flat_now: dict, flat_was: dict, step_key: str) -> bool:
+    if not flat_was:
+        return True
+    prefix = f'{step_key}.'
+    keys = {
+        k for k in set(flat_now or ()) | set(flat_was or ())
+        if isinstance(k, str) and k.startswith(prefix)
+        and k not in STEP_FIELDS_IGNORED_FOR_RESTART
+    }
+    for k in keys:
+        if not _snapshot_values_equal(flat_now.get(k, ''), flat_was.get(k, '')):
+            return True
+    return False
+
+
+def _changed_step_keys_from_snapshots(flat_now: dict, flat_was: dict) -> list:
+    """Lista ordenada de step_* com diferença relevante (ignora auditoria/campos visuais)."""
+    if not flat_was:
+        return []
+    changed = set()
+    for k in set(flat_now or ()) | set(flat_was or ()):
+        if not isinstance(k, str) or not k.startswith('step_'):
+            continue
+        if k in STEP_FIELDS_IGNORED_FOR_RESTART:
+            continue
+        head = k.split('.', 1)[0]
+        if head in STEP_KEYS_IGNORED_FOR_RESTART:
+            continue
+        if not _snapshot_values_equal(flat_now.get(k), flat_was.get(k)):
+            changed.add(head)
+    order = list(STEP_KEY_TO_RESTART_ETAPA.keys())
+    return sorted(changed, key=lambda s: order.index(s) if s in order else 99)
 
 
 def _coerce_snapshot_flat_for_dem_keys(flat: dict) -> dict:
@@ -1907,7 +2142,13 @@ def build_flat_snapshot_from_mdepa_stored_settings(mdepa_path: str) -> dict:
 
 
 def compute_restart_etapa_from_snapshots(flat_now: dict, flat_was: dict):
-    """Devolve (restart, extra). restart: None=completo desde polígonos; str=etapa; '__noop__'=sem alterações."""
+    """Devolve (restart, extra).
+
+    restart:
+      None — completo desde polígonos
+      str — etapa em RESTART_ETAPA_PRIORITY
+      '__noop__' — sem alterações relevantes
+    """
     if not flat_was:
         return None, None
     flat_was = _coerce_snapshot_flat_for_dem_keys(flat_was)
@@ -1931,21 +2172,29 @@ def compute_restart_etapa_from_snapshots(flat_now: dict, flat_was: dict):
     for k in set(flat_now) | set(flat_was):
         if k.startswith('dem_'):
             continue
-        if flat_now.get(k) != flat_was.get(k):
+        if k.startswith('workflow.'):
+            continue
+        if k in STEP_FIELDS_IGNORED_FOR_RESTART:
+            continue
+        if not _snapshot_values_equal(flat_now.get(k), flat_was.get(k)):
             head = k.split('.', 1)[0]
             if head.startswith('step_'):
                 changed_steps.add(head)
+    changed_steps -= STEP_KEYS_IGNORED_FOR_RESTART
     if not changed_steps:
         return '__noop__', None
-    ord_idx = _pipeline_etapa_order_index()
     candidates = []
+    unmapped = []
     for sk in changed_steps:
         et = STEP_KEY_TO_RESTART_ETAPA.get(sk)
         if et:
             candidates.append(et)
+        else:
+            unmapped.append(sk)
     if not candidates:
-        return None, 'unknown_step'
-    return min(candidates, key=lambda e: ord_idx[e]), None
+        # Passos desconhecidos (não ignorados): por segurança, cadeia completa
+        return None, 'unknown_step:' + ','.join(sorted(unmapped))
+    return min(candidates, key=_restart_etapa_priority_index), None
 
 # Parâmetros do diálogo Config (por projeto): etapa = chave step_* em dic_param, campo = chave do field
 PA_SETTINGS_TABLE = 'pa_settings'
@@ -2709,28 +2958,38 @@ class Wd1(QWidget):
         self.lb_session_logo.setPixmap(
             _pixmap_from_icon_path(logo_path, self.lb_session_logo.size(), margin_ratio=0.15))
         self.lb_session_logo.setScaledContents(False)
+        _bind_clickable_url_label(self.lb_session_logo, PLUGIN_GITHUB_URL)
         row_hdr.addWidget(self.lb_session_logo, 0, c_, 2, 1, Qt.AlignLeft | Qt.AlignVCenter)
         c_ += 1
 
         center_box = QWidget()
         center_layout = QHBoxLayout(center_box)
         center_layout.setContentsMargins(0, 0, 0, 0)
-        center_layout.setSpacing(0)
+        center_layout.setSpacing(4)
         center_layout.addStretch(1)
-        self.lb_ppgec_logo = QLabel()
-        self.lb_ppgec_logo.setFixedSize(QSize(90, 32))
-        self.lb_ppgec_logo.setAlignment(Qt.AlignCenter)
+
+        logo_slot = QSize(120, 40)
+        self.lb_ufv_logo = ScaledPixmapLabel(logo_slot)
+        ufv_path = _resolve_ufv_logo_path()
+        if ufv_path:
+            self.lb_ufv_logo.set_source(ufv_path)
+        self.lb_ufv_logo.setVisible(bool(ufv_path))
+        _bind_clickable_url_label(self.lb_ufv_logo, UFV_WEBSITE_URL)
+        center_layout.addWidget(self.lb_ufv_logo, 0, Qt.AlignVCenter)
+
+        self.lb_ppgec_logo = ScaledPixmapLabel(logo_slot)
         ppgec_path = _resolve_ppgec_logo_path()
         if ppgec_path:
-            self.lb_ppgec_logo.setPixmap(
-                _pixmap_from_icon_path(ppgec_path, self.lb_ppgec_logo.size(), margin_ratio=0.04))
-        self.lb_ppgec_logo.setScaledContents(False)
+            self.lb_ppgec_logo.set_source(ppgec_path)
         self.lb_ppgec_logo.setVisible(bool(ppgec_path))
-        center_layout.addWidget(self.lb_ppgec_logo, 0, Qt.AlignBottom)
+        _bind_clickable_url_label(self.lb_ppgec_logo, PPGEC_WEBSITE_URL)
+        center_layout.addWidget(self.lb_ppgec_logo, 0, Qt.AlignVCenter)
+
         center_layout.addStretch(1)
         row_hdr.addWidget(center_box, 0, c_, 2, 1)
         row_hdr.setColumnStretch(c_, 1)
         c_ += 1
+        self._refresh_header_logo_tooltips()
 
         self.pb_config = QPushButton()
         self.pb_config.setToolTip(self.tr('Config'))
@@ -2982,6 +3241,17 @@ class Wd1(QWidget):
         self.pb_proc.clicked.connect(self.exec_analyze)
         self.pb_config.clicked.connect(self.open_settings)
         self.cb_open_report.toggled.connect(self._save_open_report_pref)
+
+    def _refresh_header_logo_tooltips(self) -> None:
+        if getattr(self, 'lb_session_logo', None):
+            self.lb_session_logo.setToolTip(self.tr(
+                'Repositório GitHub do plugin\n(clique para abrir o site)'))
+        if getattr(self, 'lb_ufv_logo', None):
+            self.lb_ufv_logo.setToolTip(self.tr(
+                'Universidade Federal de Viçosa\n(clique para abrir o site)'))
+        if getattr(self, 'lb_ppgec_logo', None):
+            self.lb_ppgec_logo.setToolTip(self.tr(
+                'Programa de Pós-Graduação em Engenharia Civil\n(clique para abrir o site)'))
 
     def _refresh_open_report_checkbox_ui(self) -> None:
         cb = getattr(self, 'cb_open_report', None)
@@ -3840,6 +4110,53 @@ class Wd1(QWidget):
         type_1 = self.dic_prj['dems'][1]['type']
         return [f'__{m}_Z_{t}__' for m in self.list_morph for t in (type_0, type_1)]
 
+    def _morphology_layers_populated(self) -> bool:
+        """True se já existem linhas de morfologia no .pa.gpkg (não é preciso refazer GRASS)."""
+        names = self._morphology_gpkg_layer_names()
+        if not names:
+            return False
+        n_ok = 0
+        for nm in names:
+            try:
+                lyr = self.get_gpkg_layer(prefix_=nm, gpkg_path=self.gpkg_path, show=False)
+            except Exception:
+                continue
+            if lyr is not None and lyr.isValid() and lyr.featureCount() > 0:
+                n_ok += 1
+        return n_ok >= 2
+
+    def _match_lines_populated(self) -> bool:
+        rebuilt = self._dic_match_from_match_lines_layer()
+        if not rebuilt:
+            return False
+        return sum(len(v) for v in rebuilt.values()) > 0
+
+    def _refine_restart_using_existing_layers(self, restart, reason, flat_now, flat_was):
+        """Não recuar na cadeia se as etapas mais básicas já estão no GPKG e os params não mudaram.
+
+        Não aplica se MDEs/área de estudo mudaram (reason dem/workflow) nem passos desconhecidos.
+        """
+        reason_s = str(reason or '')
+        if reason_s in ('dem', 'workflow') or reason_s.startswith('unknown_step'):
+            return restart, reason
+        if restart == '__noop__':
+            return restart, reason
+
+        morph_changed = _snapshot_step_changed(flat_now, flat_was, 'step_morfologia')
+        match_changed = _snapshot_step_changed(flat_now, flat_was, 'step_match')
+
+        if restart in (None, 'morfologia_referencia') and not morph_changed:
+            if self._morphology_layers_populated():
+                restart = 'correspondencia_linhas'
+                reason = 'keep_morph:' + reason_s
+
+        if restart == 'correspondencia_linhas' and not match_changed:
+            if self._match_lines_populated():
+                restart = 'buffers'
+                reason = 'keep_match:' + str(reason or reason_s)
+
+        return restart, reason
+
     def _remove_project_layers_named(self, *layer_names: str) -> None:
         """Remove do mapa apenas camadas do .pa.gpkg ativo."""
         gpkg_n = self._active_gpkg_path()
@@ -3891,7 +4208,14 @@ class Wd1(QWidget):
         bn = self.buffer_name
         morph_names = self._morphology_gpkg_layer_names()
 
-        known = (None, 'morfologia_referencia', 'correspondencia_linhas', 'buffers')
+        known = (
+            None,
+            'morfologia_referencia',
+            'correspondencia_linhas',
+            'buffers',
+            'buffers_alt',
+            'dm_recalc',
+        )
         if restart not in known:
             self.log_message(
                 self.tr(
@@ -3900,6 +4224,23 @@ class Wd1(QWidget):
                 'WARNING',
             )
             restart = None
+
+        # Só fórmula DM / normalização: manter pares e geometrias de buffer no GPKG
+        if restart in ('buffers_alt', 'dm_recalc'):
+            self._clear_pec_report_cache()
+            self._pipeline_reset_timestamps_from_ordem(6)
+            if restart == 'buffers_alt':
+                msg = self.tr(
+                    'Normalização alterada: recalculando discrepâncias (DM), '
+                    'sem rematch e sem limpar a camada de buffers.'
+                )
+            else:
+                msg = self.tr(
+                    'Fórmula de DM alterada: recalculando discrepâncias a partir dos pares '
+                    'existentes, sem rematch e sem limpar a camada de buffers.'
+                )
+            self.log_message(msg, 'INFO')
+            return
 
         if restart == 'buffers':
             self._clear_gpkg_vector_layer_features(bn)
@@ -3952,7 +4293,8 @@ class Wd1(QWidget):
             self.log_message(
                 self.tr(
                     'Morfologia e etapas seguintes serão refeitas: camadas de morfologia, '
-                    'linhas de correspondência e buffers foram limpos; pares e extensão da amostra repostos.'
+                    'linhas de correspondência e buffers foram limpos; área de interseção mantida; '
+                    'pares e extensão da amostra repostos.'
                 ),
                 'INFO',
             )
@@ -4242,28 +4584,50 @@ class Wd1(QWidget):
         dlg = self.settings_dlg
         dlg.flush_widgets_to_dic_param(log_values=False)
         flat_now = self._flatten_run_snapshot()
+        flat_was_run = load_pipeline_last_run_snapshot(pf)
         flat_was_pec = load_pipeline_last_ok_snapshot(pf)
-        if flat_was_pec:
+        if flat_was_run:
+            # Preferir o último «Avaliar» (mesmo se parou na extensão mínima) — não o Config gravado.
+            flat_was = flat_was_run
+        elif flat_was_pec:
             flat_was = flat_was_pec
         else:
             flat_was = build_flat_snapshot_from_mdepa_stored_settings(pf)
             if not any(k.startswith('step_') for k in flat_was):
                 flat_was = {}
-        restart, _reason = compute_restart_etapa_from_snapshots(flat_now, flat_was)
+        restart, reason = compute_restart_etapa_from_snapshots(flat_now, flat_was)
+        restart, reason = self._refine_restart_using_existing_layers(
+            restart, reason, flat_now, flat_was)
+
         if restart == '__noop__':
-            # Projeto novo: defaults gravados no .pa.gpkg coincidem com os widgets → diff vazio, mas
-            # não há PEC concluído nem etapa terminada: há que arrancar a cadeia, não mostrar «inalterado».
-            if flat_was_pec or pipeline_has_completed_any_etapa(pf):
+            morph_ready = self._morphology_layers_populated()
+            if flat_was_pec:
+                # PEC já concluído com estes parâmetros — não repetir a cadeia.
                 self.persist_project_config_from_widgets(log_values=False)
                 self.log_message(
                     self.tr(
-                        'Parâmetros e MDEs inalterados (última avaliação concluída ou configuração gravada no projeto).'),
+                        'Parâmetros e MDEs inalterados (última avaliação concluída).'),
                     'INFO',
                 )
                 return
-            restart = None
+            if morph_ready:
+                # Morfologia já existe (ex.: parou na extensão mínima). Config gravado
+                # igual aos widgets não pode apagar o GRASS: repetir só a seleção de pares.
+                restart = 'correspondencia_linhas'
+                reason = 'retry_match_incomplete:' + str(reason or 'noop')
+            else:
+                restart = None
+
+        changed_steps = _changed_step_keys_from_snapshots(flat_now, flat_was)
+        if changed_steps:
+            self.log_message(
+                self.tr('Parâmetros alterados: {0}. Retomada a partir de: {1}.').format(
+                    ', '.join(changed_steps), restart or self.tr('limites/interseção')),
+                'INFO',
+            )
 
         self.persist_project_config_from_widgets(log_values=False)
+        save_pipeline_last_run_snapshot(pf, self._flatten_run_snapshot())
 
         self.create_gpkg()
         self._sanitize_pipeline_for_restart_immediate(restart)
@@ -4281,7 +4645,12 @@ class Wd1(QWidget):
             self.define_morphology(0)
         elif restart == 'correspondencia_linhas':
             self.log_message(
-                self.tr('Retomando a partir da correspondência de linhas (parâmetros alterados).'), 'INFO')
+                self.tr(
+                    'Retomando a partir da correspondência de linhas '
+                    '(morfologia mantida; parâmetros de pares/configuração).'
+                ),
+                'INFO',
+            )
             self.matching_lines()
         elif restart == 'buffers':
             self.log_message(
@@ -4290,6 +4659,31 @@ class Wd1(QWidget):
                 self.matching_lines()
             else:
                 self.define_buffers()
+        elif restart == 'buffers_alt':
+            self.log_message(
+                self.tr(
+                    'Retomando recalculo de DM (normalização / altimetria); '
+                    'pares e camada de buffers mantidos.'
+                ),
+                'INFO',
+            )
+            if not self.dic_match:
+                self.matching_lines()
+            else:
+                # Normalização só muda perfis altimétricos: não regrava buffers planimétricos.
+                self.define_buffers(write_buffer_layer=False, recompute_focus='alt')
+        elif restart == 'dm_recalc':
+            self.log_message(
+                self.tr(
+                    'Retomando recalculo de DM (fórmula); pares e camada de buffers mantidos.'
+                ),
+                'INFO',
+            )
+            if not self.dic_match:
+                self.matching_lines()
+            else:
+                # Fórmula nova sobre as mesmas áreas/raios: não regrava a camada.
+                self.define_buffers(write_buffer_layer=False, recompute_focus='dm')
         else:
             self.define_intersection()
 
@@ -4533,6 +4927,8 @@ class Wd1(QWidget):
             self.start_task(key_, dic_)
 
     def define_morphology(self, key_=0):
+        etapa = 'morfologia_referencia' if key_ == 0 else 'morfologia_teste'
+        self.pipeline_set_etapa_inicio(etapa)
         mss_ = self.tr('=======================================\n')
         mss_ += self.tr('DEFININDO ELEMENTOS DE MORFOLOGIA DO TERRENO - {0}').format(
             self.dic_prj['dems'][key_]['type'])
@@ -4908,8 +5304,9 @@ class Wd1(QWidget):
                     'Não há pares homólogos válidos. O processamento foi interrompido antes dos buffers.\n\n'
                     'Sugestões:\n'
                     '• Diminuir a área máxima das bacias (morfologia) para gerar mais linhas.\n'
-                    '• Afrouxar a correspondência: aumentar a distância máxima entre centróides (pixels do MDE de teste) '
-                    'e o percentual de diferença de área entre os envelopes mínimos.'),
+                    '• Afrouxar a correspondência: aumentar a distância máxima entre centróides, '
+                    'os percentuais de diferença de área/comprimento dos envelopes mínimos, '
+                    'ou reduzir a extensão mínima da feição de teste.'),
                 'ERROR',
             )
             return False
@@ -4920,8 +5317,9 @@ class Wd1(QWidget):
                     'O processamento foi interrompido antes dos buffers.\n\n'
                     'Sugestões:\n'
                     '• Diminuir a área máxima das bacias (morfologia) para gerar mais linhas e maior extensão acumulada.\n'
-                    '• Afrouxar a correspondência: aumentar a distância máxima entre centróides (pixels do MDE de teste) '
-                    'e o percentual de diferença de área entre os envelopes mínimos.'
+                    '• Afrouxar a correspondência: aumentar a distância máxima entre centróides, '
+                    'os percentuais de diferença de área/comprimento dos envelopes mínimos, '
+                    'ou reduzir a extensão mínima da feição de teste.'
                 ).format(round(ext_km, 4), round(ext_min_km, 4)),
                 'ERROR',
             )
@@ -4929,6 +5327,7 @@ class Wd1(QWidget):
         return True
 
     def matching_lines(self):
+        self.pipeline_set_etapa_inicio('correspondencia_linhas')
         conn = self.gpkg_conn()
         curs = conn.cursor()
         dic_param_match = self.settings_dlg.dic_param['step_match']['fields']
@@ -4945,17 +5344,57 @@ class Wd1(QWidget):
             return
         dist_max = dist_max_px * gsd_test
         area_percent = float(dic_param_match['percent_area']['value']) / 100
+        try:
+            length_percent = float(dic_param_match['percent_length']['value']) / 100
+        except (TypeError, ValueError, KeyError):
+            length_percent = 0.05
+        try:
+            min_len_px = float(dic_param_match['min_extent_px']['value'])
+        except (TypeError, ValueError, KeyError):
+            min_len_px = 10.0
+        min_len_m = min_len_px * gsd_test
         type_0 = self.dic_prj["dems"][0]["type"]
         type_1 = self.dic_prj["dems"][1]["type"]
         morph_0 = self.list_morph[0]
         morph_1 = self.list_morph[1]
+        # Lado maior do envelope orientado (retângulo): max das duas arestas adjacentes.
+        elen_sql = (
+            'MAX('
+            'ST_Distance(ST_PointN(ST_ExteriorRing(eogeom), 1), '
+            'ST_PointN(ST_ExteriorRing(eogeom), 2)), '
+            'ST_Distance(ST_PointN(ST_ExteriorRing(eogeom), 2), '
+            'ST_PointN(ST_ExteriorRing(eogeom), 3)))'
+        )
+
+        def _match_cte(alias, layer_name):
+            return (
+                f'{alias} as ('
+                f'select fid, eogeom, centroid, len, {elen_sql} as elen from ('
+                f'select fid, '
+                f'OrientedEnvelope(GeomFromGPB(geom)) as eogeom, '
+                f'ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid, '
+                f'ST_LENGTH(GeomFromGPB(geom)) as len '
+                f'from {layer_name}))'
+            )
+
+        self.log_message(
+            self.tr(
+                'Seleção de pares: dist. máx.={0:g} px ({1:.2f} m); '
+                'Δárea envelope<{2:g} %; Δcomprimento envelope<{3:g} %; '
+                'extensão mín. teste={4:g} px ({5:.2f} m).'
+            ).format(
+                dist_max_px, dist_max,
+                area_percent * 100, length_percent * 100,
+                min_len_px, min_len_m,
+            ),
+            'INFO',
+        )
         sql_ = f"""
         WITH
-            ct as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid, ST_LENGTH(GeomFromGPB(geom)) len from __{morph_0}_Z_{type_1}__),
-            cr as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid, ST_LENGTH(GeomFromGPB(geom)) len  from __{morph_0}_Z_{type_0}__),
-            ht as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid, ST_LENGTH(GeomFromGPB(geom)) len  from __{morph_1}_Z_{type_1}__),
-            hr as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid, ST_LENGTH(GeomFromGPB(geom)
-            ) len  from __{morph_1}_Z_{type_0}__)
+            {_match_cte('ct', f'__{morph_0}_Z_{type_1}__')},
+            {_match_cte('cr', f'__{morph_0}_Z_{type_0}__')},
+            {_match_cte('ht', f'__{morph_1}_Z_{type_1}__')},
+            {_match_cte('hr', f'__{morph_1}_Z_{type_0}__')}
         SELECT 
             '{morph_0}' TIPO, 
             cr.fid fidr, 
@@ -4966,7 +5405,10 @@ class Wd1(QWidget):
             FROM ct, cr
             WHERE 
                 ST_DISTANCE(ct.centroid, cr.centroid) < {dist_max}
-                AND (ABS(ST_AREA(ct.eogeom) - ST_AREA(cr.eogeom))/ ST_AREA(ct.eogeom)) < {area_percent}
+                AND ct.len >= {min_len_m}
+                AND ct.elen > 0 AND cr.elen > 0
+                AND (ABS(ST_AREA(ct.eogeom) - ST_AREA(cr.eogeom))/ NULLIF(ST_AREA(ct.eogeom), 0)) < {area_percent}
+                AND (ABS(ct.elen - cr.elen)/ ct.elen) < {length_percent}
         UNION
         SELECT 
             '{morph_1}' TIPO, 
@@ -4978,7 +5420,10 @@ class Wd1(QWidget):
             FROM ht, hr
             WHERE 
                 ST_DISTANCE(ht.centroid, hr.centroid) < {dist_max}
-                AND (ABS(ST_AREA(ht.eogeom) - ST_AREA(hr.eogeom))/ ST_AREA(ht.eogeom)) < {area_percent}
+                AND ht.len >= {min_len_m}
+                AND ht.elen > 0 AND hr.elen > 0
+                AND (ABS(ST_AREA(ht.eogeom) - ST_AREA(hr.eogeom))/ NULLIF(ST_AREA(ht.eogeom), 0)) < {area_percent}
+                AND (ABS(ht.elen - hr.elen)/ ht.elen) < {length_percent}
             ORDER BY 1,4 ASC;
         """
         result_ = curs.execute(sql_)
@@ -5013,6 +5458,7 @@ class Wd1(QWidget):
         self._refresh_extent_and_pairs_labels()
         self._persist_panel_stats_to_mdepa()
         self._sync_match_lines_layer_from_dic_match()
+        self.pipeline_set_etapa_fim('correspondencia_linhas')
         # print('dic_match', self.dic_match)
         if self.cbx_workflow_pairs.currentIndex() == 1:
             self._workflow_pause = 'post_pairs_review'
@@ -5302,12 +5748,23 @@ class Wd1(QWidget):
             list_.append(list(self.dic_pec_v)[i])
         return list_
 
-    def define_buffers(self):
+    def define_buffers(self, *, write_buffer_layer: bool = True, recompute_focus: str = 'full'):
+        """Gera buffers / DM.
+
+        write_buffer_layer=False: recalcula DM (e PEC) sem esvaziar/regravar __Buffers__.
+        recompute_focus: 'full' | 'alt' (ênfase altimétrica / normalização) | 'dm' (só fórmula).
+        """
         self._buffer_geom_diag_counts = {}
         self._buffers_layer_target_logged = False
-        self._reset_buffers_layer_for_run()
-        self._buffers_map_deferred = not self._show_buffers_on_map_setting()
-        self._begin_buffers_map_canvas_freeze()
+        if write_buffer_layer:
+            self._reset_buffers_layer_for_run()
+            self._buffers_map_deferred = not self._show_buffers_on_map_setting()
+            self._begin_buffers_map_canvas_freeze()
+        else:
+            # Não mexer na camada existente nem no freeze do canvas
+            self._buffers_map_deferred = False
+            self.layer_buffers = self.get_gpkg_layer(
+                prefix_=self.buffer_name, gpkg_path=self.gpkg_path, show=False)
         rebuilt = self._dic_match_from_match_lines_layer()
         if rebuilt is not None:
             if not rebuilt:
@@ -5329,7 +5786,15 @@ class Wd1(QWidget):
                 self._refresh_proc_button()
             return
         mss_ = self.tr('=======================================\n')
-        mss_ += self.tr('DEFININDO BUFFERS')
+        if not write_buffer_layer:
+            if recompute_focus == 'alt':
+                mss_ += self.tr('RECALCULANDO DM (NORMALIZAÇÃO / ALTIMETRIA)')
+            elif recompute_focus == 'dm':
+                mss_ += self.tr('RECALCULANDO DM (FÓRMULA)')
+            else:
+                mss_ += self.tr('RECALCULANDO DM (SEM REGRAVAR BUFFERS)')
+        else:
+            mss_ += self.tr('DEFININDO BUFFERS')
         self.log_message(mss_, 'INFO')
         accuracy_standard = self._accuracy_standard_index()
         gsd = self._test_dem_gsd()
@@ -5381,6 +5846,8 @@ class Wd1(QWidget):
             'gsd': gsd,
             'ce90_max_h': max_h_mult,
             'ce90_max_v': max_v_mult,
+            'write_buffer_layer': bool(write_buffer_layer),
+            'recompute_focus': recompute_focus or 'full',
             'parent': self,
             'main': self.main}
         # Add tasks to queue
@@ -5564,7 +6031,13 @@ class Wd1(QWidget):
         self.log_message(mss_, 'INFO')
         for scale_ in sorted(dic_values):
             for class_ in dic_values[scale_]:
-                pec_v, ep_v = pec_alt_limits(scale_, class_, self.dic_pec_alt)
+                pec_v, ep_v = pec_alt_limits(
+                    scale_,
+                    class_,
+                    self.dic_pec_alt,
+                    dic_eq=self.dic_pec_v,
+                    dic_pec_mm=self.dic_pec_mm,
+                )
                 if pec_v is None:
                     self.log_message(
                         self.tr('PEC altimétrico ignorado para escala 1:{0}.000 (sem limites definidos).').format(
@@ -6730,6 +7203,14 @@ class Wd1(QWidget):
                 return False
         return _on('audit_horizontal'), _on('audit_vertical')
 
+    def _audit_csv_only_flag(self) -> bool:
+        try:
+            return bool(int(
+                self.settings_dlg.dic_param['step_audit_report']['fields']
+                ['audit_csv_only'].get('value', 0)))
+        except (TypeError, ValueError, KeyError, AttributeError):
+            return False
+
     def _audit_test_model_name(self) -> str:
         """Nome curto do MDE de teste para ficheiros Audit_*.pdf (nunca path TEMP)."""
         dems = (self.dic_prj or {}).get('dems') or {}
@@ -6789,10 +7270,19 @@ class Wd1(QWidget):
             eq_v_table[scale] = eq
             pec_v_table[scale] = {}
             for class_ in self.dic_pec_mm.get('V', {}):
-                pec_v_table[scale][class_] = {
-                    'pec': float(eq) * float(self.dic_pec_mm['V'][class_]['pec']),
-                    'ep': float(eq) * float(self.dic_pec_mm['V'][class_]['ep']),
-                }
+                pec, ep = pec_alt_limits(
+                    scale,
+                    class_,
+                    self.dic_pec_alt,
+                    dic_eq=self.dic_pec_v,
+                    dic_pec_mm=self.dic_pec_mm,
+                )
+                if pec is None:
+                    continue
+                pec_v_table[scale][class_] = {'pec': pec, 'ep': ep}
+            if not pec_v_table[scale]:
+                pec_v_table.pop(scale, None)
+                eq_v_table.pop(scale, None)
         return pec_v_table, eq_v_table
 
     def _dm_by_scale_index_from_dic_values(self, dic_values):
@@ -6869,6 +7359,7 @@ class Wd1(QWidget):
                 pairs.append({
                     'id_ref': fid_r,
                     'id_test': fid_t,
+                    'tag': tag_,
                     'layer_ref': layer_r.name(),
                     'geom_r': orient_line_high_to_low(QgsGeometry(fr.geometry())),
                     'geom_t': orient_line_high_to_low(QgsGeometry(ft.geometry())),
@@ -6950,8 +7441,10 @@ class Wd1(QWidget):
             self.update_bar({'key': key, 'end': total, 'msg': label})
         QApplication.processEvents()
 
-    def export_audit_horizontal_pdfs(self, dic_values=None, report_ts=None, progress=None):
-        """Gera Audit_horizontal_{modelo}_{escala}_{ts}.pdf."""
+    def export_audit_horizontal_pdfs(
+        self, dic_values=None, report_ts=None, progress=None, *, csv_only=None,
+    ):
+        """Gera Audit_horizontal_*.pdf e/ou CSV."""
         try:
             self.settings_dlg.flush_widgets_to_dic_param(log_values=False)
         except Exception:
@@ -7008,9 +7501,12 @@ class Wd1(QWidget):
         ts = report_ts or getattr(self, '_last_report_ts', None)
         if not ts:
             ts = QDateTime.currentDateTime().toString('yyyy-MM-dd_HHmm')
+        if csv_only is None:
+            csv_only = self._audit_csv_only_flag()
         self.log_message(
-            self.tr('A gerar relatório de auditoria horizontal ({0} pares)…').format(
-                len(pairs)
+            self.tr('A gerar {0} de auditoria horizontal ({1} pares)…').format(
+                self.tr('CSV') if csv_only else self.tr('relatório'),
+                len(pairs),
             ),
             'INFO',
         )
@@ -7025,6 +7521,7 @@ class Wd1(QWidget):
                 timestamp=ts,
                 log=lambda msg: self.log_message(str(msg), 'INFO'),
                 progress=progress,
+                csv_only=csv_only,
             )
         except Exception as e:
             self.log_message(
@@ -7034,16 +7531,24 @@ class Wd1(QWidget):
             return []
 
         for out_path, drawn, _skipped in outputs:
-            self.log_message(
-                self.tr('Auditoria horizontal gravada: {0} ({1} páginas)').format(
-                    out_path, drawn
-                ),
-                'INFO',
-            )
+            if csv_only:
+                self.log_message(
+                    self.tr('CSV de auditoria horizontal gravado: {0}').format(out_path),
+                    'INFO',
+                )
+            else:
+                self.log_message(
+                    self.tr('Auditoria horizontal gravada: {0} ({1} páginas)').format(
+                        out_path, drawn
+                    ),
+                    'INFO',
+                )
         return outputs
 
-    def export_audit_vertical_pdfs(self, dic_values=None, report_ts=None, progress=None):
-        """Gera Audit_vertical_{modelo}_{linear|proximidade}_{escala}_{ts}.pdf."""
+    def export_audit_vertical_pdfs(
+        self, dic_values=None, report_ts=None, progress=None, *, csv_only=None,
+    ):
+        """Gera Audit_vertical_*.pdf e/ou CSV."""
         try:
             self.settings_dlg.flush_widgets_to_dic_param(log_values=False)
         except Exception:
@@ -7096,8 +7601,13 @@ class Wd1(QWidget):
         ts = report_ts or getattr(self, '_last_report_ts', None)
         if not ts:
             ts = QDateTime.currentDateTime().toString('yyyy-MM-dd_HHmm')
+        if csv_only is None:
+            csv_only = self._audit_csv_only_flag()
         self.log_message(
-            self.tr('A gerar relatório de auditoria vertical ({0} pares)…').format(len(pairs)),
+            self.tr('A gerar {0} de auditoria vertical ({1} pares)…').format(
+                self.tr('CSV') if csv_only else self.tr('relatório'),
+                len(pairs),
+            ),
             'INFO',
         )
         try:
@@ -7112,6 +7622,7 @@ class Wd1(QWidget):
                 timestamp=ts,
                 log=lambda msg: self.log_message(str(msg), 'INFO'),
                 progress=progress,
+                csv_only=csv_only,
             )
         except Exception as e:
             self.log_message(
@@ -7121,12 +7632,74 @@ class Wd1(QWidget):
             return []
 
         for out_path, drawn, _skipped in outputs:
+            if csv_only:
+                self.log_message(
+                    self.tr('CSV de auditoria vertical gravado: {0}').format(out_path),
+                    'INFO',
+                )
+            else:
+                self.log_message(
+                    self.tr('Auditoria vertical gravada: {0} ({1} páginas)').format(
+                        out_path, drawn
+                    ),
+                    'INFO',
+                )
+        return outputs
+
+    def export_audit_csvs_now(self):
+        """Recalcula DM no projeto e grava só CSV de auditoria (H e/ou V)."""
+        try:
+            self.settings_dlg.flush_widgets_to_dic_param(log_values=False)
+        except Exception:
+            pass
+
+        audit_h, audit_v = self._audit_report_flags()
+        if not audit_h and not audit_v:
             self.log_message(
-                self.tr('Auditoria vertical gravada: {0} ({1} páginas)').format(
-                    out_path, drawn
-                ),
-                'INFO',
+                self.tr(
+                    'Marque Horizontal e/ou Vertical em Relatório de Auditoria '
+                    'antes de gerar o CSV.'),
+                'WARNING',
             )
+            return []
+
+        pf = self.dic_prj.get('project_file')
+        if not pf or not os.path.isfile(pf):
+            self.log_message(
+                self.tr('Defina um projeto (.pa.gpkg) para exportar a auditoria.'),
+                'ERROR',
+            )
+            return []
+
+        self.log_message(
+            self.tr('A recalcular DM para CSV de auditoria…'), 'INFO')
+        try:
+            self.ensure_crs_from_reference_dem()
+            dv = self.recompute_dic_values_from_project()
+            self._apply_outlier_workflow(dv)
+        except Exception as e:
+            self.log_message(
+                self.tr('Falha ao recalcular DM: {0}').format(e), 'ERROR')
+            return []
+
+        ts = QDateTime.currentDateTime().toString('yyyy-MM-dd_HHmm')
+        outputs = []
+        n_steps = (1 if audit_h else 0) + (1 if audit_v else 0)
+        self._audit_progress_begin(n_steps, self.tr('CSV auditoria'))
+        step = 0
+        try:
+            if audit_h:
+                outputs.extend(self.export_audit_horizontal_pdfs(
+                    dic_values=dv, report_ts=ts, csv_only=True) or [])
+                step += 1
+                self._audit_progress_tick(step, n_steps, self.tr('CSV horizontal'))
+            if audit_v:
+                outputs.extend(self.export_audit_vertical_pdfs(
+                    dic_values=dv, report_ts=ts, csv_only=True) or [])
+                step += 1
+                self._audit_progress_tick(step, n_steps, self.tr('CSV vertical'))
+        finally:
+            self._audit_progress_end(n_steps, self.tr('CSV de auditoria concluído'))
         return outputs
 
     def _run_audit_exports_with_progress(self, dic_values=None, report_ts=None):
@@ -7137,12 +7710,26 @@ class Wd1(QWidget):
         pairs = self._build_audit_pair_specs(dic_values=dic_values)
         scales_h = self._audit_scales_for_dimension(dic_values, 'H') if audit_h else []
         scales_v = self._audit_scales_for_dimension(dic_values, 'V') if audit_v else []
+        n_pairs = len(pairs) if pairs else 0
         n_units = 0
-        if pairs:
-            if audit_h:
-                n_units += len(pairs) * max(len(scales_h), 1)
-            if audit_v:
-                n_units += len(pairs) * max(len(scales_v), 1)
+        is_ce90 = self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
+
+        def _pages_for_scales(scales):
+            if not n_pairs:
+                return 0
+            if is_ce90:
+                n_thr = sum(
+                    1 for s in scales
+                    if isinstance(s, (int, float)) and float(s) > 0
+                )
+                n_pages = max(1, (n_thr + 3) // 4) if n_thr else 0
+                return n_pairs * n_pages
+            return n_pairs * max(len(scales), 1)
+
+        if audit_h:
+            n_units += _pages_for_scales(scales_h)
+        if audit_v:
+            n_units += _pages_for_scales(scales_v)
         total = n_units
         if total <= 0:
             # Ainda assim corre os exports (logs de aviso internos)
@@ -7491,8 +8078,10 @@ class Wd1(QWidget):
                 self.get_gpkg_layer(prefix_=layer_name, gpkg_path=self.gpkg_path)
             if 'start_task' in dic_:
                 if key_ == 0:
+                    self.pipeline_set_etapa_fim('morfologia_referencia')
                     self.define_morphology(1)
                 elif key_ == 1:
+                    self.pipeline_set_etapa_fim('morfologia_teste')
                     self.matching_lines()
             if 'model' in dic_:
                 self.dic_prj["dems"][key_]['model'] = dic_['model']
@@ -7598,6 +8187,7 @@ class Wd1(QWidget):
 
         self.lb_title_proj.setText(self.tr('Projeto (.pa.gpkg):'))
         self.pb_config.setToolTip(self.tr('Config'))
+        self._refresh_header_logo_tooltips()
         self.pb_lang.setToolTip(self.tr('Alterar idioma da interface'))
         self.pb_project_new.setToolTip(self.tr('Novo projeto…'))
         self.pb_project_open.setToolTip(self.tr('Abrir projeto…'))
