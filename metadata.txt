@@ -19,7 +19,7 @@ repository=https://github.com/adrianocsalvador/pos_accuracy
 # Recommended items:
 
 hasProcessingProvider=yes
-changelog=1.3.4: retomada seletiva da cadeia (morfologia/pares/buffers/normalização/DM); CE90/LE90 com CSV de auditoria; novos critérios de pares (Δ comprimento do envelope, extensão mínima); logos UFV/PPGEC; README
+changelog=1.3.4: retomada seletiva da cadeia (morfologia/pares/buffers/compatibilização/DM); CE90/LE90 com CSV de auditoria; novos critérios de pares (Δ comprimento do envelope, extensão mínima); logos UFV/PPGEC; README
 1.3.3.2: atribuição automática ref/teste por resolução quando MDEs não estão no .pa.gpkg
 1.3.3.1: opção de fórmula DM (original / média A1+A2); correção i18n da janela de parâmetros
 1.3.3: layout do audit vertical — margem esquerda menor e mais espaço entre Vista 2D e rótulo Cota (m)

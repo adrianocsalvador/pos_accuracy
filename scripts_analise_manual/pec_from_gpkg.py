@@ -681,7 +681,7 @@ def _collect_linear_scalars_from_gpkg(test_gpkg, ref_gpkg, test_names=None):
 
 
 def collect_linear_scalars(layer, results_dir, ref_gpkg=DEFAULT_REF_GPKG, test_gpkg=None):
-    """Recolhe k por modelo (normalização linear) a partir de Profile_*.csv ou GPKG de teste."""
+    """Recolhe k por modelo (compatibilização linear) a partir de Profile_*.csv ou GPKG de teste."""
     scalars_by_model = _collect_linear_scalars_from_profiles(layer, results_dir)
     if any(scalars_by_model.values()):
         return scalars_by_model

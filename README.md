@@ -1,6 +1,6 @@
 # MDE AP — Acurácia Posicional
 
-Plugin QGIS para avaliar a **acurácia posicional tridimensional** de Modelos Digitais de Elevação (MDE), comparando um MDE de **referência** com um MDE de **teste**.
+Plugin QGIS para avaliar a **acurácia posicional tridimensional** de Modelos Digitais de Elevação (MDE), comparando um MDE de **referência** com um MDE de **teste** usando feições lineares e perfis altimétricos.
 
 Desenvolvido no [Programa de Pós-Graduação em Engenharia Civil (PPGEC)](https://posengenhariacivil.ufv.br/) da [Universidade Federal de Viçosa (UFV)](https://www.ufv.br).
 
@@ -62,12 +62,12 @@ Se o projecto já estiver calculado e só alguns parâmetros mudarem, o plugin *
 - Fluxo de área de estudo: interseção automática, revisão após interseção, ou camada polígono.
 - Selecção de pares automática ou com **revisão** no mapa.
 - Tratamento de *outliers* (automático / revisão / usar todos).
-- Normalização de progressivas para o perfil altimétrico (linear, por proximidade, ou nenhuma).
+- Compatibilização de progressivas para o perfil altimétrico (linear, por proximidade, ou nenhuma).
 - Duas fórmulas de DM (buffer duplo).
 - Relatório PDF com tabelas PEC ou CE90/LE90.
 - Auditoria horizontal e/ou vertical (PDF e/ou CSV).
 - Interface em português, inglês e espanhol.
-- Retoma inteligente: morfologia → pares → buffers → normalização (só altimetria) → fórmula DM.
+- Retoma inteligente: morfologia → pares → buffers → compatibilização (só altimetria) → fórmula DM.
 
 ---
 
@@ -105,13 +105,13 @@ Alterar só estes valores **repete a correspondência e os passos seguintes**, s
 
 Alterar definições de buffer **regenera buffers e o cálculo de DM/PEC**, sem rematch.
 
-### Normalização de progressivas
+### Compatibilização de progressivas
 
 | Método | Índice | Padrão |
 |--------|--------|--------|
 | Linear | 0 | **sim** |
 | Por proximidade | 1 | |
-| Sem normalização | 2 | |
+| Sem compatibilização | 2 | |
 
 Mudar o método **recalcula a DM altimétrica** (perfis); a camada de buffers planimétricos no mapa não é regravada.
 
@@ -170,7 +170,7 @@ Se o projecto já foi calculado e vários parâmetros mudam, usa-se o **passo ma
 1. Morfologia  
 2. Selecção de pares  
 3. Buffers  
-4. Normalização (só altimetria)  
+4. Compatibilização (só altimetria)  
 5. Fórmula DM  
 
 Mudar MDEs ou o modo de área de estudo implica **reprocessamento desde a interseção**. Opções só de auditoria **não** disparam recálculo.

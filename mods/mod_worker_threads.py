@@ -1338,7 +1338,7 @@ class BufferThread(QThread):
             max_r = max(self.ce90_max_h, self.ce90_max_v) * max(self.gsd, 1e-6)
             dec = ce90_threshold_decimals(self.gsd)
             n_iters = max(8, int(math.ceil(math.log2(max(max_r / (10 ** (-dec)), 2)))) + 3)
-            # Normalização: só LE90 muda de forma relevante; ainda assim recalculamos CE90
+            # Compatibilização: só LE90 muda de forma relevante; ainda assim recalculamos CE90
             # para manter dm_h coerente no relatório (sem regravar a camada).
             self.nr_procs = max(1, n_pairs * n_iters * 2)
         else:

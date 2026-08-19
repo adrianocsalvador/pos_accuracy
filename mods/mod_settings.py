@@ -40,14 +40,22 @@ class SettingsDlg(QDialog):
             {
                 'step_morfologia': {
                     'label': tr_ui('Definições para Geração de Morfologia'),
+                    'tooltip': tr_ui(
+                        'Extração das feições lineares (cumeadas e hidrografia) por watershed (GRASS).'),
                     'fields': {
                         'max_basin_area': {
                             'label': tr_ui('Máxima Área das Bacias (m²)'),
+                            'tooltip': tr_ui(
+                                'Controla a densidade das linhas: diminuir a área gera mais feições; '
+                                'aumentar gera menos. Padrão: 675000 m².'),
                             'value': '675000',
                             'default': '675000',
                             'obj': None},
                         'max_memo_grass': {
                             'label': tr_ui('Limite de Memória para Grass GIS (GB)'),
+                            'tooltip': tr_ui(
+                                'Memória máxima do GRASS no r.watershed. Aumente se o processo falhar por RAM. '
+                                'Padrão: 4 GB.'),
                             'value': '4',
                             'default': '4',
                             'obj': None},
@@ -55,26 +63,42 @@ class SettingsDlg(QDialog):
                 },
                 'step_match': {
                     'label': tr_ui('Definições para Seleção dos Pares'),
+                    'tooltip': tr_ui(
+                        'Filtros para formar pares homólogos entre linhas de referência e de teste.'),
                     'fields': {
                         'dist_max': {
                             'label': tr_ui('Distância máxima entre centróides (pixels do MDE de teste)'),
+                            'tooltip': tr_ui(
+                                'Filtro inicial: distância máxima entre centróides, em pixels do MDE de teste. '
+                                'Aumentar tende a aumentar candidatos; diminuir pode enviesar a amostra '
+                                'ou não atingir o mínimo. Padrão: 3 px.'),
                             'value': '3',
                             'default': '3',
                             'obj': None},
                         'percent_area': {
                             'label': tr_ui('Diferença % entre área dos mínimos envelopes'),
+                            'tooltip': tr_ui(
+                                'Segundo filtro: geometrias semelhantes têm envelopes com áreas semelhantes, '
+                                'reduzindo a influência de erros posicionais. Aumentar ou diminuir tem o '
+                                'mesmo efeito que na distância entre centróides. Padrão: 10 %.'),
                             'value': '10',
                             'default': '10',
                             'obj': None},
                         'percent_length': {
                             'label': tr_ui(
                                 'Diferença % entre os comprimentos dos mínimos envelopes'),
+                            'tooltip': tr_ui(
+                                'Filtro pelo lado maior dos envelopes orientados. Pares homólogos devem ter '
+                                'comprimentos de envelope semelhantes. Padrão: 5 %.'),
                             'value': '5',
                             'default': '5',
                             'obj': None},
                         'min_extent_px': {
                             'label': tr_ui(
                                 'Extensão mínima da feição de teste (Pixels do MDE de teste)'),
+                            'tooltip': tr_ui(
+                                'Descarta linhas de teste mais curtas que este comprimento (pixels × GSD do teste), '
+                                'evitando amostras pouco representativas. Padrão: 10 px.'),
                             'value': '10',
                             'default': '10',
                             'obj': None},
@@ -82,9 +106,14 @@ class SettingsDlg(QDialog):
                 },
                 'step_buffers': {
                     'label': tr_ui('Definições para Geração Buffers'),
+                    'tooltip': tr_ui(
+                        'Raios de buffer e padrão de acurácia (PEC-PCD ou CE90/LE90).'),
                     'fields': {
                         'accuracy_standard': {
                             'label': '',
+                            'tooltip': tr_ui(
+                                'PEC-PCD classifica nas escalas e classes A–D. '
+                                'CE90/LE90 busca o menor limiar (m) que cumpre os testes de 90 % e RMS.'),
                             'type': 'radio',
                             'list': self.parent.list_accuracy_standard,
                             'value': 0,
@@ -92,6 +121,8 @@ class SettingsDlg(QDialog):
                             'obj': None},
                         'max_scale': {
                             'label': tr_ui('Máxima Escala'),
+                            'tooltip': tr_ui(
+                                'Maior escala (maior detalhe) da avaliação PEC-PCD, p.ex. 1:10.000.'),
                             'list': self.list_scale,
                             'string': '1:{}.000',
                             'value': 10,
@@ -99,6 +130,9 @@ class SettingsDlg(QDialog):
                             'obj': None},
                         'min_scale': {
                             'label': tr_ui('Mínima Escala'),
+                            'tooltip': tr_ui(
+                                'Menor escala (menor detalhe) da avaliação PEC-PCD. '
+                                'A análise percorre da máxima à mínima.'),
                             'list': self.list_scale,
                             'string': '1:{}.000',
                             'value': 10,
@@ -106,6 +140,9 @@ class SettingsDlg(QDialog):
                             'obj': None},
                         'ce90_max_h': {
                             'label': tr_ui('Máximo Horizontal (pixels do MDE de teste)'),
+                            'tooltip': tr_ui(
+                                'Teto da busca do CE90, em pixels do MDE de teste (× GSD = metros). '
+                                'Padrão: 5 px.'),
                             'type': 'doublespin',
                             'value': 5.0,
                             'default': 5.0,
@@ -116,6 +153,9 @@ class SettingsDlg(QDialog):
                             'obj': None},
                         'ce90_max_v': {
                             'label': tr_ui('Máximo Vertical (pixels do MDE de teste)'),
+                            'tooltip': tr_ui(
+                                'Teto da busca do LE90, em pixels do MDE de teste (× GSD = metros). '
+                                'Padrão: 2 px.'),
                             'type': 'doublespin',
                             'value': 2.0,
                             'default': 2.0,
@@ -126,6 +166,9 @@ class SettingsDlg(QDialog):
                             'obj': None},
                         'show_buffers_on_map': {
                             'label': tr_ui('Mostrar buffers no mapa durante o processamento'),
+                            'tooltip': tr_ui(
+                                'Se Sim, a camada de buffers aparece no mapa enquanto é gerada '
+                                '(pode tornar o processamento mais lento). Padrão: Não.'),
                             'list': [tr_ui('Não'), tr_ui('Sim')],
                             'value': 0,
                             'default': 0,
@@ -133,10 +176,16 @@ class SettingsDlg(QDialog):
                     },
                 },
                 'step_normalize_prog': {
-                    'label': tr_ui('Definições para Normalização de Progressivas'),
+                    'label': tr_ui('Definições para Compatibilização de Progressivas'),
+                    'tooltip': tr_ui(
+                        'Compatibilização das progressivas dos perfis altimétricos (referência vs teste).'),
                     'fields': {
                         'norm_type': {
-                            'label': tr_ui('Método para Normalização'),
+                            'label': tr_ui('Método para Compatibilização'),
+                            'tooltip': tr_ui(
+                                'Linear: reescala o comprimento do perfil de teste. '
+                                'Por proximidade: associa pontos pela menor distância. '
+                                'Sem compatibilização: usa as progressivas originais.'),
                             'list': self.parent.list_norm_type,
                             'value': 0,
                             'default': 0,
@@ -145,6 +194,8 @@ class SettingsDlg(QDialog):
                 },
                 'step_dm_formula': {
                     'label': tr_ui('Fórmula para cálculo da Discrepância Média'),
+                    'tooltip': tr_ui(
+                        'Equação da discrepância média (DM) a partir das áreas dos buffers duplos.'),
                     'fields': {
                         'dm_formula': {
                             'label': '',
@@ -158,9 +209,14 @@ class SettingsDlg(QDialog):
                 },
                 'step_audit_report': {
                     'label': tr_ui('Relatório de Auditoria'),
+                    'tooltip': tr_ui(
+                        'PDFs/CSV par a par para conferir buffers e DM. '
+                        'Pode gerar só o planimétrico, só o altimétrico, ou ambos.'),
                     'fields': {
                         'audit_horizontal': {
                             'label': tr_ui('Horizontal'),
+                            'tooltip': tr_ui(
+                                'Gera o relatório de auditoria planimétrica (buffers no plano XY).'),
                             'type': 'checkbox',
                             'value': 0,
                             'default': 0,
@@ -168,6 +224,8 @@ class SettingsDlg(QDialog):
                             'obj': None},
                         'audit_vertical': {
                             'label': tr_ui('Vertical'),
+                            'tooltip': tr_ui(
+                                'Gera o relatório de auditoria altimétrica (perfis cota × progressiva).'),
                             'type': 'checkbox',
                             'value': 0,
                             'default': 0,
@@ -175,6 +233,9 @@ class SettingsDlg(QDialog):
                             'obj': None},
                         'audit_csv_only': {
                             'label': tr_ui('Apenas CSV (sem PDF)'),
+                            'tooltip': tr_ui(
+                                'Se marcado, grava só o CSV (uma linha por feição, colunas por raio/escala), '
+                                'sem gerar o PDF de auditoria.'),
                             'type': 'checkbox',
                             'value': 0,
                             'default': 0,
@@ -203,58 +264,112 @@ class SettingsDlg(QDialog):
         """Actualiza rótulos traduzíveis em dic_param (valores dos widgets mantêm-se)."""
         dp = self.dic_param
         dp['step_morfologia']['label'] = tr_ui('Definições para Geração de Morfologia')
+        dp['step_morfologia']['tooltip'] = tr_ui(
+            'Extração das feições lineares (cumeadas e hidrografia) por watershed (GRASS).')
         dp['step_morfologia']['fields']['max_basin_area']['label'] = tr_ui(
             'Máxima Área das Bacias (m²)')
+        dp['step_morfologia']['fields']['max_basin_area']['tooltip'] = tr_ui(
+            'Controla a densidade das linhas: diminuir a área gera mais feições; '
+            'aumentar gera menos. Padrão: 675000 m².')
         dp['step_morfologia']['fields']['max_memo_grass']['label'] = tr_ui(
             'Limite de Memória para Grass GIS (GB)')
+        dp['step_morfologia']['fields']['max_memo_grass']['tooltip'] = tr_ui(
+            'Memória máxima do GRASS no r.watershed. Aumente se o processo falhar por RAM. '
+            'Padrão: 4 GB.')
         dp['step_match']['label'] = tr_ui('Definições para Seleção dos Pares')
+        dp['step_match']['tooltip'] = tr_ui(
+            'Filtros para formar pares homólogos entre linhas de referência e de teste.')
         dp['step_match']['fields']['dist_max']['label'] = tr_ui(
             'Distância máxima entre centróides (pixels do MDE de teste)')
+        dp['step_match']['fields']['dist_max']['tooltip'] = tr_ui(
+            'Filtro inicial: distância máxima entre centróides, em pixels do MDE de teste. '
+            'Aumentar tende a aumentar candidatos; diminuir pode enviesar a amostra '
+            'ou não atingir o mínimo. Padrão: 3 px.')
         dp['step_match']['fields']['percent_area']['label'] = tr_ui(
             'Diferença % entre área dos mínimos envelopes')
+        dp['step_match']['fields']['percent_area']['tooltip'] = tr_ui(
+            'Segundo filtro: geometrias semelhantes têm envelopes com áreas semelhantes, '
+            'reduzindo a influência de erros posicionais. Padrão: 10 %.')
         if 'percent_length' in dp['step_match']['fields']:
             dp['step_match']['fields']['percent_length']['label'] = tr_ui(
                 'Diferença % entre os comprimentos dos mínimos envelopes')
+            dp['step_match']['fields']['percent_length']['tooltip'] = tr_ui(
+                'Filtro pelo lado maior dos envelopes orientados. Pares homólogos devem ter '
+                'comprimentos de envelope semelhantes. Padrão: 5 %.')
         if 'min_extent_px' in dp['step_match']['fields']:
             dp['step_match']['fields']['min_extent_px']['label'] = tr_ui(
                 'Extensão mínima da feição de teste (Pixels do MDE de teste)')
+            dp['step_match']['fields']['min_extent_px']['tooltip'] = tr_ui(
+                'Descarta linhas de teste mais curtas que este comprimento (pixels × GSD do teste). '
+                'Padrão: 10 px.')
         dp['step_buffers']['label'] = tr_ui('Definições para Geração Buffers')
+        dp['step_buffers']['tooltip'] = tr_ui(
+            'Raios de buffer e padrão de acurácia (PEC-PCD ou CE90/LE90).')
         if 'accuracy_standard' in dp['step_buffers']['fields']:
             dp['step_buffers']['fields']['accuracy_standard']['list'] = (
                 self.parent.list_accuracy_standard)
+            dp['step_buffers']['fields']['accuracy_standard']['tooltip'] = tr_ui(
+                'PEC-PCD classifica nas escalas e classes A–D. '
+                'CE90/LE90 busca o menor limiar (m) que cumpre os testes de 90 % e RMS.')
         dp['step_buffers']['fields']['max_scale']['label'] = tr_ui('Máxima Escala')
+        dp['step_buffers']['fields']['max_scale']['tooltip'] = tr_ui(
+            'Maior escala (maior detalhe) da avaliação PEC-PCD, p.ex. 1:10.000.')
         dp['step_buffers']['fields']['min_scale']['label'] = tr_ui('Mínima Escala')
+        dp['step_buffers']['fields']['min_scale']['tooltip'] = tr_ui(
+            'Menor escala (menor detalhe) da avaliação PEC-PCD.')
         if 'ce90_max_h' in dp['step_buffers']['fields']:
             dp['step_buffers']['fields']['ce90_max_h']['label'] = tr_ui(
                 'Máximo Horizontal (pixels do MDE de teste)')
+            dp['step_buffers']['fields']['ce90_max_h']['tooltip'] = tr_ui(
+                'Teto da busca do CE90, em pixels do MDE de teste. Padrão: 5 px.')
         if 'ce90_max_v' in dp['step_buffers']['fields']:
             dp['step_buffers']['fields']['ce90_max_v']['label'] = tr_ui(
                 'Máximo Vertical (pixels do MDE de teste)')
+            dp['step_buffers']['fields']['ce90_max_v']['tooltip'] = tr_ui(
+                'Teto da busca do LE90, em pixels do MDE de teste. Padrão: 2 px.')
         dp['step_buffers']['fields']['show_buffers_on_map']['label'] = tr_ui(
             'Mostrar buffers no mapa durante o processamento')
+        dp['step_buffers']['fields']['show_buffers_on_map']['tooltip'] = tr_ui(
+            'Se Sim, a camada de buffers aparece no mapa enquanto é gerada. Padrão: Não.')
         dp['step_buffers']['fields']['show_buffers_on_map']['list'] = [
             tr_ui('Não'), tr_ui('Sim')]
         dp['step_normalize_prog']['label'] = tr_ui(
-            'Definições para Normalização de Progressivas')
+            'Definições para Compatibilização de Progressivas')
+        dp['step_normalize_prog']['tooltip'] = tr_ui(
+            'Compatibilização das progressivas dos perfis altimétricos (referência vs teste).')
         dp['step_normalize_prog']['fields']['norm_type']['label'] = tr_ui(
-            'Método para Normalização')
+            'Método para Compatibilização')
+        dp['step_normalize_prog']['fields']['norm_type']['tooltip'] = tr_ui(
+            'Linear: reescala o comprimento do perfil de teste. '
+            'Por proximidade: associa pontos pela menor distância. '
+            'Sem compatibilização: usa as progressivas originais.')
         dp['step_normalize_prog']['fields']['norm_type']['list'] = self.parent.list_norm_type
         if 'step_dm_formula' in dp:
             dp['step_dm_formula']['label'] = tr_ui(
                 'Fórmula para cálculo da Discrepância Média')
+            dp['step_dm_formula']['tooltip'] = tr_ui(
+                'Equação da discrepância média (DM) a partir das áreas dos buffers duplos.')
             dp['step_dm_formula']['fields']['dm_formula']['list'] = (
                 self.parent.list_dm_formula)
             dp['step_dm_formula']['fields']['dm_formula']['tooltips'] = (
                 self.parent.list_dm_formula_tooltips)
         if 'step_audit_report' in dp:
             dp['step_audit_report']['label'] = tr_ui('Relatório de Auditoria')
+            dp['step_audit_report']['tooltip'] = tr_ui(
+                'PDFs/CSV par a par para conferir buffers e DM (planimétrico e/ou altimétrico).')
             dp['step_audit_report']['fields']['audit_horizontal']['label'] = tr_ui(
                 'Horizontal')
+            dp['step_audit_report']['fields']['audit_horizontal']['tooltip'] = tr_ui(
+                'Gera o relatório de auditoria planimétrica (buffers no plano XY).')
             dp['step_audit_report']['fields']['audit_vertical']['label'] = tr_ui(
                 'Vertical')
+            dp['step_audit_report']['fields']['audit_vertical']['tooltip'] = tr_ui(
+                'Gera o relatório de auditoria altimétrica (perfis cota × progressiva).')
             if 'audit_csv_only' in dp['step_audit_report']['fields']:
                 dp['step_audit_report']['fields']['audit_csv_only']['label'] = tr_ui(
                     'Apenas CSV (sem PDF)')
+                dp['step_audit_report']['fields']['audit_csv_only']['tooltip'] = tr_ui(
+                    'Se marcado, grava só o CSV, sem gerar o PDF de auditoria.')
 
     def apply_language_live(self):
         """Actualiza textos da janela de parâmetros após mudança de idioma."""
@@ -262,7 +377,9 @@ class SettingsDlg(QDialog):
         self._retranslate_dic_param()
         self.setWindowTitle(tr_ui('Parâmetros'))
         self.pb_rest.setText(tr_ui('Restaurar'))
+        self.pb_rest.setToolTip(tr_ui('Repõe todos os parâmetros desta janela nos valores padrão.'))
         self.pb_save.setText(tr_ui('Salvar'))
+        self.pb_save.setToolTip(tr_ui('Grava os parâmetros no projeto (.pa.gpkg) e fecha a janela.'))
         if getattr(self, 'pb_audit_csv', None) is not None:
             self.pb_audit_csv.setText(tr_ui('Gerar CSV de auditoria'))
             self.pb_audit_csv.setToolTip(tr_ui(
@@ -318,6 +435,7 @@ class SettingsDlg(QDialog):
                     obj.setCurrentIndex(idx)
                 obj.blockSignals(False)
         self._sync_buffer_standard_visibility()
+        self._apply_param_tooltips()
 
     def get_dic_from_settings(self):
         dic_from_settings = self.aux_tools.get_dic(key_='dic_param')
@@ -503,6 +621,7 @@ class SettingsDlg(QDialog):
 
 
         self.pb_rest = QPushButton(tr_ui('Restaurar'), self)
+        self.pb_rest.setToolTip(tr_ui('Repõe todos os parâmetros desta janela nos valores padrão.'))
         # self.pb_remove.setEnabled(False)
         hl_.addWidget(self.pb_rest)
 
@@ -513,6 +632,7 @@ class SettingsDlg(QDialog):
         hl_.addWidget(self.pb_audit_csv)
 
         self.pb_save = QPushButton(tr_ui('Salvar'), self)
+        self.pb_save.setToolTip(tr_ui('Grava os parâmetros no projeto (.pa.gpkg) e fecha a janela.'))
         # self.pb_save.setEnabled(False)
         hl_.addWidget(self.pb_save)
 
@@ -535,7 +655,40 @@ class SettingsDlg(QDialog):
 
         self.trigger_actions()
         self._wire_accuracy_standard_visibility()
+        self._apply_param_tooltips()
         return vl_
+
+    def _apply_param_tooltips(self):
+        """Aplica tooltip do campo ao rótulo e ao widget (e à secção)."""
+        for item_i, block in self.dic_param.items():
+            if not isinstance(item_i, str) or not item_i.startswith('step_'):
+                continue
+            sec_tip = block.get('tooltip') or ''
+            lb_sec = block.get('label_obj')
+            if lb_sec is not None and sec_tip:
+                lb_sec.setToolTip(sec_tip)
+            for _fj, meta in (block.get('fields') or {}).items():
+                if not isinstance(meta, dict):
+                    continue
+                tip = meta.get('tooltip') or ''
+                if not tip:
+                    continue
+                lb_f = meta.get('label_obj')
+                if lb_f is not None:
+                    lb_f.setToolTip(tip)
+                obj = meta.get('obj')
+                if obj is None:
+                    continue
+                if meta.get('type') == 'radio':
+                    per_opt = meta.get('tooltips') or []
+                    for btn in obj.buttons():
+                        idx = obj.id(btn)
+                        if 0 <= idx < len(per_opt) and per_opt[idx]:
+                            continue
+                        if not btn.toolTip():
+                            btn.setToolTip(tip)
+                else:
+                    obj.setToolTip(tip)
 
     def _set_field_row_visible(self, meta, visible: bool):
         lb = meta.get('label_obj')

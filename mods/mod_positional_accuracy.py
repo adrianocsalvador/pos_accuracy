@@ -823,7 +823,7 @@ def _pairs_section_rows(pairs_sec: dict) -> list[dict]:
     norm = (pairs_sec.get('norm_label') or '').strip()
     if norm:
         out.append({
-            'label': pairs_sec.get('norm_caption') or 'Método de normalização de progressivas',
+            'label': pairs_sec.get('norm_caption') or 'Método de compatibilização de progressivas',
             'value': norm,
         })
     for ln in pairs_sec.get('intro_lines') or []:
@@ -1233,7 +1233,7 @@ def format_profiles_wkt_txt(
         return ''
     lbl_dt = labels.get('datetime', 'Data/hora')
     lbl_proj = labels.get('project_file', 'Ficheiro de projeto')
-    lbl_norm = labels.get('norm_caption', 'Método de normalização de progressivas')
+    lbl_norm = labels.get('norm_caption', 'Método de compatibilização de progressivas')
     lbl_pair = labels.get('pair', 'Par')
     lbl_ref_id = labels.get('ref_id', 'ref_id')
     lbl_layer_ref = labels.get('layer_ref', 'camada_ref')
@@ -1912,7 +1912,7 @@ STEP_KEY_TO_RESTART_ETAPA = {
     'step_morfologia': 'morfologia_referencia',
     'step_match': 'correspondencia_linhas',
     'step_buffers': 'buffers',
-    # Normalização afeta perfis altimétricos: refaz DM (e PEC) sem rematch nem limpar __Buffers__
+    # Compatibilização afeta perfis altimétricos: refaz DM (e PEC) sem rematch nem limpar __Buffers__
     'step_normalize_prog': 'buffers_alt',
     # Só a fórmula DM: recalcula dm a partir das geometrias/raios, sem rematch
     'step_dm_formula': 'dm_recalc',
@@ -2894,7 +2894,7 @@ class Wd1(QWidget):
         self.dic_pec_v = DIC_EQ_BY_NOMINAL_SCALE
         self.dic_pec_alt = DIC_PEC_ALT
         self.list_norm_type = [
-            tr_ui('Linear'), tr_ui('Por Proximidade'), tr_ui('Sem Normalização')]
+            tr_ui('Linear'), tr_ui('Por Proximidade'), tr_ui('Sem Compatibilização')]
         self.list_accuracy_standard = [
             tr_ui('Padrão Brasileiro - PEC PCD'),
             tr_ui('CE90 e LE90'),
@@ -2992,7 +2992,9 @@ class Wd1(QWidget):
         self._refresh_header_logo_tooltips()
 
         self.pb_config = QPushButton()
-        self.pb_config.setToolTip(self.tr('Config'))
+        self.pb_config.setToolTip(self.tr(
+            'Parâmetros da metodologia: morfologia, pares, buffers, '
+            'compatibilização, fórmula da DM e auditoria.'))
         self.pb_config.setIcon(_icon_from_icons_file('icon_config.png'))
         self.pb_config.setIconSize(QSize(25, 25))
         self.pb_config.setFixedSize(32, 32)
@@ -3227,7 +3229,105 @@ class Wd1(QWidget):
         lg_sa.addLayout(gl_tool, 0, 0)
 
         self.trigger_actions()
+        self._apply_panel_tooltips()
         return lg_sa
+
+    def _apply_panel_tooltips(self):
+        """Dicas de utilização nos rótulos e controlos do painel."""
+        QtTip = Qt.ToolTipRole
+        if getattr(self, 'lb_title_proj', None):
+            self.lb_title_proj.setToolTip(self.tr(
+                'Ficheiro GeoPackage do projeto (.pa.gpkg): camadas, parâmetros e resultados.'))
+        if getattr(self, 'lb_status_proj', None):
+            self.lb_status_proj.setToolTip(self.tr(
+                'Estado do projeto: definido (ficheiro .pa.gpkg encontrado) ou não definido.'))
+        if getattr(self, 'lb_path_proj', None):
+            self.lb_path_proj.setToolTip(self.tr('Caminho do ficheiro de projeto .pa.gpkg.'))
+        if getattr(self, 'lb_version', None):
+            self.lb_version.setToolTip(self.tr('Versão instalada do complemento.'))
+        if getattr(self, 'pb_config', None):
+            self.pb_config.setToolTip(self.tr(
+                'Parâmetros da metodologia: morfologia, pares, buffers, '
+                'compatibilização, fórmula da DM e auditoria.'))
+
+        if getattr(self, 'lb_dem_ref', None):
+            self.lb_dem_ref.setToolTip(self.tr(
+                'MDE de referência (maior rigor posicional), usado como verdade de campo.'))
+        if getattr(self, 'lb_dem_test', None):
+            self.lb_dem_test.setToolTip(self.tr(
+                'MDE a avaliar. A resolução (GSD) deste raster define as distâncias em pixels.'))
+        for key_ in (self.dic_prj.get('dems') or {}):
+            cbx = self.dic_prj['dems'][key_].get('obj_cbx')
+            if cbx is None:
+                continue
+            if key_ == 0:
+                cbx.setToolTip(self.tr('Seleccione o raster de referência.'))
+            else:
+                cbx.setToolTip(self.tr('Seleccione o raster de teste a avaliar.'))
+
+        if getattr(self, 'lb_wf_study', None):
+            self.lb_wf_study.setToolTip(self.tr(
+                'Delimita a área da análise: interseção automática dos MDEs, '
+                'edição após gerar o polígono, ou polígono de uma camada existente.'))
+        if getattr(self, 'cbx_workflow_study', None):
+            self.cbx_workflow_study.setToolTip(self.tr(
+                'Como obter a área de estudo: (i) interseção dos MDEs; '
+                '(ii) editar após a interseção; (iii) seleccionar polígono de uma camada.'))
+            tips_study = (
+                self.tr('Calcula automaticamente o polígono pela interseção dos dois MDEs.'),
+                self.tr('Gera a interseção e permite editar o polígono antes de continuar.'),
+                self.tr('Usa um polígono já existente numa camada do projeto.'),
+            )
+            for i, tip in enumerate(tips_study):
+                self.cbx_workflow_study.setItemData(i, tip, QtTip)
+        if getattr(self, 'lb_area', None):
+            self.lb_area.setToolTip(self.tr('Área do polígono de estudo (km²).'))
+        if getattr(self, 'lb_ext_min', None):
+            self.lb_ext_min.setToolTip(self.tr(
+                'Extensão linear mínima recomendada da amostra, proporcional à área de estudo.'))
+        if getattr(self, 'lb_study_layer', None):
+            self.lb_study_layer.setToolTip(self.tr(
+                'Camada de polígono usada quando a área de estudo vem de uma camada existente.'))
+        if getattr(self, 'cbx_study_area_layer', None):
+            self.cbx_study_area_layer.setToolTip(self.tr(
+                'Seleccione a camada polígono que delimita a área de estudo.'))
+
+        if getattr(self, 'lb_wf_pairs', None):
+            self.lb_wf_pairs.setToolTip(self.tr(
+                'Definição dos pares homólogos: seleção automática ou revisão após a seleção.'))
+        if getattr(self, 'cbx_workflow_pairs', None):
+            self.cbx_workflow_pairs.setToolTip(self.tr(
+                '(i) Automática — usa só os filtros de Config. '
+                '(ii) Revisar — permite editar os pares no mapa antes dos buffers.'))
+            self.cbx_workflow_pairs.setItemData(
+                0, self.tr('Selecciona os pares só com os filtros de distância e envelopes.'), QtTip)
+            self.cbx_workflow_pairs.setItemData(
+                1, self.tr('Pausa após a seleção para rever, remover ou acrescentar pares no mapa.'), QtTip)
+        if getattr(self, 'lb_ext_match', None):
+            self.lb_ext_match.setToolTip(self.tr(
+                'Soma dos comprimentos das linhas de referência nos pares aceites.'))
+        if getattr(self, 'lb_pair_nr', None):
+            self.lb_pair_nr.setToolTip(self.tr('Número de pares homólogos válidos.'))
+
+        if getattr(self, 'lb_wf_outliers', None):
+            self.lb_wf_outliers.setToolTip(self.tr(
+                'Outliers pelo método do boxplot (IQR). Pode remover todos, avaliar os indicados, '
+                'ou usar todas as amostras.'))
+        if getattr(self, 'cbx_workflow_outliers', None):
+            self.cbx_workflow_outliers.setToolTip(self.tr(
+                '(i) Remover automaticamente os outliers; (ii) avaliar os indicados; '
+                '(iii) usar todos, ignorando a indicação do boxplot.'))
+            self.cbx_workflow_outliers.setItemData(
+                0, self.tr('Exclui automaticamente as amostras fora do critério IQR (boxplot).'), QtTip)
+            self.cbx_workflow_outliers.setItemData(
+                1, self.tr('Mostra os outliers para decisão caso a caso antes do PEC.'), QtTip)
+            self.cbx_workflow_outliers.setItemData(
+                2, self.tr('Mantém todas as amostras, sem excluir outliers.'), QtTip)
+
+        if getattr(self, 'lb_log', None):
+            self.lb_log.setToolTip(self.tr('Mensagens do processamento e avisos da análise.'))
+        if getattr(self, 'pte_log', None):
+            self.pte_log.setToolTip(self.tr('Registo detalhado da execução (só leitura).'))
 
     def trigger_actions(self):
         for key_ in self.dic_prj['dems']:
@@ -4225,13 +4325,13 @@ class Wd1(QWidget):
             )
             restart = None
 
-        # Só fórmula DM / normalização: manter pares e geometrias de buffer no GPKG
+        # Só fórmula DM / compatibilização: manter pares e geometrias de buffer no GPKG
         if restart in ('buffers_alt', 'dm_recalc'):
             self._clear_pec_report_cache()
             self._pipeline_reset_timestamps_from_ordem(6)
             if restart == 'buffers_alt':
                 msg = self.tr(
-                    'Normalização alterada: recalculando discrepâncias (DM), '
+                    'Compatibilização alterada: recalculando discrepâncias (DM), '
                     'sem rematch e sem limpar a camada de buffers.'
                 )
             else:
@@ -4662,7 +4762,7 @@ class Wd1(QWidget):
         elif restart == 'buffers_alt':
             self.log_message(
                 self.tr(
-                    'Retomando recalculo de DM (normalização / altimetria); '
+                    'Retomando recalculo de DM (compatibilização / altimetria); '
                     'pares e camada de buffers mantidos.'
                 ),
                 'INFO',
@@ -4670,7 +4770,7 @@ class Wd1(QWidget):
             if not self.dic_match:
                 self.matching_lines()
             else:
-                # Normalização só muda perfis altimétricos: não regrava buffers planimétricos.
+                # Compatibilização só muda perfis altimétricos: não regrava buffers planimétricos.
                 self.define_buffers(write_buffer_layer=False, recompute_focus='alt')
         elif restart == 'dm_recalc':
             self.log_message(
@@ -5752,7 +5852,7 @@ class Wd1(QWidget):
         """Gera buffers / DM.
 
         write_buffer_layer=False: recalcula DM (e PEC) sem esvaziar/regravar __Buffers__.
-        recompute_focus: 'full' | 'alt' (ênfase altimétrica / normalização) | 'dm' (só fórmula).
+        recompute_focus: 'full' | 'alt' (ênfase altimétrica / compatibilização) | 'dm' (só fórmula).
         """
         self._buffer_geom_diag_counts = {}
         self._buffers_layer_target_logged = False
@@ -5788,7 +5888,7 @@ class Wd1(QWidget):
         mss_ = self.tr('=======================================\n')
         if not write_buffer_layer:
             if recompute_focus == 'alt':
-                mss_ += self.tr('RECALCULANDO DM (NORMALIZAÇÃO / ALTIMETRIA)')
+                mss_ += self.tr('RECALCULANDO DM (COMPATIBILIZAÇÃO / ALTIMETRIA)')
             elif recompute_focus == 'dm':
                 mss_ += self.tr('RECALCULANDO DM (FÓRMULA)')
             else:
@@ -6910,7 +7010,7 @@ class Wd1(QWidget):
         rows = []
         if norm_label:
             rows.append({
-                'label': self.tr('Método de normalização de progressivas'),
+                'label': self.tr('Método de compatibilização de progressivas'),
                 'value': norm_label,
             })
         if pairs:
@@ -6958,7 +7058,7 @@ class Wd1(QWidget):
             'title': self.tr('6. Pares homólogos — estatísticas'),
             'header': [self.tr('Opção'), self.tr('Valor')],
             'rows': rows,
-            'norm_caption': self.tr('Método de normalização de progressivas'),
+            'norm_caption': self.tr('Método de compatibilização de progressivas'),
             'norm_label': norm_label,
             'wkt_file_caption': self.tr('Ficheiro WKT dos perfis'),
             'empty_message': empty_msg,
@@ -6968,7 +7068,7 @@ class Wd1(QWidget):
         return {
             'datetime': self.tr('Data/hora'),
             'project_file': self.tr('Ficheiro de projeto'),
-            'norm_caption': self.tr('Método de normalização de progressivas'),
+            'norm_caption': self.tr('Método de compatibilização de progressivas'),
             'pair': self.tr('Par'),
             'ref_id': self.tr('ref_id'),
             'layer_ref': self.tr('camada_ref'),
@@ -8152,7 +8252,7 @@ class Wd1(QWidget):
             'pair_nr': tr_ui('Número de pares homólogos: {}'),
         }
         self.list_norm_type = [
-            tr_ui('Linear'), tr_ui('Por Proximidade'), tr_ui('Sem Normalização')]
+            tr_ui('Linear'), tr_ui('Por Proximidade'), tr_ui('Sem Compatibilização')]
         self.list_accuracy_standard = [
             tr_ui('Padrão Brasileiro - PEC PCD'),
             tr_ui('CE90 e LE90'),
@@ -8186,7 +8286,6 @@ class Wd1(QWidget):
         ]
 
         self.lb_title_proj.setText(self.tr('Projeto (.pa.gpkg):'))
-        self.pb_config.setToolTip(self.tr('Config'))
         self._refresh_header_logo_tooltips()
         self.pb_lang.setToolTip(self.tr('Alterar idioma da interface'))
         self.pb_project_new.setToolTip(self.tr('Novo projeto…'))
@@ -8237,6 +8336,7 @@ class Wd1(QWidget):
             if obj_pb is not None:
                 obj_pb.setToolTip(self.tr('Informações do MDE selecionado'))
 
+        self._apply_panel_tooltips()
         self._refresh_extent_and_pairs_labels()
         self._refresh_proc_button()
 
