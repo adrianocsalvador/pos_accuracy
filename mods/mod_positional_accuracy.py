@@ -15,11 +15,11 @@ from functools import partial
 # from sys import prefix
 
 from osgeo import ogr
-from qgis.PyQt.QtCore import (QSettings, Qt, QSize, QTranslator, QCoreApplication, QEvent, QThreadPool, QDateTime,
-                              QVariant, QRectF, QByteArray, QBuffer, QIODevice, QMarginsF, QUrl)
+from qgis.PyQt.QtCore import (QSettings, Qt, QSize, QSizeF, QTranslator, QCoreApplication, QEvent, QThreadPool, QDateTime,
+                              QVariant, QRectF, QByteArray, QBuffer, QIODevice, QMarginsF, QUrl, QTimer)
 from qgis.PyQt.QtGui import (
     QPixmap, QIcon, QFont, QPalette, QColor, QTextCharFormat, QBrush, QTextOption,
-    QTextDocument, QPainter, QDesktopServices, QCursor,
+    QTextDocument, QPainter, QDesktopServices, QCursor, QImage, qAlpha,
 )
 from qgis.PyQt.QtPrintSupport import QPrinter
 from qgis.PyQt.QtWidgets import (QAction, QScrollArea, QGridLayout, QHBoxLayout, QPushButton, QLabel, QWidget, QSizePolicy,
@@ -42,7 +42,25 @@ from .mod_worker_threads import (
 )
 from .mod_settings import SettingsDlg
 from .mod_language_dlg import LanguageDlg
-from .mod_pec_constants import DIC_EQ_BY_NOMINAL_SCALE, DIC_PEC_ALT, DIC_PEC_MM
+from .mod_pec_constants import (
+    ACCURACY_STANDARD_BR,
+    ACCURACY_STANDARD_CE90,
+    CE90_CRIT_DEFAULT,
+    CLASS_CE90,
+    CLASS_LE90,
+    DIC_EQ_BY_NOMINAL_SCALE,
+    DIC_PEC_ALT,
+    DIC_PEC_MM,
+    EP_RATIO_H,
+    EP_RATIO_V,
+    PEC_PASS_PERCENT,
+    ce90_criteria_from_mask,
+    ce90_threshold_decimals,
+    dm_formula_report_row,
+    pec_percent_rounded,
+    pec_rms,
+    pec_v_from_eq,
+)
 from .plugin_i18n import (
     LOCALE_AUTO,
     PLUGIN_I18N_CONTEXT,
@@ -62,6 +80,10 @@ sys.path.append(os.path.join(os.path.join(plugin_path, 'libs')))
 # Arquivo de projeto: GeoPackage com extensão composta (conteúdo GPKG)
 PROJECT_EXT = '.pa.gpkg'
 PLUGIN_DISPLAY_NAME = 'MDE AP - Acurácia Posicional'
+
+# Destaque de validação no painel (projeto / extensão da amostra)
+_UI_VALIDATION_HL = (
+    'background-color: #fff3cd; border: 2px solid #e6a800; border-radius: 3px;')
 
 # Mesmo limite que BufferThread (|dm_h|/|dm_v| acima → NaN + WARNING no log).
 _MAX_PEC_MEASUREMENT_ABS = DM_ABS_MAX_SANE
@@ -93,25 +115,28 @@ def _coerce_finite_extent_m(x):
     return v
 
 
-def pec_test_limit(pec_):
-    """Arredonda o limiar PEC para inteiro antes do teste."""
+def pec_test_limit(pec_, decimals=None):
+    """Limiar PEC para o teste: inteiro (PEC-PCD) ou casas decimais (CE90/LE90)."""
     try:
-        return int(round(float(pec_)))
+        v = float(pec_)
     except (TypeError, ValueError):
-        return 0
+        return 0 if decimals is None else 0.0
+    if decimals is None:
+        return int(round(v))
+    return round(v, int(decimals))
 
 
-def perc_pec_quant(values, pec_):
-    """Percentual de amostras com DM <= PEC (limiar inteiro)."""
+def perc_pec_quant(values, pec_, decimals=None):
+    """Percentual de amostras com DM <= PEC."""
     if not values:
         return 0.0
-    pec_lim = pec_test_limit(pec_)
+    pec_lim = pec_test_limit(pec_, decimals=decimals)
     return sum(1 for v in values if v <= pec_lim) / len(values)
 
 
-def perc_pec_ext(values, extents, pec_):
+def perc_pec_ext(values, extents, pec_, decimals=None):
     """Percentual da extensão total com DM <= PEC."""
-    pec_lim = pec_test_limit(pec_)
+    pec_lim = pec_test_limit(pec_, decimals=decimals)
     total_ext = sum(extents)
     if total_ext <= 0:
         return 0.0
@@ -133,13 +158,12 @@ def check_norm_values(values):
         return False
 
 
-def pec_alt_limits(scale_, class_, dic_pec_alt=None):
-    """Retorna (pec, ep) altimétricos arredondados para escala/classe."""
-    table = dic_pec_alt if dic_pec_alt is not None else DIC_PEC_ALT
-    limits = table.get(scale_, {}).get(class_)
-    if not limits:
-        return None, None
-    return round(float(limits['pec']), 2), round(float(limits['ep']), 2)
+def pec_alt_limits(scale_, class_, dic_pec_alt=None, dic_eq=None, dic_pec_mm=None):
+    """Retorna (pec, ep) altimétricos: EQ(escala) × coeficientes mm.
+
+    `dic_pec_alt` é ignorado (mantido só por compatibilidade de assinatura).
+    """
+    return pec_v_from_eq(scale_, class_, eq_table=dic_eq, mm_table=dic_pec_mm)
 
 
 def geometry_area_square_meters(geom: QgsGeometry, crs: QgsCoordinateReferenceSystem) -> float:
@@ -156,6 +180,10 @@ def geometry_area_square_meters(geom: QgsGeometry, crs: QgsCoordinateReferenceSy
 
 PLUGIN_ICON_BASENAME = 'icon_bfn'
 PPGEC_LOGO_FILENAME = 'PPGEC2025.png'
+UFV_LOGO_FILENAME = 'UFV.png'
+PLUGIN_GITHUB_URL = 'https://github.com/adrianocsalvador/pos_accuracy'
+UFV_WEBSITE_URL = 'https://www.ufv.br'
+PPGEC_WEBSITE_URL = 'https://posengenhariacivil.ufv.br/'
 
 
 def _ui_device_pixel_ratio() -> float:
@@ -169,9 +197,94 @@ def _ui_device_pixel_ratio() -> float:
     return 1.0
 
 
+def _first_existing_icon_path(*names: str) -> str:
+    """Primeiro ficheiro existente em icons/; SVG tem prioridade se for passado primeiro."""
+    for name in names:
+        path_ = os.path.normpath(os.path.join(plugin_path, 'icons', name))
+        if os.path.isfile(path_):
+            return path_
+    return ''
+
+
 def _resolve_ppgec_logo_path() -> str:
-    path_ = os.path.normpath(os.path.join(plugin_path, 'icons', PPGEC_LOGO_FILENAME))
-    return path_ if os.path.isfile(path_) else ''
+    stem = os.path.splitext(PPGEC_LOGO_FILENAME)[0]
+    return _first_existing_icon_path(f'{stem}.svg', PPGEC_LOGO_FILENAME)
+
+
+def _resolve_ufv_logo_path() -> str:
+    stem = os.path.splitext(UFV_LOGO_FILENAME)[0]
+    return _first_existing_icon_path(
+        f'{stem}.svg', UFV_LOGO_FILENAME, 'UFV_v2.png', 'icon_ufv.png')
+
+
+def _open_web_url(url: str) -> bool:
+    text = (url or '').strip()
+    if not text:
+        return False
+    if '://' not in text:
+        text = 'https://' + text.lstrip('/')
+    return QDesktopServices.openUrl(QUrl(text))
+
+
+def _bind_clickable_url_label(label: QLabel, url: str) -> None:
+    """Torna um QLabel clicável: abre `url` no browser."""
+    label.setCursor(QCursor(Qt.PointingHandCursor))
+    label.setFocusPolicy(Qt.StrongFocus)
+    label.setProperty('open_url', url)
+
+    def _on_release(event, lb=label):
+        if event.button() == Qt.LeftButton:
+            _open_web_url(str(lb.property('open_url') or ''))
+        QLabel.mouseReleaseEvent(lb, event)
+
+    label.mouseReleaseEvent = _on_release
+
+
+class ScaledPixmapLabel(QLabel):
+    """QLabel que desenha o PNG/SVG original a caber no widget (KeepAspectRatio).
+
+    Não recorta a arte nem usa ``setScaledContents`` (este distorce e pixeliza).
+    O scale é feito no ``paintEvent`` a partir do ficheiro original, com
+    ``SmoothPixmapTransform``.
+    """
+
+    def __init__(self, slot: QSize, parent: QWidget = None):
+        super().__init__(parent)
+        self._src = QPixmap()
+        self._slot = QSize(slot)
+        self.setFixedSize(slot)
+        self.setAlignment(Qt.AlignCenter)
+        self.setScaledContents(False)
+
+    def set_source(self, path_: str):
+        self._src = QPixmap(path_) if path_ and os.path.isfile(path_) else QPixmap()
+        if not self._src.isNull() and self._src.height() > 0:
+            dpr = float(self._src.devicePixelRatio() or 1.0)
+            src_w = self._src.width() / dpr
+            src_h = self._src.height() / dpr
+            max_w = max(1, self._slot.width())
+            max_h = max(1, self._slot.height())
+            scale = min(max_w / src_w, max_h / src_h)
+            self.setFixedSize(
+                max(1, int(round(src_w * scale))),
+                max(1, int(round(src_h * scale))),
+            )
+        self.update()
+
+    def paintEvent(self, event):
+        if self._src.isNull():
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        target = QRectF(self.contentsRect())
+        src_rect = QRectF(self._src.rect())
+        dpr = float(self._src.devicePixelRatio() or 1.0)
+        logical = QSizeF(src_rect.width() / dpr, src_rect.height() / dpr)
+        fitted = logical.scaled(target.size(), Qt.KeepAspectRatio)
+        dest = QRectF(0, 0, fitted.width(), fitted.height())
+        dest.moveCenter(target.center())
+        painter.drawPixmap(dest, self._src, src_rect)
 
 
 def _resolve_plugin_icon_path(prefer_svg: bool = True) -> str:
@@ -217,6 +330,52 @@ def _make_dem_info_button(parent: QWidget = None) -> QPushButton:
     return btn
 
 
+def _trim_image_alpha(img: QImage, alpha_min: int = 12) -> QImage:
+    """Recorta padding transparente para o logo ocupar mais pixels úteis."""
+    if img.isNull():
+        return img
+    w, h = img.width(), img.height()
+    min_x, min_y, max_x, max_y = w, h, -1, -1
+    for y in range(h):
+        for x in range(w):
+            if qAlpha(img.pixel(x, y)) >= alpha_min:
+                if x < min_x:
+                    min_x = x
+                if y < min_y:
+                    min_y = y
+                if x > max_x:
+                    max_x = x
+                if y > max_y:
+                    max_y = y
+    if max_x < min_x or max_y < min_y:
+        return img
+    pad = 1
+    min_x = max(0, min_x - pad)
+    min_y = max(0, min_y - pad)
+    max_x = min(w - 1, max_x + pad)
+    max_y = min(h - 1, max_y + pad)
+    if min_x == 0 and min_y == 0 and max_x == w - 1 and max_y == h - 1:
+        return img
+    return img.copy(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1)
+
+
+_PIXMAP_TRIM_CACHE = {}
+
+
+def _load_pixmap_maybe_trim(path_: str, trim_alpha: bool) -> QPixmap:
+    key = (path_, bool(trim_alpha))
+    cached = _PIXMAP_TRIM_CACHE.get(key)
+    if cached is not None:
+        return cached
+    pm = QPixmap(path_)
+    if trim_alpha and not pm.isNull():
+        trimmed = _trim_image_alpha(pm.toImage())
+        if not trimmed.isNull():
+            pm = QPixmap.fromImage(trimmed)
+    _PIXMAP_TRIM_CACHE[key] = pm
+    return pm
+
+
 def _pixmap_from_icon_path(
     path_: str,
     size: QSize,
@@ -224,6 +383,7 @@ def _pixmap_from_icon_path(
     smooth: bool = True,
     margin_ratio: float = 0.0,
     force_dpr: float = None,
+    trim_alpha: bool = False,
 ) -> QPixmap:
     """
     Renderiza ícone no tamanho pedido, com suporte HiDPI.
@@ -265,7 +425,7 @@ def _pixmap_from_icon_path(
         except Exception:
             pass
 
-    pm = QPixmap(path_)
+    pm = _load_pixmap_maybe_trim(path_, trim_alpha)
     if pm.isNull():
         return QPixmap()
     mode = Qt.SmoothTransformation if smooth else Qt.FastTransformation
@@ -326,6 +486,8 @@ def _pec_unpack_data_row(row, altimetric: bool):
     """Linha PEC: lista de células ou dict {cells, result_ok}."""
     if isinstance(row, dict):
         cells = row.get('cells') or []
+        if row.get('ce90_layout'):
+            altimetric = False
         status = _pec_result_flags_to_status(row.get('result_ok'), altimetric)
         return list(cells), status
     return list(row), {}
@@ -671,7 +833,7 @@ def _pairs_section_rows(pairs_sec: dict) -> list[dict]:
     norm = (pairs_sec.get('norm_label') or '').strip()
     if norm:
         out.append({
-            'label': pairs_sec.get('norm_caption') or 'Método de normalização de progressivas',
+            'label': pairs_sec.get('norm_caption') or 'Método de compatibilização de progressivas',
             'value': norm,
         })
     for ln in pairs_sec.get('intro_lines') or []:
@@ -915,6 +1077,9 @@ def _pec_results_table_head_html(
 ) -> str:
     """Cabeçalho HTML em 3 níveis (colspan/rowspan; sem width no thead — compatível QTextDocument)."""
     lb = header_labels or _default_pec_results_header_labels()
+    # CE90/LE90: mesma grelha planimétrica (valor | RODADA | …), sem coluna EQ/classe extra
+    if lb.get('ce90_layout'):
+        altimetric = False
     esc = html.escape
     _ = widths_pct
 
@@ -977,6 +1142,8 @@ def _build_pec_results_tables_html_blocks(
     alt_data_rows=None,
     empty_message: str = '',
     header_labels: dict = None,
+    plan_header_labels: dict = None,
+    alt_header_labels: dict = None,
     col_widths: dict = None,
     plan_page_break: bool = True,
     alt_page_break: bool = True,
@@ -984,19 +1151,23 @@ def _build_pec_results_tables_html_blocks(
     """HTML das tabelas PEC (plugin e script TXT→PDF usam a mesma função)."""
     plan_data_rows = plan_data_rows or []
     alt_data_rows = alt_data_rows or []
+    plan_lb = plan_header_labels or header_labels
+    alt_lb = alt_header_labels or header_labels
 
     def cell(v):
         return html.escape('' if v is None else str(v))
 
-    def table_html(title, altimetric, rows, *, page_break=False):
+    def table_html(title, altimetric, rows, *, page_break=False, labels=None):
         if not rows:
             return ''
-        widths = _pec_report_col_widths(altimetric, col_widths)
+        labels = labels or header_labels
+        layout_alt = bool(altimetric) and not bool((labels or {}).get('ce90_layout'))
+        widths = _pec_report_col_widths(layout_alt, col_widths)
         thead = _pec_results_table_head_html(
-            altimetric=altimetric, header_labels=header_labels)
+            altimetric=layout_alt, header_labels=labels)
         body = ''
         for row in rows:
-            cells, status = _pec_unpack_data_row(row, altimetric)
+            cells, status = _pec_unpack_data_row(row, layout_alt)
             tds = _pec_row_tds_html(
                 cells, widths, cell, result_status_by_col=status)
             body += f'<tr>{tds}</tr>'
@@ -1010,9 +1181,13 @@ def _build_pec_results_tables_html_blocks(
     if (intro or '').strip():
         chunks.append(f'<p>{html.escape(intro.strip())}</p>')
     if plan_data_rows:
-        chunks.append(table_html(plan_title, False, plan_data_rows, page_break=plan_page_break))
+        chunks.append(table_html(
+            plan_title, False, plan_data_rows,
+            page_break=plan_page_break, labels=plan_lb))
     if alt_data_rows:
-        chunks.append(table_html(alt_title, True, alt_data_rows, page_break=alt_page_break))
+        chunks.append(table_html(
+            alt_title, True, alt_data_rows,
+            page_break=alt_page_break, labels=alt_lb))
     if not plan_data_rows and not alt_data_rows and empty_message:
         chunks.append(f'<p>{html.escape(empty_message)}</p>')
     return '\n'.join(chunks)
@@ -1068,7 +1243,7 @@ def format_profiles_wkt_txt(
         return ''
     lbl_dt = labels.get('datetime', 'Data/hora')
     lbl_proj = labels.get('project_file', 'Ficheiro de projeto')
-    lbl_norm = labels.get('norm_caption', 'Método de normalização de progressivas')
+    lbl_norm = labels.get('norm_caption', 'Método de compatibilização de progressivas')
     lbl_pair = labels.get('pair', 'Par')
     lbl_ref_id = labels.get('ref_id', 'ref_id')
     lbl_layer_ref = labels.get('layer_ref', 'camada_ref')
@@ -1480,9 +1655,10 @@ def render_pdf_report_html(
         param_rows.append(
             f'<tr><td colspan="2" style="background:#eee"><b>{html.escape(grp.get("label", ""))}</b></td></tr>')
         for fld in grp.get('fields') or []:
+            val_html = html.escape(fld.get('value', '')).replace('\n', '<br/>')
             param_rows.append(
                 f'<tr><td>{html.escape(fld.get("label", ""))}</td>'
-                f'<td>{html.escape(fld.get("value", ""))}</td></tr>')
+                f'<td>{val_html}</td></tr>')
     par_hdr = par_sec.get('header') or ['Parâmetro', 'Valor']
     param_table = (
         f'<table><tr><th>{html.escape(par_hdr[0])}</th>'
@@ -1738,19 +1914,50 @@ PIPELINE_ETAPAS_DEF = (
 
 # Snapshot da última avaliação concluída (PEC): comparação em nova «Avaliar» para retomar só o necessário
 PIPELINE_SNAPSHOT_ETAPA = '__pipeline_last_ok__'
+# Último arranque de «Avaliar» (mesmo que o PEC não tenha concluído — p.ex. extensão mínima)
+PIPELINE_SNAPSHOT_ETAPA_LAST_RUN = '__pipeline_last_run__'
 PIPELINE_SNAPSHOT_CAMPO = 'config_json'
 
-# Bloco de Config → primeira etapa a repetir (o resto da cadeia segue como hoje)
+# Bloco de Config → etapa de retomada (a mais «básica»/cedo na lista ganha se houver várias)
 STEP_KEY_TO_RESTART_ETAPA = {
     'step_morfologia': 'morfologia_referencia',
     'step_match': 'correspondencia_linhas',
     'step_buffers': 'buffers',
-    'step_normalize_prog': 'buffers',
+    # Compatibilização afeta perfis altimétricos: refaz DM (e PEC) sem rematch nem limpar __Buffers__
+    'step_normalize_prog': 'buffers_alt',
+    # Só a fórmula DM: recalcula dm a partir das geometrias/raios, sem rematch
+    'step_dm_formula': 'dm_recalc',
 }
+
+# Alterações que não disparam reprocessamento da cadeia
+STEP_KEYS_IGNORED_FOR_RESTART = frozenset({
+    'step_audit_report',
+})
+
+# Campos que não mudam resultados geométricos (UI / visualização)
+STEP_FIELDS_IGNORED_FOR_RESTART = frozenset({
+    'step_buffers.show_buffers_on_map',
+})
+
+# Ordem de prioridade (índice menor = mais básico → refazer daí até ao fim)
+RESTART_ETAPA_PRIORITY = (
+    'morfologia_referencia',
+    'correspondencia_linhas',
+    'buffers',
+    'buffers_alt',
+    'dm_recalc',
+)
 
 
 def _pipeline_etapa_order_index():
     return {name: i for i, (_, name) in enumerate(PIPELINE_ETAPAS_DEF)}
+
+
+def _restart_etapa_priority_index(etapa: str) -> int:
+    try:
+        return RESTART_ETAPA_PRIORITY.index(etapa)
+    except ValueError:
+        return len(RESTART_ETAPA_PRIORITY) + 100
 
 
 def pipeline_has_completed_any_etapa(mdepa_path: str) -> bool:
@@ -1772,8 +1979,7 @@ def pipeline_has_completed_any_etapa(mdepa_path: str) -> bool:
         return False
 
 
-def load_pipeline_last_ok_snapshot(mdepa_path: str) -> dict:
-    """Último estado de parâmetros + DEMs após uma avaliação concluída com sucesso."""
+def _load_pipeline_snapshot(mdepa_path: str, etapa: str) -> dict:
     if not mdepa_path or not os.path.isfile(mdepa_path):
         return {}
     if not ensure_pa_settings_table(mdepa_path):
@@ -1783,7 +1989,7 @@ def load_pipeline_last_ok_snapshot(mdepa_path: str) -> dict:
         try:
             cur = conn.execute(
                 f'SELECT valor FROM {PA_SETTINGS_TABLE} WHERE etapa = ? AND campo = ?',
-                (PIPELINE_SNAPSHOT_ETAPA, PIPELINE_SNAPSHOT_CAMPO),
+                (etapa, PIPELINE_SNAPSHOT_CAMPO),
             )
             row = cur.fetchone()
             if not row or row[0] is None or str(row[0]).strip() == '':
@@ -1795,7 +2001,7 @@ def load_pipeline_last_ok_snapshot(mdepa_path: str) -> dict:
         return {}
 
 
-def save_pipeline_last_ok_snapshot(mdepa_path: str, flat: dict) -> bool:
+def _save_pipeline_snapshot(mdepa_path: str, etapa: str, flat: dict) -> bool:
     if not mdepa_path or not os.path.isfile(mdepa_path):
         return False
     if not ensure_pa_settings_table(mdepa_path):
@@ -1808,7 +2014,7 @@ def save_pipeline_last_ok_snapshot(mdepa_path: str, flat: dict) -> bool:
                 f'''INSERT INTO {PA_SETTINGS_TABLE} (etapa, campo, valor)
                     VALUES (?, ?, ?)
                     ON CONFLICT(etapa, campo) DO UPDATE SET valor = excluded.valor''',
-                (PIPELINE_SNAPSHOT_ETAPA, PIPELINE_SNAPSHOT_CAMPO, payload),
+                (etapa, PIPELINE_SNAPSHOT_CAMPO, payload),
             )
             conn.commit()
         finally:
@@ -1816,6 +2022,75 @@ def save_pipeline_last_ok_snapshot(mdepa_path: str, flat: dict) -> bool:
     except (sqlite3.Error, TypeError):
         return False
     return True
+
+
+def load_pipeline_last_ok_snapshot(mdepa_path: str) -> dict:
+    """Último estado de parâmetros + DEMs após uma avaliação concluída com sucesso."""
+    return _load_pipeline_snapshot(mdepa_path, PIPELINE_SNAPSHOT_ETAPA)
+
+
+def save_pipeline_last_ok_snapshot(mdepa_path: str, flat: dict) -> bool:
+    return _save_pipeline_snapshot(mdepa_path, PIPELINE_SNAPSHOT_ETAPA, flat)
+
+
+def load_pipeline_last_run_snapshot(mdepa_path: str) -> dict:
+    """Parâmetros do último «Avaliar», mesmo se o PEC não chegou a concluir."""
+    return _load_pipeline_snapshot(mdepa_path, PIPELINE_SNAPSHOT_ETAPA_LAST_RUN)
+
+
+def save_pipeline_last_run_snapshot(mdepa_path: str, flat: dict) -> bool:
+    return _save_pipeline_snapshot(mdepa_path, PIPELINE_SNAPSHOT_ETAPA_LAST_RUN, flat)
+
+
+def _snapshot_values_equal(a, b) -> bool:
+    """Igualdade tolerante a 3 vs 3.0 / vírgula decimal (evita falso 'morfologia mudou')."""
+    if a == b:
+        return True
+    sa, sb = str(a if a is not None else '').strip(), str(b if b is not None else '').strip()
+    if sa == sb:
+        return True
+    try:
+        fa = float(sa.replace(',', '.'))
+        fb = float(sb.replace(',', '.'))
+    except (TypeError, ValueError):
+        return False
+    if not (math.isfinite(fa) and math.isfinite(fb)):
+        return False
+    return abs(fa - fb) <= 1e-9 * max(1.0, abs(fa), abs(fb))
+
+
+def _snapshot_step_changed(flat_now: dict, flat_was: dict, step_key: str) -> bool:
+    if not flat_was:
+        return True
+    prefix = f'{step_key}.'
+    keys = {
+        k for k in set(flat_now or ()) | set(flat_was or ())
+        if isinstance(k, str) and k.startswith(prefix)
+        and k not in STEP_FIELDS_IGNORED_FOR_RESTART
+    }
+    for k in keys:
+        if not _snapshot_values_equal(flat_now.get(k, ''), flat_was.get(k, '')):
+            return True
+    return False
+
+
+def _changed_step_keys_from_snapshots(flat_now: dict, flat_was: dict) -> list:
+    """Lista ordenada de step_* com diferença relevante (ignora auditoria/campos visuais)."""
+    if not flat_was:
+        return []
+    changed = set()
+    for k in set(flat_now or ()) | set(flat_was or ()):
+        if not isinstance(k, str) or not k.startswith('step_'):
+            continue
+        if k in STEP_FIELDS_IGNORED_FOR_RESTART:
+            continue
+        head = k.split('.', 1)[0]
+        if head in STEP_KEYS_IGNORED_FOR_RESTART:
+            continue
+        if not _snapshot_values_equal(flat_now.get(k), flat_was.get(k)):
+            changed.add(head)
+    order = list(STEP_KEY_TO_RESTART_ETAPA.keys())
+    return sorted(changed, key=lambda s: order.index(s) if s in order else 99)
 
 
 def _coerce_snapshot_flat_for_dem_keys(flat: dict) -> dict:
@@ -1878,7 +2153,13 @@ def build_flat_snapshot_from_mdepa_stored_settings(mdepa_path: str) -> dict:
 
 
 def compute_restart_etapa_from_snapshots(flat_now: dict, flat_was: dict):
-    """Devolve (restart, extra). restart: None=completo desde polígonos; str=etapa; '__noop__'=sem alterações."""
+    """Devolve (restart, extra).
+
+    restart:
+      None — completo desde polígonos
+      str — etapa em RESTART_ETAPA_PRIORITY
+      '__noop__' — sem alterações relevantes
+    """
     if not flat_was:
         return None, None
     flat_was = _coerce_snapshot_flat_for_dem_keys(flat_was)
@@ -1902,21 +2183,29 @@ def compute_restart_etapa_from_snapshots(flat_now: dict, flat_was: dict):
     for k in set(flat_now) | set(flat_was):
         if k.startswith('dem_'):
             continue
-        if flat_now.get(k) != flat_was.get(k):
+        if k.startswith('workflow.'):
+            continue
+        if k in STEP_FIELDS_IGNORED_FOR_RESTART:
+            continue
+        if not _snapshot_values_equal(flat_now.get(k), flat_was.get(k)):
             head = k.split('.', 1)[0]
             if head.startswith('step_'):
                 changed_steps.add(head)
+    changed_steps -= STEP_KEYS_IGNORED_FOR_RESTART
     if not changed_steps:
         return '__noop__', None
-    ord_idx = _pipeline_etapa_order_index()
     candidates = []
+    unmapped = []
     for sk in changed_steps:
         et = STEP_KEY_TO_RESTART_ETAPA.get(sk)
         if et:
             candidates.append(et)
+        else:
+            unmapped.append(sk)
     if not candidates:
-        return None, 'unknown_step'
-    return min(candidates, key=lambda e: ord_idx[e]), None
+        # Passos desconhecidos (não ignorados): por segurança, cadeia completa
+        return None, 'unknown_step:' + ','.join(sorted(unmapped))
+    return min(candidates, key=_restart_etapa_priority_index), None
 
 # Parâmetros do diálogo Config (por projeto): etapa = chave step_* em dic_param, campo = chave do field
 PA_SETTINGS_TABLE = 'pa_settings'
@@ -2032,7 +2321,12 @@ def load_plugin_settings_from_mdepa_path(mdepa_path: str, dic_param: dict) -> in
                         meta['value'] = 1 if str(valor).strip().lower() in (
                             '1', 'true', 'sim', 'yes',
                         ) else 0
-                elif 'list' in meta:
+                elif meta.get('type') == 'doublespin':
+                    try:
+                        meta['value'] = float(valor)
+                    except (TypeError, ValueError):
+                        continue
+                elif meta.get('type') == 'radio' or 'list' in meta:
                     try:
                         meta['value'] = int(valor)
                     except (TypeError, ValueError):
@@ -2107,6 +2401,22 @@ def find_dem_layer_in_project(source_str: str):
         if norm and _normalize_layer_source_compare(src) == norm:
             return layer
     return None
+
+
+def _raster_layer_gsd(layer):
+    """GSD efetivo (m) a partir do tamanho de pixel; menor = melhor resolução."""
+    if layer is None or not isinstance(layer, QgsRasterLayer) or not layer.isValid():
+        return None
+    try:
+        gx = abs(float(layer.rasterUnitsPerPixelX()))
+        gy = abs(float(layer.rasterUnitsPerPixelY()))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(gx) or gx <= 0:
+        return None
+    if not math.isfinite(gy) or gy <= 0:
+        gy = gx
+    return math.sqrt(gx * gy)
 
 
 def find_vector_layer_in_project(source_str: str):
@@ -2575,6 +2885,16 @@ class Wd1(QWidget):
         self.task_queue = Queue()  # Task queue
         self.threads_running = 0  # Track active threads
         self.active_workers = {}  # Keep track of active workers
+        self._analysis_running = False  # sessão Avaliar em curso (inclui fases no thread principal)
+        self._stop_requested = False
+        self._stop_countdown_left = 0  # >0: confirmação animada «Cancelar parar»
+        self._stop_pulse_on = False
+        self._stop_countdown_timer = QTimer(self)
+        self._stop_countdown_timer.setInterval(1000)
+        self._stop_countdown_timer.timeout.connect(self._on_stop_countdown_tick)
+        self._stop_pulse_timer = QTimer(self)
+        self._stop_pulse_timer.setInterval(400)
+        self._stop_pulse_timer.timeout.connect(self._on_stop_countdown_pulse)
         self._workflow_pause = None  # None | 'post_intersection' | 'post_pairs_review'
         self._panel_stats_cache = {'area': '', 'ext_min': '', 'ext_match': '', 'pair_nr': ''}
         self._last_report_pdf_path = ''
@@ -2595,7 +2915,38 @@ class Wd1(QWidget):
         self.dic_pec_v = DIC_EQ_BY_NOMINAL_SCALE
         self.dic_pec_alt = DIC_PEC_ALT
         self.list_norm_type = [
-            tr_ui('Linear'), tr_ui('Por Proximidade'), tr_ui('Sem Normalização')]
+            tr_ui('Linear'), tr_ui('Por Proximidade'), tr_ui('Sem Compatibilização')]
+        self.list_accuracy_standard = [
+            tr_ui('Padrão Brasileiro - PEC PCD'),
+            tr_ui('CE90 e LE90'),
+        ]
+        self.list_dm_formula = [
+            tr_ui('dm-buffer-duplo (original)'),
+            tr_ui('dm-buffer-duplo-media (proposta)'),
+        ]
+        self.list_dm_formula_tooltips = [
+            tr_ui(
+                'dmᵢ = π · x · (A₂ᵢ − A₃ᵢ) / A₁ᵢ\n\n'
+                'dmᵢ — discrepância média do par i\n'
+                'π — constante pi\n'
+                'x — PEC (raio do buffer) da escala/classe\n'
+                'A₁ — área do buffer da feição de teste\n'
+                'A₂ — área do buffer da feição de referência\n'
+                'A₃ — área da interseção dos buffers'
+            ),
+            tr_ui(
+                'dmᵢ = π · x · ((A₁ᵢ + A₂ᵢ)/2 − A₃ᵢ) / ((A₁ᵢ + A₂ᵢ)/2)\n\n'
+                'A média (A₁ + A₂)/2 entra no numerador (no lugar de A₂) e no '
+                'denominador (no lugar de A₁), tratando os dois erros de extensão '
+                'com o mesmo peso.\n\n'
+                'dmᵢ — discrepância média do par i\n'
+                'π — constante pi\n'
+                'x — PEC (raio do buffer) da escala/classe\n'
+                'A₁ — área do buffer da feição de teste\n'
+                'A₂ — área do buffer da feição de referência\n'
+                'A₃ — área da interseção dos buffers'
+            ),
+        ]
         self.settings_dlg = SettingsDlg(main=parent, parent=self)
         self.language_dlg = None
         self.list_morph = ['Cumeada', 'Hidrografia_Numerica']
@@ -2628,31 +2979,43 @@ class Wd1(QWidget):
         self.lb_session_logo.setPixmap(
             _pixmap_from_icon_path(logo_path, self.lb_session_logo.size(), margin_ratio=0.15))
         self.lb_session_logo.setScaledContents(False)
+        _bind_clickable_url_label(self.lb_session_logo, PLUGIN_GITHUB_URL)
         row_hdr.addWidget(self.lb_session_logo, 0, c_, 2, 1, Qt.AlignLeft | Qt.AlignVCenter)
         c_ += 1
 
         center_box = QWidget()
         center_layout = QHBoxLayout(center_box)
         center_layout.setContentsMargins(0, 0, 0, 0)
-        center_layout.setSpacing(0)
+        center_layout.setSpacing(4)
         center_layout.addStretch(1)
-        self.lb_ppgec_logo = QLabel()
-        self.lb_ppgec_logo.setFixedSize(QSize(90, 32))
-        self.lb_ppgec_logo.setAlignment(Qt.AlignCenter)
+
+        logo_slot = QSize(120, 40)
+        self.lb_ufv_logo = ScaledPixmapLabel(logo_slot)
+        ufv_path = _resolve_ufv_logo_path()
+        if ufv_path:
+            self.lb_ufv_logo.set_source(ufv_path)
+        self.lb_ufv_logo.setVisible(bool(ufv_path))
+        _bind_clickable_url_label(self.lb_ufv_logo, UFV_WEBSITE_URL)
+        center_layout.addWidget(self.lb_ufv_logo, 0, Qt.AlignVCenter)
+
+        self.lb_ppgec_logo = ScaledPixmapLabel(logo_slot)
         ppgec_path = _resolve_ppgec_logo_path()
         if ppgec_path:
-            self.lb_ppgec_logo.setPixmap(
-                _pixmap_from_icon_path(ppgec_path, self.lb_ppgec_logo.size(), margin_ratio=0.04))
-        self.lb_ppgec_logo.setScaledContents(False)
+            self.lb_ppgec_logo.set_source(ppgec_path)
         self.lb_ppgec_logo.setVisible(bool(ppgec_path))
-        center_layout.addWidget(self.lb_ppgec_logo, 0, Qt.AlignBottom)
+        _bind_clickable_url_label(self.lb_ppgec_logo, PPGEC_WEBSITE_URL)
+        center_layout.addWidget(self.lb_ppgec_logo, 0, Qt.AlignVCenter)
+
         center_layout.addStretch(1)
         row_hdr.addWidget(center_box, 0, c_, 2, 1)
         row_hdr.setColumnStretch(c_, 1)
         c_ += 1
+        self._refresh_header_logo_tooltips()
 
         self.pb_config = QPushButton()
-        self.pb_config.setToolTip(self.tr('Config'))
+        self.pb_config.setToolTip(self.tr(
+            'Parâmetros da metodologia: morfologia, pares, buffers, '
+            'compatibilização, fórmula da DM e auditoria.'))
         self.pb_config.setIcon(_icon_from_icons_file('icon_config.png'))
         self.pb_config.setIconSize(QSize(25, 25))
         self.pb_config.setFixedSize(32, 32)
@@ -2691,17 +3054,23 @@ class Wd1(QWidget):
         gl_tool.addWidget(sep_line, r_, 0, 1, 4)
 
         r_ += 1
+        self.frm_project = QFrame(self)
+        self.frm_project.setObjectName('frm_project')
+        self.frm_project.setFrameShape(QFrame.NoFrame)
+        gl_frm_proj = QGridLayout(self.frm_project)
+        gl_frm_proj.setContentsMargins(4, 4, 4, 4)
+        gl_frm_proj.setSpacing(4)
+
         gl_prj = QGridLayout()
         self.lb_title_proj = QLabel(self.tr('Projeto (.pa.gpkg):'))
         gl_prj.addWidget(self.lb_title_proj, 0, 0)
         self.lb_status_proj = QLabel(self.tr('Não definido'))
-        gl_prj.addWidget(self.lb_status_proj,  0, 1)
-        gl_tool.addLayout(gl_prj, r_, 0, 1, 4)
+        gl_prj.addWidget(self.lb_status_proj, 0, 1)
+        gl_frm_proj.addLayout(gl_prj, 0, 0, 1, 4)
 
-        r_ += 1
         self.lb_path_proj = QLabel('~~~')
         self.lb_path_proj.setWordWrap(True)
-        gl_tool.addWidget(self.lb_path_proj, r_, 0, 1, 3)
+        gl_frm_proj.addWidget(self.lb_path_proj, 1, 0, 1, 3)
         _proj_btn_style = (
             'QPushButton { border: 1px solid #9e9e9e; border-radius: 2px; padding: 0; margin: 0; '
             'min-width: 32px; max-width: 32px; min-height: 32px; max-height: 32px; '
@@ -2740,7 +3109,8 @@ class Wd1(QWidget):
         lay_proj_btns.addWidget(self.pb_project_open)
         w_proj_btns = QWidget()
         w_proj_btns.setLayout(lay_proj_btns)
-        gl_tool.addWidget(w_proj_btns, r_, 3, Qt.AlignRight | Qt.AlignTop)
+        gl_frm_proj.addWidget(w_proj_btns, 1, 3, Qt.AlignRight | Qt.AlignTop)
+        gl_tool.addWidget(self.frm_project, r_, 0, 1, 4)
 
         r_ += 1
         sep_line = QFrame(self)
@@ -2887,20 +3257,160 @@ class Wd1(QWidget):
         lg_sa.addLayout(gl_tool, 0, 0)
 
         self.trigger_actions()
+        self._apply_panel_tooltips()
         return lg_sa
+
+    def _apply_panel_tooltips(self):
+        """Dicas de utilização nos rótulos e controlos do painel."""
+        QtTip = Qt.ToolTipRole
+        if getattr(self, 'lb_title_proj', None):
+            self.lb_title_proj.setToolTip(self.tr(
+                'Ficheiro GeoPackage do projeto (.pa.gpkg): camadas, parâmetros e resultados.'))
+        if getattr(self, 'lb_status_proj', None):
+            self.lb_status_proj.setToolTip(self.tr(
+                'Estado do projeto: definido (ficheiro .pa.gpkg encontrado) ou não definido.'))
+        if getattr(self, 'lb_path_proj', None):
+            self.lb_path_proj.setToolTip(self.tr('Caminho do ficheiro de projeto .pa.gpkg.'))
+        if getattr(self, 'lb_version', None):
+            self.lb_version.setToolTip(self.tr('Versão instalada do complemento.'))
+        if getattr(self, 'pb_config', None):
+            self.pb_config.setToolTip(self.tr(
+                'Parâmetros da metodologia: morfologia, pares, buffers, '
+                'compatibilização, fórmula da DM e auditoria.'))
+
+        if getattr(self, 'lb_dem_ref', None):
+            self.lb_dem_ref.setToolTip(self.tr(
+                'MDE de referência (maior rigor posicional), usado como verdade de campo.'))
+        if getattr(self, 'lb_dem_test', None):
+            self.lb_dem_test.setToolTip(self.tr(
+                'MDE a avaliar. A resolução (GSD) deste raster define as distâncias em pixels.'))
+        for key_ in (self.dic_prj.get('dems') or {}):
+            cbx = self.dic_prj['dems'][key_].get('obj_cbx')
+            if cbx is None:
+                continue
+            if key_ == 0:
+                cbx.setToolTip(self.tr('Seleccione o raster de referência.'))
+            else:
+                cbx.setToolTip(self.tr('Seleccione o raster de teste a avaliar.'))
+
+        if getattr(self, 'lb_wf_study', None):
+            self.lb_wf_study.setToolTip(self.tr(
+                'Delimita a área da análise: interseção automática dos MDEs, '
+                'edição após gerar o polígono, ou polígono de uma camada existente.'))
+        if getattr(self, 'cbx_workflow_study', None):
+            self.cbx_workflow_study.setToolTip(self.tr(
+                'Como obter a área de estudo: (i) interseção dos MDEs; '
+                '(ii) editar após a interseção; (iii) seleccionar polígono de uma camada.'))
+            tips_study = (
+                self.tr('Calcula automaticamente o polígono pela interseção dos dois MDEs.'),
+                self.tr('Gera a interseção e permite editar o polígono antes de continuar.'),
+                self.tr('Usa um polígono já existente numa camada do projeto.'),
+            )
+            for i, tip in enumerate(tips_study):
+                self.cbx_workflow_study.setItemData(i, tip, QtTip)
+        if getattr(self, 'lb_area', None):
+            self.lb_area.setToolTip(self.tr('Área do polígono de estudo (km²).'))
+        if getattr(self, 'lb_ext_min', None):
+            self.lb_ext_min.setToolTip(self.tr(
+                'Extensão linear mínima recomendada da amostra, proporcional à área de estudo.'))
+        if getattr(self, 'lb_study_layer', None):
+            self.lb_study_layer.setToolTip(self.tr(
+                'Camada de polígono usada quando a área de estudo vem de uma camada existente.'))
+        if getattr(self, 'cbx_study_area_layer', None):
+            self.cbx_study_area_layer.setToolTip(self.tr(
+                'Seleccione a camada polígono que delimita a área de estudo.'))
+
+        if getattr(self, 'lb_wf_pairs', None):
+            self.lb_wf_pairs.setToolTip(self.tr(
+                'Definição dos pares homólogos: seleção automática ou revisão após a seleção.'))
+        if getattr(self, 'cbx_workflow_pairs', None):
+            self.cbx_workflow_pairs.setToolTip(self.tr(
+                '(i) Automática — usa só os filtros de Config. '
+                '(ii) Revisar — permite editar os pares no mapa antes dos buffers.'))
+            self.cbx_workflow_pairs.setItemData(
+                0, self.tr('Selecciona os pares só com os filtros de distância e envelopes.'), QtTip)
+            self.cbx_workflow_pairs.setItemData(
+                1, self.tr('Pausa após a seleção para rever, remover ou acrescentar pares no mapa.'), QtTip)
+        if getattr(self, 'lb_ext_match', None):
+            self.lb_ext_match.setToolTip(self.tr(
+                'Soma dos comprimentos das linhas de referência nos pares aceites.'))
+        if getattr(self, 'lb_pair_nr', None):
+            self.lb_pair_nr.setToolTip(self.tr('Número de pares homólogos válidos.'))
+
+        if getattr(self, 'lb_wf_outliers', None):
+            self.lb_wf_outliers.setToolTip(self.tr(
+                'Outliers pelo método do boxplot (IQR). Pode remover todos, avaliar os indicados, '
+                'ou usar todas as amostras.'))
+        if getattr(self, 'cbx_workflow_outliers', None):
+            self.cbx_workflow_outliers.setToolTip(self.tr(
+                '(i) Remover automaticamente os outliers; (ii) avaliar os indicados; '
+                '(iii) usar todos, ignorando a indicação do boxplot.'))
+            self.cbx_workflow_outliers.setItemData(
+                0, self.tr('Exclui automaticamente as amostras fora do critério IQR (boxplot).'), QtTip)
+            self.cbx_workflow_outliers.setItemData(
+                1, self.tr('Mostra os outliers para decisão caso a caso antes do PEC.'), QtTip)
+            self.cbx_workflow_outliers.setItemData(
+                2, self.tr('Mantém todas as amostras, sem excluir outliers.'), QtTip)
+
+        if getattr(self, 'lb_log', None):
+            self.lb_log.setToolTip(self.tr('Mensagens do processamento e avisos da análise.'))
+        if getattr(self, 'pte_log', None):
+            self.pte_log.setToolTip(self.tr('Registo detalhado da execução (só leitura).'))
 
     def trigger_actions(self):
         for key_ in self.dic_prj['dems']:
             self.dic_prj['dems'][key_]['obj_pb'].clicked.connect(partial(self.log_dem_layer_info, key_=key_))
             self.dic_prj['dems'][key_]['obj_cbx'].layerChanged.connect(self.persist_dem_layer_selection)
+            self.dic_prj['dems'][key_]['obj_cbx'].layerChanged.connect(
+                self._clear_sample_extent_highlight)
         self.cbx_workflow_study.currentIndexChanged.connect(self._on_workflow_study_changed)
         self.cbx_workflow_study.currentIndexChanged.connect(self._persist_workflow_ui_if_project)
+        self.cbx_workflow_study.currentIndexChanged.connect(self._clear_sample_extent_highlight)
         self.cbx_workflow_pairs.currentIndexChanged.connect(self._persist_workflow_ui_if_project)
+        self.cbx_workflow_pairs.currentIndexChanged.connect(self._clear_sample_extent_highlight)
         self.cbx_workflow_outliers.currentIndexChanged.connect(self._persist_workflow_ui_if_project)
+        self.cbx_workflow_outliers.currentIndexChanged.connect(self._clear_sample_extent_highlight)
         self.cbx_study_area_layer.layerChanged.connect(self._persist_workflow_ui_if_project)
+        self.cbx_study_area_layer.layerChanged.connect(self._clear_sample_extent_highlight)
         self.pb_proc.clicked.connect(self.exec_analyze)
         self.pb_config.clicked.connect(self.open_settings)
         self.cb_open_report.toggled.connect(self._save_open_report_pref)
+
+    def _set_project_region_highlight(self, on: bool) -> None:
+        """Destaca a região de definição do projeto (sem ficheiro / ao Avaliar)."""
+        frm = getattr(self, 'frm_project', None)
+        if frm is None:
+            return
+        if on:
+            frm.setStyleSheet(
+                f'QFrame#frm_project {{ {_UI_VALIDATION_HL} }}')
+        else:
+            frm.setStyleSheet('')
+
+    def _set_sample_extent_highlight(self, on: bool) -> None:
+        """Destaca extensão mínima e extensão da amostra quando a amostra é insuficiente."""
+        style = f'QLabel {{ {_UI_VALIDATION_HL} padding: 2px 4px; }}' if on else ''
+        for name in ('lb_ext_min', 'lb_ext_match'):
+            lb = getattr(self, name, None)
+            if lb is not None:
+                lb.setStyleSheet(style)
+
+    def _clear_project_region_highlight(self, *_args) -> None:
+        self._set_project_region_highlight(False)
+
+    def _clear_sample_extent_highlight(self, *_args) -> None:
+        self._set_sample_extent_highlight(False)
+
+    def _refresh_header_logo_tooltips(self) -> None:
+        if getattr(self, 'lb_session_logo', None):
+            self.lb_session_logo.setToolTip(self.tr(
+                'Repositório GitHub do plugin\n(clique para abrir o site)'))
+        if getattr(self, 'lb_ufv_logo', None):
+            self.lb_ufv_logo.setToolTip(self.tr(
+                'Universidade Federal de Viçosa\n(clique para abrir o site)'))
+        if getattr(self, 'lb_ppgec_logo', None):
+            self.lb_ppgec_logo.setToolTip(self.tr(
+                'Programa de Pós-Graduação em Engenharia Civil\n(clique para abrir o site)'))
 
     def _refresh_open_report_checkbox_ui(self) -> None:
         cb = getattr(self, 'cb_open_report', None)
@@ -2997,6 +3507,7 @@ class Wd1(QWidget):
         os.makedirs(data_dir, exist_ok=True)
         self.lb_path_proj.setText(project_file)
         self.node_group = None
+        self._clear_project_region_highlight()
 
     def _active_gpkg_path(self) -> str:
         return _norm_gpkg_path(self.gpkg_path or self.dic_prj.get('project_file') or '')
@@ -3093,9 +3604,14 @@ class Wd1(QWidget):
         )
         self.check_prj_folder(self.dic_prj['project_file'])
         self.reload_settings_from_project_file()
+        n_layers = self._load_project_layers_into_map()
         self._log_grass_provider_check()
         self.log_message(
             self.tr('Projeto aberto: {0}').format(self.dic_prj['project_file']), 'INFO')
+        if n_layers:
+            self.log_message(
+                self.tr('Camadas do projeto carregadas no mapa: {0}').format(n_layers),
+                'INFO')
 
     def new_project_dialog(self):
         # Mesma lógica que «Abrir projeto»: last_project_dir (gravado ao abrir/criar), não a chave legacy project_file.
@@ -3198,7 +3714,10 @@ class Wd1(QWidget):
         if not pf or not os.path.isfile(pf):
             return
         sources = load_dem_sources_from_project_path(pf)
-        if not sources:
+        uri0 = (sources.get(0) or '').strip() if sources else ''
+        uri1 = (sources.get(1) or '').strip() if sources else ''
+        if not uri0 and not uri1:
+            self.auto_assign_dems_by_resolution_if_needed()
             return
         for key_ in (0, 1):
             cbx = self.dic_prj['dems'][key_]['obj_cbx']
@@ -3225,6 +3744,71 @@ class Wd1(QWidget):
                 cbx.setLayer(rl)
             finally:
                 cbx.blockSignals(False)
+
+    def _candidate_input_dem_layers(self):
+        """Rasters válidos do projeto QGIS, excluindo camadas internas do plugin / .pa.gpkg."""
+        pf = self.dic_prj.get('project_file')
+        pf_norm = ''
+        if pf and os.path.isfile(pf):
+            pf_norm = os.path.normcase(os.path.normpath(os.path.abspath(pf)))
+        out = []
+        for layer in QgsProject.instance().mapLayers().values():
+            if not isinstance(layer, QgsRasterLayer) or not layer.isValid():
+                continue
+            name = (layer.name() or '').strip()
+            if name.startswith('__'):
+                continue
+            src = (layer.source() or '').strip()
+            path_part = src.split('|')[0].strip() if src else ''
+            if pf_norm and path_part and os.path.isfile(path_part):
+                if os.path.normcase(os.path.normpath(os.path.abspath(path_part))) == pf_norm:
+                    continue
+            gsd = _raster_layer_gsd(layer)
+            if gsd is None:
+                continue
+            out.append((gsd, layer))
+        return out
+
+    def auto_assign_dems_by_resolution_if_needed(self) -> bool:
+        """
+        Se ref/teste não estão definidos no .pa.gpkg e há exatamente 2 MDEs no mapa,
+        atribui o de melhor resolução (menor GSD) à referência e o outro ao teste.
+        """
+        pf = self.dic_prj.get('project_file')
+        if not pf or not os.path.isfile(pf):
+            return False
+        sources = load_dem_sources_from_project_path(pf)
+        uri0 = (sources.get(0) or '').strip() if sources else ''
+        uri1 = (sources.get(1) or '').strip() if sources else ''
+        if uri0 or uri1:
+            return False
+
+        candidates = self._candidate_input_dem_layers()
+        if len(candidates) != 2:
+            return False
+
+        candidates.sort(key=lambda item: (item[0], (item[1].name() or '').lower()))
+        gsd_ref, layer_ref = candidates[0]
+        gsd_test, layer_test = candidates[1]
+        for key_, layer in ((0, layer_ref), (1, layer_test)):
+            cbx = self.dic_prj['dems'][key_]['obj_cbx']
+            if cbx is None:
+                return False
+            cbx.blockSignals(True)
+            try:
+                cbx.setLayer(layer)
+            finally:
+                cbx.blockSignals(False)
+
+        self.persist_dem_layer_selection()
+        self.log_message(
+            self.tr(
+                'MDEs atribuídos automaticamente pela resolução espacial: '
+                'referência={0} (GSD≈{1:.3f}), teste={2} (GSD≈{3:.3f}).'
+            ).format(layer_ref.name(), gsd_ref, layer_test.name(), gsd_test),
+            'INFO',
+        )
+        return True
 
     def save_plugin_settings_to_project(self, dic_param: dict) -> bool:
         pf = self.dic_prj.get('project_file')
@@ -3276,8 +3860,99 @@ class Wd1(QWidget):
             sly.source() if isinstance(sly, QgsVectorLayer) else '')
         return out
 
+    def _begin_analysis_session(self) -> None:
+        """Marca análise em curso e muda o botão para Parar."""
+        self._clear_stop_countdown(silent=True)
+        self._stop_requested = False
+        self._analysis_running = True
+        self._refresh_proc_button()
+
+    def _end_analysis_session(self) -> None:
+        """Termina a sessão de análise e restaura Avaliar/Continuar."""
+        self._clear_stop_countdown(silent=True)
+        self._analysis_running = False
+        self._stop_requested = False
+        self._refresh_proc_button()
+
+    def _is_analysis_running(self) -> bool:
+        return bool(
+            self._analysis_running
+            or self.threads_running > 0
+            or self.active_workers
+        )
+
+    def _is_stop_countdown_active(self) -> bool:
+        return self._stop_countdown_left > 0
+
+    def _clear_stop_countdown(self, *, silent: bool = False) -> None:
+        was_active = self._stop_countdown_left > 0 or self._stop_countdown_timer.isActive()
+        self._stop_countdown_timer.stop()
+        self._stop_pulse_timer.stop()
+        self._stop_countdown_left = 0
+        self._stop_pulse_on = False
+        if getattr(self, 'pb_proc', None) is not None:
+            self.pb_proc.setStyleSheet('')
+        if was_active and not silent:
+            self.log_message(
+                self.tr('Paragem cancelada — a análise continua.'), 'INFO')
+
+    def _start_stop_countdown(self) -> None:
+        """3 s de confirmação animada; o botão passa a «Cancelar parar (N)»."""
+        if not self._is_analysis_running():
+            return
+        if self._is_stop_countdown_active():
+            return
+        self._stop_countdown_left = 3
+        self._stop_pulse_on = False
+        self._refresh_proc_button()
+        self._on_stop_countdown_pulse()  # estado visual imediato
+        self._stop_countdown_timer.start()
+        self._stop_pulse_timer.start()
+        self.log_message(
+            self.tr(
+                'Paragem em 3 s — clique em «Cancelar parar» para continuar a análise.'),
+            'WARNING',
+        )
+
+    def _on_stop_countdown_tick(self) -> None:
+        if self._stop_countdown_left <= 0:
+            self._clear_stop_countdown(silent=True)
+            return
+        self._stop_countdown_left -= 1
+        if self._stop_countdown_left <= 0:
+            self._clear_stop_countdown(silent=True)
+            self._commit_stop_analyze()
+            return
+        self._refresh_proc_button()
+
+    def _on_stop_countdown_pulse(self) -> None:
+        """Alterna o estilo do botão durante a contagem regressiva."""
+        if not self._is_stop_countdown_active() or getattr(self, 'pb_proc', None) is None:
+            return
+        self._stop_pulse_on = not self._stop_pulse_on
+        if self._stop_pulse_on:
+            self.pb_proc.setStyleSheet(
+                'QPushButton { background-color: #fff3cd; border: 2px solid #e6a800; '
+                'border-radius: 3px; font-weight: bold; }')
+        else:
+            self.pb_proc.setStyleSheet(
+                'QPushButton { background-color: #ffe08a; border: 2px solid #c48800; '
+                'border-radius: 3px; font-weight: bold; }')
+
     def _refresh_proc_button(self):
-        if self._workflow_pause == 'post_intersection':
+        if self._is_stop_countdown_active():
+            self.pb_proc.setText(
+                self.tr('Cancelar parar ({0})').format(self._stop_countdown_left))
+            self.pb_proc.setToolTip(
+                self.tr('Clique para abortar a interrupção e continuar a análise.'))
+            ic = self.style().standardIcon(QStyle.SP_BrowserReload)
+        elif self._is_analysis_running():
+            self.pb_proc.setText(self.tr('Parar'))
+            self.pb_proc.setToolTip(self.tr('Interromper a análise em curso.'))
+            ic = _icon_from_icons_file('icon_parar.png')
+            if ic.isNull():
+                ic = self.style().standardIcon(QStyle.SP_MediaStop)
+        elif self._workflow_pause == 'post_intersection':
             self.pb_proc.setText(self.tr('Continuar'))
             self.pb_proc.setToolTip(
                 self.tr('Continuar para morfologia após editar a área de interseção.'))
@@ -3569,6 +4244,86 @@ class Wd1(QWidget):
             self.get_gpkg_layer(prefix_=iname, gpkg_path=self.gpkg_path)
         return True
 
+    def _project_vector_layer_names_preferred(self) -> list:
+        """Ordem de carregamento (primeira = fundo do grupo; última = topo)."""
+        names = [
+            f'__Limit_{self.dic_prj["dems"][0]["type"]}__',
+            f'__Limit_{self.dic_prj["dems"][1]["type"]}__',
+            self.intersection_name,
+        ]
+        names.extend(self._morphology_gpkg_layer_names())
+        names.append(self.match_lines_layer_name)
+        names.append(self.buffer_name)
+        return names
+
+    def _list_gpkg_geometry_layer_names(self, gpkg_path: str = None) -> list:
+        """Nomes das camadas com geometria no .pa.gpkg (exclui tabelas de config)."""
+        path = gpkg_path or self.gpkg_path
+        if not path or not os.path.isfile(path):
+            return []
+        skip = {
+            PA_SETTINGS_TABLE,
+            PIPELINE_ETAPAS_TABLE,
+            'gpkg_contents',
+            'gpkg_geometry_columns',
+            'gpkg_spatial_ref_sys',
+            'gpkg_tile_matrix',
+            'gpkg_tile_matrix_set',
+            'gpkg_metadata',
+            'gpkg_metadata_reference',
+            'gpkg_extensions',
+        }
+        names = []
+        ds = ogr.Open(path, 0)
+        if ds is None:
+            return []
+        try:
+            for i in range(ds.GetLayerCount()):
+                lyr = ds.GetLayerByIndex(i)
+                if lyr is None:
+                    continue
+                name = lyr.GetName()
+                if not name or name in skip or name.startswith('rtree_'):
+                    continue
+                # Só camadas com geometria (não tabelas atributo)
+                try:
+                    if lyr.GetGeomType() == ogr.wkbNone:
+                        continue
+                except Exception:
+                    pass
+                names.append(name)
+        finally:
+            ds = None
+        return names
+
+    def _load_project_layers_into_map(self) -> int:
+        """Ao abrir .pa.gpkg: carrega no mapa as camadas vetoriais já existentes no ficheiro."""
+        if not self.gpkg_path or not os.path.isfile(self.gpkg_path):
+            return 0
+        preferred = self._project_vector_layer_names_preferred()
+        present = set(self._list_gpkg_geometry_layer_names(self.gpkg_path))
+        if not present:
+            return 0
+        # Preferidas na ordem definida; restantes __* no fim
+        ordered = [n for n in preferred if n in present]
+        extras = sorted(
+            n for n in present
+            if n not in ordered and (n.startswith('__') or n in preferred)
+        )
+        ordered.extend(extras)
+        loaded = 0
+        for name in ordered:
+            if self._find_map_layer_for_project(name, self.gpkg_path) is not None:
+                loaded += 1
+                continue
+            if not self._gpkg_layer_valid(name):
+                continue
+            lyr = self.get_gpkg_layer(
+                prefix_=name, gpkg_path=self.gpkg_path, show=True)
+            if lyr is not None and lyr.isValid():
+                loaded += 1
+        return loaded
+
     def _clear_gpkg_vector_layer_features(self, layer_name: str) -> bool:
         """Esvazia feições da camada nomeada no .pa.gpkg (só do projeto ativo)."""
         gpkg_n = self._active_gpkg_path()
@@ -3605,6 +4360,53 @@ class Wd1(QWidget):
         type_0 = self.dic_prj['dems'][0]['type']
         type_1 = self.dic_prj['dems'][1]['type']
         return [f'__{m}_Z_{t}__' for m in self.list_morph for t in (type_0, type_1)]
+
+    def _morphology_layers_populated(self) -> bool:
+        """True se já existem linhas de morfologia no .pa.gpkg (não é preciso refazer GRASS)."""
+        names = self._morphology_gpkg_layer_names()
+        if not names:
+            return False
+        n_ok = 0
+        for nm in names:
+            try:
+                lyr = self.get_gpkg_layer(prefix_=nm, gpkg_path=self.gpkg_path, show=False)
+            except Exception:
+                continue
+            if lyr is not None and lyr.isValid() and lyr.featureCount() > 0:
+                n_ok += 1
+        return n_ok >= 2
+
+    def _match_lines_populated(self) -> bool:
+        rebuilt = self._dic_match_from_match_lines_layer()
+        if not rebuilt:
+            return False
+        return sum(len(v) for v in rebuilt.values()) > 0
+
+    def _refine_restart_using_existing_layers(self, restart, reason, flat_now, flat_was):
+        """Não recuar na cadeia se as etapas mais básicas já estão no GPKG e os params não mudaram.
+
+        Não aplica se MDEs/área de estudo mudaram (reason dem/workflow) nem passos desconhecidos.
+        """
+        reason_s = str(reason or '')
+        if reason_s in ('dem', 'workflow') or reason_s.startswith('unknown_step'):
+            return restart, reason
+        if restart == '__noop__':
+            return restart, reason
+
+        morph_changed = _snapshot_step_changed(flat_now, flat_was, 'step_morfologia')
+        match_changed = _snapshot_step_changed(flat_now, flat_was, 'step_match')
+
+        if restart in (None, 'morfologia_referencia') and not morph_changed:
+            if self._morphology_layers_populated():
+                restart = 'correspondencia_linhas'
+                reason = 'keep_morph:' + reason_s
+
+        if restart == 'correspondencia_linhas' and not match_changed:
+            if self._match_lines_populated():
+                restart = 'buffers'
+                reason = 'keep_match:' + str(reason or reason_s)
+
+        return restart, reason
 
     def _remove_project_layers_named(self, *layer_names: str) -> None:
         """Remove do mapa apenas camadas do .pa.gpkg ativo."""
@@ -3657,7 +4459,14 @@ class Wd1(QWidget):
         bn = self.buffer_name
         morph_names = self._morphology_gpkg_layer_names()
 
-        known = (None, 'morfologia_referencia', 'correspondencia_linhas', 'buffers')
+        known = (
+            None,
+            'morfologia_referencia',
+            'correspondencia_linhas',
+            'buffers',
+            'buffers_alt',
+            'dm_recalc',
+        )
         if restart not in known:
             self.log_message(
                 self.tr(
@@ -3666,6 +4475,23 @@ class Wd1(QWidget):
                 'WARNING',
             )
             restart = None
+
+        # Só fórmula DM / compatibilização: manter pares e geometrias de buffer no GPKG
+        if restart in ('buffers_alt', 'dm_recalc'):
+            self._clear_pec_report_cache()
+            self._pipeline_reset_timestamps_from_ordem(6)
+            if restart == 'buffers_alt':
+                msg = self.tr(
+                    'Compatibilização alterada: recalculando discrepâncias (DM), '
+                    'sem rematch e sem limpar a camada de buffers.'
+                )
+            else:
+                msg = self.tr(
+                    'Fórmula de DM alterada: recalculando discrepâncias a partir dos pares '
+                    'existentes, sem rematch e sem limpar a camada de buffers.'
+                )
+            self.log_message(msg, 'INFO')
+            return
 
         if restart == 'buffers':
             self._clear_gpkg_vector_layer_features(bn)
@@ -3718,7 +4544,8 @@ class Wd1(QWidget):
             self.log_message(
                 self.tr(
                     'Morfologia e etapas seguintes serão refeitas: camadas de morfologia, '
-                    'linhas de correspondência e buffers foram limpos; pares e extensão da amostra repostos.'
+                    'linhas de correspondência e buffers foram limpos; área de interseção mantida; '
+                    'pares e extensão da amostra repostos.'
                 ),
                 'INFO',
             )
@@ -3766,10 +4593,12 @@ class Wd1(QWidget):
             self.lb_status_proj.setText(self.tr('Projeto OK'))
             self.lb_status_proj.setStyleSheet('color: green;')
             self.dic_prj['status'] = 1
+            self._clear_project_region_highlight()
         else:
             self.lb_status_proj.setText(self.tr('Arquivo .pa.gpkg ausente'))
             self.lb_status_proj.setStyleSheet('color: red;')
             self.dic_prj['status'] = 0
+            self._set_project_region_highlight(True)
 
     def _log_grass_provider_check(self):
         """Verifica provider GRASS no Processing e regista resultado explícito no log."""
@@ -3906,33 +4735,55 @@ class Wd1(QWidget):
 
     def task_done(self, key_):
         """ Called when a thread finishes processing, allowing another to start """
-        self.threads_running -= 1  # Reduce active thread count
+        self.threads_running = max(0, self.threads_running - 1)
         if key_ in self.active_workers:
-            del self.active_workers[key_]  # Remove from active workers
+            del self.active_workers[key_]
+
+        if self._stop_requested:
+            if not self.active_workers and self.task_queue.empty():
+                self._end_analysis_session()
+            else:
+                self._refresh_proc_button()
+            return
 
         # Start next task if there are pending tasks in the queue
         if not self.task_queue.empty():
             key_, dic_ = self.task_queue.get()
             self.start_task(key_, dic_)
+        else:
+            self._refresh_proc_button()
+            # Se a cadeia sync (update_bar) não arrancou nova tarefa, libertar o botão.
+            QTimer.singleShot(0, self._finish_analysis_if_idle)
+
+    def _finish_analysis_if_idle(self) -> None:
+        """Termina a sessão Parar→Avaliar quando já não há workers nem pausa de fluxo."""
+        if self._stop_requested or self._workflow_pause:
+            return
+        if self.active_workers or self.threads_running > 0 or not self.task_queue.empty():
+            return
+        if self._analysis_running:
+            self._end_analysis_session()
 
     def start_task(self, key_, dic_):
         """ Start a worker task and track it """
+        if self._stop_requested:
+            return
+        if not self._analysis_running:
+            self._begin_analysis_session()
         worker = Worker(key_, dic_, self)
         worker.finished.connect(self.task_done)  # Connect finished signal
         self.active_workers[key_] = worker
         worker.start()  # Start processing
         self.threads_running += 1
+        self._refresh_proc_button()
 
-    def unload_cleanup(self):
-        """Para workers, esvazia fila e fecha diálogos antes do unload / Plugin Reloader."""
-        if getattr(self, 'settings_dlg', None):
+    def _stop_all_workers(self) -> None:
+        """Para workers activos e esvazia a fila (sem fechar diálogos)."""
+        while True:
             try:
-                self.settings_dlg.reject()
-            except Exception:
-                try:
-                    self.settings_dlg.close()
-                except Exception:
-                    pass
+                self.task_queue.get_nowait()
+            except Empty:
+                break
         for key_ in list(self.active_workers.keys()):
             worker = self.active_workers.pop(key_, None)
             if not worker:
@@ -3954,22 +4805,68 @@ class Wd1(QWidget):
                 except TypeError:
                     pass
             worker.stop()
-        while True:
-            try:
-                self.task_queue.get_nowait()
-            except Empty:
-                break
         self.threads_running = 0
 
+    def stop_analyze(self):
+        """Inicia a contagem regressiva de 3 s antes de interromper (ou cancela se já activa)."""
+        if self._is_stop_countdown_active():
+            self._clear_stop_countdown(silent=False)
+            self._refresh_proc_button()
+            return
+        if not self._is_analysis_running():
+            return
+        self._start_stop_countdown()
+
+    def _commit_stop_analyze(self):
+        """Efectua a interrupção após a contagem regressiva."""
+        if not self._is_analysis_running() and not self._stop_requested:
+            self._refresh_proc_button()
+            return
+        self._stop_requested = True
+        self.log_message(self.tr('Interrompendo a análise…'), 'WARNING')
+        self._stop_all_workers()
+        try:
+            self._end_buffers_map_canvas_freeze(refresh=False)
+        except Exception:
+            pass
+        self._end_analysis_session()
+        self.log_message(self.tr('Análise interrompida pelo utilizador.'), 'WARNING')
+
+    def unload_cleanup(self):
+        """Para workers, esvazia fila e fecha diálogos antes do unload / Plugin Reloader."""
+        if getattr(self, 'settings_dlg', None):
+            try:
+                self.settings_dlg.reject()
+            except Exception:
+                try:
+                    self.settings_dlg.close()
+                except Exception:
+                    pass
+        self._clear_stop_countdown(silent=True)
+        self._stop_requested = True
+        self._stop_all_workers()
+        self._analysis_running = False
+        self._stop_requested = False
+
     def exec_analyze(self):
+        if self._is_stop_countdown_active():
+            self.stop_analyze()  # cancela a paragem
+            return
+        if self._is_analysis_running():
+            self.stop_analyze()  # inicia countdown
+            return
+
         if not self.dic_prj.get('project_file'):
+            self._set_project_region_highlight(True)
             self.log_message(
                 self.tr('Defina o projeto (.pa.gpkg): menu ⋯ → Abrir ou Novo.'), 'ERROR')
             return
         pf = self.dic_prj['project_file']
         if not os.path.isfile(pf):
+            self._set_project_region_highlight(True)
             self.log_message(self.tr('O arquivo .pa.gpkg do projeto não existe.'), 'ERROR')
             return
+        self._clear_project_region_highlight()
 
         layer_ref = self.dic_prj['dems'][0]['obj_cbx'].currentLayer()
         layer_test = self.dic_prj['dems'][1]['obj_cbx'].currentLayer()
@@ -3987,20 +4884,14 @@ class Wd1(QWidget):
         if self._workflow_pause == 'post_intersection':
             self.persist_project_config_from_widgets(log_values=False)
             self._workflow_pause = None
-            self._refresh_proc_button()
+            self._begin_analysis_session()
             self.define_morphology(0)
             return
         if self._workflow_pause == 'post_pairs_review':
             self.persist_project_config_from_widgets(log_values=False)
             self._workflow_pause = None
-            self._refresh_proc_button()
+            self._begin_analysis_session()
             self.define_buffers()
-            return
-
-        if self.threads_running > 0 or len(self.active_workers) > 0:
-            self.persist_project_config_from_widgets(log_values=False)
-            self.log_message(
-                self.tr('Aguarde o fim da análise em curso antes de nova avaliação.'), 'WARNING')
             return
 
         # Comparar com o estado gravado **antes** de persistir no .pa.gpkg; senão não há baseline
@@ -4008,28 +4899,50 @@ class Wd1(QWidget):
         dlg = self.settings_dlg
         dlg.flush_widgets_to_dic_param(log_values=False)
         flat_now = self._flatten_run_snapshot()
+        flat_was_run = load_pipeline_last_run_snapshot(pf)
         flat_was_pec = load_pipeline_last_ok_snapshot(pf)
-        if flat_was_pec:
+        if flat_was_run:
+            # Preferir o último «Avaliar» (mesmo se parou na extensão mínima) — não o Config gravado.
+            flat_was = flat_was_run
+        elif flat_was_pec:
             flat_was = flat_was_pec
         else:
             flat_was = build_flat_snapshot_from_mdepa_stored_settings(pf)
             if not any(k.startswith('step_') for k in flat_was):
                 flat_was = {}
-        restart, _reason = compute_restart_etapa_from_snapshots(flat_now, flat_was)
+        restart, reason = compute_restart_etapa_from_snapshots(flat_now, flat_was)
+        restart, reason = self._refine_restart_using_existing_layers(
+            restart, reason, flat_now, flat_was)
+
         if restart == '__noop__':
-            # Projeto novo: defaults gravados no .pa.gpkg coincidem com os widgets → diff vazio, mas
-            # não há PEC concluído nem etapa terminada: há que arrancar a cadeia, não mostrar «inalterado».
-            if flat_was_pec or pipeline_has_completed_any_etapa(pf):
+            morph_ready = self._morphology_layers_populated()
+            if flat_was_pec:
+                # PEC já concluído com estes parâmetros — não repetir a cadeia.
                 self.persist_project_config_from_widgets(log_values=False)
                 self.log_message(
                     self.tr(
-                        'Parâmetros e MDEs inalterados (última avaliação concluída ou configuração gravada no projeto).'),
+                        'Parâmetros e MDEs inalterados (última avaliação concluída).'),
                     'INFO',
                 )
                 return
-            restart = None
+            if morph_ready:
+                # Morfologia já existe (ex.: parou na extensão mínima). Config gravado
+                # igual aos widgets não pode apagar o GRASS: repetir só a seleção de pares.
+                restart = 'correspondencia_linhas'
+                reason = 'retry_match_incomplete:' + str(reason or 'noop')
+            else:
+                restart = None
+
+        changed_steps = _changed_step_keys_from_snapshots(flat_now, flat_was)
+        if changed_steps:
+            self.log_message(
+                self.tr('Parâmetros alterados: {0}. Retomada a partir de: {1}.').format(
+                    ', '.join(changed_steps), restart or self.tr('limites/interseção')),
+                'INFO',
+            )
 
         self.persist_project_config_from_widgets(log_values=False)
+        save_pipeline_last_run_snapshot(pf, self._flatten_run_snapshot())
 
         self.create_gpkg()
         self._sanitize_pipeline_for_restart_immediate(restart)
@@ -4038,7 +4951,9 @@ class Wd1(QWidget):
             self.log_message(
                 self.tr('Reprocessamento completo desde polígonos de limite e interseção.'), 'INFO')
             if self.cbx_workflow_study.currentIndex() == 2:
+                self._begin_analysis_session()
                 if not self.apply_study_area_from_map_layer():
+                    self._end_analysis_session()
                     return
                 return
             self.define_intersection()
@@ -4047,7 +4962,12 @@ class Wd1(QWidget):
             self.define_morphology(0)
         elif restart == 'correspondencia_linhas':
             self.log_message(
-                self.tr('Retomando a partir da correspondência de linhas (parâmetros alterados).'), 'INFO')
+                self.tr(
+                    'Retomando a partir da correspondência de linhas '
+                    '(morfologia mantida; parâmetros de pares/configuração).'
+                ),
+                'INFO',
+            )
             self.matching_lines()
         elif restart == 'buffers':
             self.log_message(
@@ -4056,6 +4976,31 @@ class Wd1(QWidget):
                 self.matching_lines()
             else:
                 self.define_buffers()
+        elif restart == 'buffers_alt':
+            self.log_message(
+                self.tr(
+                    'Retomando recalculo de DM (compatibilização / altimetria); '
+                    'pares e camada de buffers mantidos.'
+                ),
+                'INFO',
+            )
+            if not self.dic_match:
+                self.matching_lines()
+            else:
+                # Compatibilização só muda perfis altimétricos: não regrava buffers planimétricos.
+                self.define_buffers(write_buffer_layer=False, recompute_focus='alt')
+        elif restart == 'dm_recalc':
+            self.log_message(
+                self.tr(
+                    'Retomando recalculo de DM (fórmula); pares e camada de buffers mantidos.'
+                ),
+                'INFO',
+            )
+            if not self.dic_match:
+                self.matching_lines()
+            else:
+                # Fórmula nova sobre as mesmas áreas/raios: não regrava a camada.
+                self.define_buffers(write_buffer_layer=False, recompute_focus='dm')
         else:
             self.define_intersection()
 
@@ -4110,12 +5055,15 @@ class Wd1(QWidget):
             self.log_message(mss_, 'INFO')
             if self.cbx_workflow_study.currentIndex() == 1:
                 self._workflow_pause = 'post_intersection'
-                self._refresh_proc_button()
+                self._end_analysis_session()
                 self.log_message(
                     self.tr(
                         'Edite a camada de interseção se necessário e prima Continuar para morfologia.'),
                     'INFO')
             else:
+                if self._stop_requested:
+                    self._end_analysis_session()
+                    return
                 self.define_morphology(0)
 
     def ensure_pipeline_etapas_table(self, gpkg_path=None):
@@ -4271,6 +5219,10 @@ class Wd1(QWidget):
         return layer_
 
     def define_intersection(self):
+        if self._stop_requested:
+            self._end_analysis_session()
+            return
+        self._begin_analysis_session()
         for key_ in self.dic_prj['dems']:
             self.dic_prj['dems'][key_]['geom_status'] = False
         self._clear_features_from_limit_layers()
@@ -4295,10 +5247,18 @@ class Wd1(QWidget):
 
         # Start up to max_threads tasks
         while self.threads_running < self.max_threads and not self.task_queue.empty():
+            if self._stop_requested:
+                break
             key_, dic_ = self.task_queue.get()
             self.start_task(key_, dic_)
 
     def define_morphology(self, key_=0):
+        if self._stop_requested:
+            self._end_analysis_session()
+            return
+        self._begin_analysis_session()
+        etapa = 'morfologia_referencia' if key_ == 0 else 'morfologia_teste'
+        self.pipeline_set_etapa_inicio(etapa)
         mss_ = self.tr('=======================================\n')
         mss_ += self.tr('DEFININDO ELEMENTOS DE MORFOLOGIA DO TERRENO - {0}').format(
             self.dic_prj['dems'][key_]['type'])
@@ -4311,6 +5271,7 @@ class Wd1(QWidget):
                 ),
                 'ERROR',
             )
+            self._end_analysis_session()
             return
         dic_param_morphology = self.settings_dlg.dic_param['step_morfologia']['fields']
         mem_status = _windows_memory_status()
@@ -4375,6 +5336,8 @@ class Wd1(QWidget):
 
         # Start up to max_threads tasks
         while self.threads_running < self.max_threads and not self.task_queue.empty():
+            if self._stop_requested:
+                break
             key_, dic_ = self.task_queue.get()
             self.start_task(key_, dic_)
 
@@ -4669,32 +5632,42 @@ class Wd1(QWidget):
         ext_m = self._total_sample_extent_m_from_dic_match(dm)
         ext_km = ext_m / 1000.0
         if n_pairs == 0:
+            self._set_sample_extent_highlight(True)
             self.log_message(
                 self.tr(
                     'Não há pares homólogos válidos. O processamento foi interrompido antes dos buffers.\n\n'
                     'Sugestões:\n'
                     '• Diminuir a área máxima das bacias (morfologia) para gerar mais linhas.\n'
-                    '• Afrouxar a correspondência: aumentar a distância máxima entre centróides (pixels do MDE de teste) '
-                    'e o percentual de diferença de área entre os envelopes mínimos.'),
+                    '• Afrouxar a correspondência: aumentar a distância máxima entre centróides, '
+                    'os percentuais de diferença de área/comprimento dos envelopes mínimos, '
+                    'ou reduzir a extensão mínima da feição de teste.'),
                 'ERROR',
             )
             return False
         if ext_km < ext_min_km:
+            self._set_sample_extent_highlight(True)
             self.log_message(
                 self.tr(
                     'A extensão total da amostra ({0} km) é menor que a extensão mínima recomendada ({1} km). '
                     'O processamento foi interrompido antes dos buffers.\n\n'
                     'Sugestões:\n'
                     '• Diminuir a área máxima das bacias (morfologia) para gerar mais linhas e maior extensão acumulada.\n'
-                    '• Afrouxar a correspondência: aumentar a distância máxima entre centróides (pixels do MDE de teste) '
-                    'e o percentual de diferença de área entre os envelopes mínimos.'
+                    '• Afrouxar a correspondência: aumentar a distância máxima entre centróides, '
+                    'os percentuais de diferença de área/comprimento dos envelopes mínimos, '
+                    'ou reduzir a extensão mínima da feição de teste.'
                 ).format(round(ext_km, 4), round(ext_min_km, 4)),
                 'ERROR',
             )
             return False
+        self._clear_sample_extent_highlight()
         return True
 
     def matching_lines(self):
+        if self._stop_requested:
+            self._end_analysis_session()
+            return
+        self._begin_analysis_session()
+        self.pipeline_set_etapa_inicio('correspondencia_linhas')
         conn = self.gpkg_conn()
         curs = conn.cursor()
         dic_param_match = self.settings_dlg.dic_param['step_match']['fields']
@@ -4703,25 +5676,67 @@ class Wd1(QWidget):
         if not isinstance(layer_test, QgsRasterLayer) or not layer_test.isValid():
             self.log_message(
                 self.tr('MDE de teste inválido — não é possível aplicar a distância máxima em pixels.'), 'ERROR')
+            self._end_analysis_session()
             return
         gsd_test = layer_test.rasterUnitsPerPixelX()
         if not gsd_test or gsd_test <= 0:
             self.log_message(
                 self.tr('GSD do MDE de teste inválido — não é possível converter pixels em distância no mapa.'), 'ERROR')
+            self._end_analysis_session()
             return
         dist_max = dist_max_px * gsd_test
         area_percent = float(dic_param_match['percent_area']['value']) / 100
+        try:
+            length_percent = float(dic_param_match['percent_length']['value']) / 100
+        except (TypeError, ValueError, KeyError):
+            length_percent = 0.05
+        try:
+            min_len_px = float(dic_param_match['min_extent_px']['value'])
+        except (TypeError, ValueError, KeyError):
+            min_len_px = 10.0
+        min_len_m = min_len_px * gsd_test
         type_0 = self.dic_prj["dems"][0]["type"]
         type_1 = self.dic_prj["dems"][1]["type"]
         morph_0 = self.list_morph[0]
         morph_1 = self.list_morph[1]
+        # Lado maior do envelope orientado (retângulo): max das duas arestas adjacentes.
+        elen_sql = (
+            'MAX('
+            'ST_Distance(ST_PointN(ST_ExteriorRing(eogeom), 1), '
+            'ST_PointN(ST_ExteriorRing(eogeom), 2)), '
+            'ST_Distance(ST_PointN(ST_ExteriorRing(eogeom), 2), '
+            'ST_PointN(ST_ExteriorRing(eogeom), 3)))'
+        )
+
+        def _match_cte(alias, layer_name):
+            return (
+                f'{alias} as ('
+                f'select fid, eogeom, centroid, len, {elen_sql} as elen from ('
+                f'select fid, '
+                f'OrientedEnvelope(GeomFromGPB(geom)) as eogeom, '
+                f'ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid, '
+                f'ST_LENGTH(GeomFromGPB(geom)) as len '
+                f'from {layer_name}))'
+            )
+
+        self.log_message(
+            self.tr(
+                'Seleção de pares: dist. máx.={0:g} px ({1:.2f} m); '
+                'Δárea envelope<{2:g} %; Δcomprimento envelope<{3:g} %; '
+                'extensão mín. teste={4:g} px ({5:.2f} m).'
+            ).format(
+                dist_max_px, dist_max,
+                area_percent * 100, length_percent * 100,
+                min_len_px, min_len_m,
+            ),
+            'INFO',
+        )
         sql_ = f"""
         WITH
-            ct as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid, ST_LENGTH(GeomFromGPB(geom)) len from __{morph_0}_Z_{type_1}__),
-            cr as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid, ST_LENGTH(GeomFromGPB(geom)) len  from __{morph_0}_Z_{type_0}__),
-            ht as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid, ST_LENGTH(GeomFromGPB(geom)) len  from __{morph_1}_Z_{type_1}__),
-            hr as (select  fid, OrientedEnvelope(GeomFromGPB(geom)) as eogeom, ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid, ST_LENGTH(GeomFromGPB(geom)
-            ) len  from __{morph_1}_Z_{type_0}__)
+            {_match_cte('ct', f'__{morph_0}_Z_{type_1}__')},
+            {_match_cte('cr', f'__{morph_0}_Z_{type_0}__')},
+            {_match_cte('ht', f'__{morph_1}_Z_{type_1}__')},
+            {_match_cte('hr', f'__{morph_1}_Z_{type_0}__')}
         SELECT 
             '{morph_0}' TIPO, 
             cr.fid fidr, 
@@ -4732,7 +5747,10 @@ class Wd1(QWidget):
             FROM ct, cr
             WHERE 
                 ST_DISTANCE(ct.centroid, cr.centroid) < {dist_max}
-                AND (ABS(ST_AREA(ct.eogeom) - ST_AREA(cr.eogeom))/ ST_AREA(ct.eogeom)) < {area_percent}
+                AND ct.len >= {min_len_m}
+                AND ct.elen > 0 AND cr.elen > 0
+                AND (ABS(ST_AREA(ct.eogeom) - ST_AREA(cr.eogeom))/ NULLIF(ST_AREA(ct.eogeom), 0)) < {area_percent}
+                AND (ABS(ct.elen - cr.elen)/ ct.elen) < {length_percent}
         UNION
         SELECT 
             '{morph_1}' TIPO, 
@@ -4744,7 +5762,10 @@ class Wd1(QWidget):
             FROM ht, hr
             WHERE 
                 ST_DISTANCE(ht.centroid, hr.centroid) < {dist_max}
-                AND (ABS(ST_AREA(ht.eogeom) - ST_AREA(hr.eogeom))/ ST_AREA(ht.eogeom)) < {area_percent}
+                AND ht.len >= {min_len_m}
+                AND ht.elen > 0 AND hr.elen > 0
+                AND (ABS(ST_AREA(ht.eogeom) - ST_AREA(hr.eogeom))/ NULLIF(ST_AREA(ht.eogeom), 0)) < {area_percent}
+                AND (ABS(ht.elen - hr.elen)/ ht.elen) < {length_percent}
             ORDER BY 1,4 ASC;
         """
         result_ = curs.execute(sql_)
@@ -4779,10 +5800,11 @@ class Wd1(QWidget):
         self._refresh_extent_and_pairs_labels()
         self._persist_panel_stats_to_mdepa()
         self._sync_match_lines_layer_from_dic_match()
+        self.pipeline_set_etapa_fim('correspondencia_linhas')
         # print('dic_match', self.dic_match)
         if self.cbx_workflow_pairs.currentIndex() == 1:
             self._workflow_pause = 'post_pairs_review'
-            self._refresh_proc_button()
+            self._end_analysis_session()
             self.log_message(
                 self.tr(
                     'Camada __Linhas_de_Correspondencia__: {0} pares. Edite, remova ou adicione linhas '
@@ -4790,13 +5812,17 @@ class Wd1(QWidget):
                 ).format(n_pairs),
                 'INFO')
             return
+        if self._stop_requested:
+            self._end_analysis_session()
+            return
         self.define_buffers()
 
     def create_buffers_layer(self, show_on_map: bool = True):
 
         layer_0 = QgsVectorLayer(f'multipolygon?crs={self.crs_epsg}&index=yes', self.buffer_name, "memory")
         schema_ = QgsFields()
-        schema_.append(QgsField('scale', QVariant.Int))
+        # Double: escalas nominais (PEC) e raios CE90/LE90 em metros
+        schema_.append(QgsField('scale', QVariant.Double))
         schema_.append(QgsField('class', QVariant.String))
         schema_.append(QgsField('id_origem', QVariant.Int))
         schema_.append(QgsField('camada_origem', QVariant.String))
@@ -4815,6 +5841,19 @@ class Wd1(QWidget):
         layer_ = self.get_gpkg_layer(
             prefix_=self.buffer_name, gpkg_path=self.gpkg_path, show=show_on_map)
         return layer_
+
+    def _reset_buffers_layer_for_run(self) -> None:
+        """Esvazia/recria __Buffers__ antes de uma nova geração (evita conflito de fid)."""
+        bn = self.buffer_name
+        try:
+            self._clear_gpkg_vector_layer_features(bn)
+        except Exception:
+            pass
+        try:
+            self._remove_project_layers_named(bn)
+        except Exception:
+            pass
+        self.layer_buffers = None
 
     def _show_buffers_on_map_setting(self) -> bool:
         """Config step_buffers: 0 = não mostrar no mapa durante processamento."""
@@ -4846,6 +5885,34 @@ class Wd1(QWidget):
                 ).format(QgsWkbTypes.displayString(lyr.wkbType())),
                 'INFO',
             )
+        fields = lyr.fields()
+        # Índices por nome — nunca gravar 'fid' (PK do GeoPackage)
+        idx_scale = fields.indexOf('scale')
+        idx_class = fields.indexOf('class')
+        idx_id = fields.indexOf('id_origem')
+        idx_cam = fields.indexOf('camada_origem')
+
+        def _attrs_from_source(feat_src):
+            """Extrai scale/class/id_origem/camada_origem sem reutilizar fid."""
+            src = list(feat_src.attributes() or [])
+            # Formatos históricos: [fid_sintetico, scale, class, id, camada] ou [scale, class, id, camada]
+            if len(src) >= 5:
+                scale_v, class_v, id_v, cam_v = src[1], src[2], src[3], src[4]
+            elif len(src) >= 4:
+                scale_v, class_v, id_v, cam_v = src[0], src[1], src[2], src[3]
+            else:
+                scale_v = class_v = id_v = cam_v = None
+            out = [None] * fields.count()
+            if idx_scale >= 0:
+                out[idx_scale] = scale_v
+            if idx_class >= 0:
+                out[idx_class] = class_v
+            if idx_id >= 0:
+                out[idx_id] = id_v
+            if idx_cam >= 0:
+                out[idx_cam] = cam_v
+            return out
+
         lyr.startEditing()
         n_ok, n_skip, n_add_fail = 0, 0, 0
         for feat_ in feats:
@@ -4854,8 +5921,9 @@ class Wd1(QWidget):
             if g_adj is None:
                 n_skip += 1
                 continue
-            feat_adj = QgsFeature(feat_)
+            feat_adj = QgsFeature(fields)
             feat_adj.setGeometry(g_adj)
+            feat_adj.setAttributes(_attrs_from_source(feat_))
             if not lyr.addFeature(feat_adj):
                 n_add_fail += 1
             else:
@@ -5025,12 +6093,27 @@ class Wd1(QWidget):
             list_.append(list(self.dic_pec_v)[i])
         return list_
 
-    def define_buffers(self):
+    def define_buffers(self, *, write_buffer_layer: bool = True, recompute_focus: str = 'full'):
+        """Gera buffers / DM.
+
+        write_buffer_layer=False: recalcula DM (e PEC) sem esvaziar/regravar __Buffers__.
+        recompute_focus: 'full' | 'alt' (ênfase altimétrica / compatibilização) | 'dm' (só fórmula).
+        """
+        if self._stop_requested:
+            self._end_analysis_session()
+            return
+        self._begin_analysis_session()
         self._buffer_geom_diag_counts = {}
         self._buffers_layer_target_logged = False
-        self.layer_buffers = None
-        self._buffers_map_deferred = not self._show_buffers_on_map_setting()
-        self._begin_buffers_map_canvas_freeze()
+        if write_buffer_layer:
+            self._reset_buffers_layer_for_run()
+            self._buffers_map_deferred = not self._show_buffers_on_map_setting()
+            self._begin_buffers_map_canvas_freeze()
+        else:
+            # Não mexer na camada existente nem no freeze do canvas
+            self._buffers_map_deferred = False
+            self.layer_buffers = self.get_gpkg_layer(
+                prefix_=self.buffer_name, gpkg_path=self.gpkg_path, show=False)
         rebuilt = self._dic_match_from_match_lines_layer()
         if rebuilt is not None:
             if not rebuilt:
@@ -5038,6 +6121,7 @@ class Wd1(QWidget):
                     self.tr(
                         'Define buffers: a camada __Linhas_de_Correspondencia__ está vazia ou sem pares válidos.'),
                     'ERROR')
+                self._end_analysis_session()
                 return
             self.dic_match = rebuilt
             ext_sum = self._total_sample_extent_m_from_dic_match(self.dic_match)
@@ -5049,12 +6133,45 @@ class Wd1(QWidget):
         if not self._check_sample_extent_vs_minimum():
             if self.cbx_workflow_pairs.currentIndex() == 1:
                 self._workflow_pause = 'post_pairs_review'
-                self._refresh_proc_button()
+            self._end_analysis_session()
             return
         mss_ = self.tr('=======================================\n')
-        mss_ += self.tr('DEFININDO BUFFERS')
+        if not write_buffer_layer:
+            if recompute_focus == 'alt':
+                mss_ += self.tr('RECALCULANDO DM (COMPATIBILIZAÇÃO / ALTIMETRIA)')
+            elif recompute_focus == 'dm':
+                mss_ += self.tr('RECALCULANDO DM (FÓRMULA)')
+            else:
+                mss_ += self.tr('RECALCULANDO DM (SEM REGRAVAR BUFFERS)')
+        else:
+            mss_ += self.tr('DEFININDO BUFFERS')
         self.log_message(mss_, 'INFO')
-        list_scale = self.get_list_scale()
+        accuracy_standard = self._accuracy_standard_index()
+        gsd = self._test_dem_gsd()
+        list_scale = [] if accuracy_standard == ACCURACY_STANDARD_CE90 else self.get_list_scale()
+        if accuracy_standard == ACCURACY_STANDARD_CE90:
+            if not gsd or gsd <= 0:
+                self.log_message(
+                    self.tr(
+                        'CE90/LE90: resolução do MDE de teste indisponível. '
+                        'Selecione o raster de teste e tente novamente.'),
+                    'ERROR')
+                self._end_analysis_session()
+                return
+            max_h, max_v = self._ce90_max_gsd_multipliers()
+            dec = ce90_threshold_decimals(gsd)
+            self.log_message(
+                self.tr(
+                    'Modo CE90/LE90 — pixel MDE teste={0:.3f} m; '
+                    'precisão limiar={1} casa(s) decimal(is); '
+                    'máx. H={2:g} pixels do MDE de teste ({3} m); '
+                    'máx. V={4:g} pixels do MDE de teste ({5} m).'
+                ).format(
+                    gsd, dec,
+                    max_h, f'{max_h * gsd:.{dec}f}',
+                    max_v, f'{max_v * gsd:.{dec}f}',
+                ),
+                'INFO')
         dic_layers_line = {}
         for tag_ in self.dic_match:
             dic_layers_line[tag_] = {}
@@ -5065,6 +6182,8 @@ class Wd1(QWidget):
                 dic_layers_line[tag_].update({i: layer_})
         # list_layers_buffer = self.create_buffers_layer()
         norm_type = self.settings_dlg.dic_param['step_normalize_prog']['fields']['norm_type']['value']
+        dm_formula = self._dm_formula_index()
+        max_h_mult, max_v_mult = self._ce90_max_gsd_multipliers()
         dic_={
             'step': 'buffers',
             'dic_layers_line': dic_layers_line,
@@ -5073,6 +6192,14 @@ class Wd1(QWidget):
             'dic_pec_mm': self.dic_pec_mm,
             'dic_pec_v': self.dic_pec_v,
             'norm_type': norm_type,
+            'dm_formula': dm_formula,
+            'accuracy_standard': accuracy_standard,
+            'gsd': gsd,
+            'ce90_max_h': max_h_mult,
+            'ce90_max_v': max_v_mult,
+            'ce90_pass_criteria': self._ce90_pass_criteria_mask(),
+            'write_buffer_layer': bool(write_buffer_layer),
+            'recompute_focus': recompute_focus or 'full',
             'parent': self,
             'main': self.main}
         # Add tasks to queue
@@ -5081,6 +6208,8 @@ class Wd1(QWidget):
 
         # Start up to max_threads tasks
         while self.threads_running < self.max_threads and not self.task_queue.empty():
+            if self._stop_requested:
+                break
             key_, dic_ = self.task_queue.get()
             self.start_task(key_, dic_)
 
@@ -5166,8 +6295,14 @@ class Wd1(QWidget):
             raise RuntimeError(
                 self.tr('Sem pares válidos em __Linhas_de_Correspondencia__ no projeto.'))
         self.dic_match = rebuilt
-        list_scale = self.get_list_scale()
-        if not list_scale:
+        accuracy_standard = self._accuracy_standard_index()
+        gsd = self._test_dem_gsd()
+        list_scale = [] if accuracy_standard == ACCURACY_STANDARD_CE90 else self.get_list_scale()
+        if accuracy_standard == ACCURACY_STANDARD_CE90:
+            if not gsd or gsd <= 0:
+                raise RuntimeError(
+                    self.tr('CE90/LE90: resolução do MDE de teste indisponível.'))
+        elif not list_scale:
             raise RuntimeError(self.tr('Lista de escalas vazia - verifique parâmetros de buffers.'))
         dic_layers_line = {}
         for tag_ in self.dic_match:
@@ -5181,6 +6316,8 @@ class Wd1(QWidget):
                         self.tr('Camada ausente ou inválida no GPKG: {0}').format(layer_name))
                 dic_layers_line[tag_][i] = layer_
         norm_type = self.settings_dlg.dic_param['step_normalize_prog']['fields']['norm_type']['value']
+        dm_formula = self._dm_formula_index()
+        max_h_mult, max_v_mult = self._ce90_max_gsd_multipliers()
         bt = BufferThread(
             self.main,
             self,
@@ -5192,9 +6329,16 @@ class Wd1(QWidget):
                 'dic_pec_mm': self.dic_pec_mm,
                 'dic_pec_v': self.dic_pec_v,
                 'norm_type': norm_type,
+                'dm_formula': dm_formula,
+                'accuracy_standard': accuracy_standard,
+                'gsd': gsd,
+                'ce90_max_h': max_h_mult,
+                'ce90_max_v': max_v_mult,
+                'ce90_pass_criteria': self._ce90_pass_criteria_mask(),
             },
         )
         bt.run()
+        self._ce90_meta = getattr(bt, 'ce90_meta', None)
         return bt.dic_values
 
     def calc_pec(self, dic_values):
@@ -5206,11 +6350,23 @@ class Wd1(QWidget):
             self.tr('Avaliar individualmente'),
             self.tr('Usar todos'),
         )
-        self._pec_report_pec_intro = self.tr('Tratamento de outliers (PEC): {0}').format(
-            om_names[om] if 0 <= om < len(om_names) else str(om))
+        is_ce90 = self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
+        if is_ce90:
+            self._pec_report_pec_intro = self.tr(
+                'Tratamento de outliers (CE90/LE90): {0}'
+            ).format(om_names[om] if 0 <= om < len(om_names) else str(om))
+        else:
+            self._pec_report_pec_intro = self.tr('Tratamento de outliers (PEC): {0}').format(
+                om_names[om] if 0 <= om < len(om_names) else str(om))
 
         self._log_null_dm_samples(dic_values, 'dm_h')
         self._log_null_dm_samples(dic_values, 'dm_v')
+
+        if is_ce90:
+            self._calc_ce90_le90_report(dic_values)
+            self._write_pec_results_txt()
+            self._sync_panel_extent_after_pec(dic_values)
+            return
 
         mss_ = self.tr('=======================================\n')
         mss_ += self.tr('CALCULANDO PEC PLANIMÉTRICO')
@@ -5230,7 +6386,13 @@ class Wd1(QWidget):
         self.log_message(mss_, 'INFO')
         for scale_ in sorted(dic_values):
             for class_ in dic_values[scale_]:
-                pec_v, ep_v = pec_alt_limits(scale_, class_, self.dic_pec_alt)
+                pec_v, ep_v = pec_alt_limits(
+                    scale_,
+                    class_,
+                    self.dic_pec_alt,
+                    dic_eq=self.dic_pec_v,
+                    dic_pec_mm=self.dic_pec_mm,
+                )
                 if pec_v is None:
                     self.log_message(
                         self.tr('PEC altimétrico ignorado para escala 1:{0}.000 (sem limites definidos).').format(
@@ -5246,6 +6408,102 @@ class Wd1(QWidget):
 
         self._write_pec_results_txt()
         self._sync_panel_extent_after_pec(dic_values)
+
+    def _calc_ce90_le90_report(self, dic_values):
+        """Relatório CE90/LE90: uma linha por candidato avaliado na busca."""
+        gsd = self._test_dem_gsd() or 0.0
+        meta = getattr(self, '_ce90_meta', None) or {}
+        if gsd <= 0:
+            try:
+                gsd = float(meta.get('gsd') or 0.0)
+            except (TypeError, ValueError):
+                gsd = 0.0
+        dec = self._ce90_threshold_decimals()
+        final_h = meta.get('final_h')
+        final_v = meta.get('final_v')
+        trials_h = meta.get('trials_h') or {}
+        trials_v = meta.get('trials_v') or {}
+
+        def _is_final(scale_, final_):
+            if final_ is None:
+                return False
+            try:
+                return abs(float(scale_) - float(final_)) < (10 ** (-dec)) / 2.0
+            except (TypeError, ValueError):
+                return False
+
+        def _meta_for(scale_, trials_map):
+            try:
+                key = round(float(scale_), dec)
+            except (TypeError, ValueError):
+                key = scale_
+            info = trials_map.get(key) or trials_map.get(scale_) or {}
+            if not info and isinstance(scale_, (int, float)):
+                for k, v in trials_map.items():
+                    try:
+                        if abs(float(k) - float(scale_)) < 1e-9:
+                            return v or {}
+                    except (TypeError, ValueError):
+                        continue
+            return info or {}
+
+        mss_ = self.tr('=======================================\n')
+        mss_ += self.tr('TABELA CE90 (todos os limiares avaliados)')
+        self.log_message(mss_, 'INFO')
+        for scale_ in sorted(k for k in dic_values if isinstance(k, (int, float))):
+            if CLASS_CE90 not in dic_values[scale_]:
+                continue
+            pec_h = float(scale_)
+            ep_h = round(pec_h * EP_RATIO_H, dec)
+            tmeta = _meta_for(scale_, trials_h)
+            row, str_ = self._calc_pec_group_report(
+                dic_values, scale_, CLASS_CE90, 'dm_h', pec_h, ep_h,
+                dimension='H', pec_decimals=dec)
+            row['ce90_final'] = _is_final(scale_, final_h)
+            row['ce90_ciclo'] = tmeta.get('ciclo')
+            if pec_h <= 0:
+                str_ = self.tr(
+                    'CE90={0} m — RODADA 1 — FALHOU (sem buffer/DM)'
+                ).format(self._format_ce90_m(0.0, dec))
+            else:
+                if row.get('ce90_ciclo') is not None:
+                    str_ = self.tr('RODADA {0} — {1}').format(
+                        row['ce90_ciclo'], str_)
+                if gsd > 0:
+                    str_ += self.tr(
+                        ' ({0:.1f} pixels do MDE de teste)'
+                    ).format(pec_h / gsd)
+            self.log_message(str_, 'INFO')
+            self._pec_report_plan_rows.append(row)
+
+        mss_ = self.tr('=======================================\n')
+        mss_ += self.tr('TABELA LE90 (todos os limiares avaliados)')
+        self.log_message(mss_, 'INFO')
+        for scale_ in sorted(k for k in dic_values if isinstance(k, (int, float))):
+            if CLASS_LE90 not in dic_values[scale_]:
+                continue
+            pec_v = float(scale_)
+            ep_v = round(pec_v * EP_RATIO_V, dec)
+            tmeta = _meta_for(scale_, trials_v)
+            row, str_ = self._calc_pec_group_report(
+                dic_values, scale_, CLASS_LE90, 'dm_v', pec_v, ep_v,
+                dimension='V', pec_decimals=dec)
+            row['ce90_final'] = _is_final(scale_, final_v)
+            row['ce90_ciclo'] = tmeta.get('ciclo')
+            if pec_v <= 0:
+                str_ = self.tr(
+                    'LE90={0} m — RODADA 1 — FALHOU (sem buffer/DM)'
+                ).format(self._format_ce90_m(0.0, dec))
+            else:
+                if row.get('ce90_ciclo') is not None:
+                    str_ = self.tr('RODADA {0} — {1}').format(
+                        row['ce90_ciclo'], str_)
+                if gsd > 0:
+                    str_ += self.tr(
+                        ' ({0:.1f} pixels do MDE de teste)'
+                    ).format(pec_v / gsd)
+            self.log_message(str_, 'INFO')
+            self._pec_report_alt_rows.append(row)
 
     @staticmethod
     def _extent_km_from_m(ext_m):
@@ -5393,13 +6651,22 @@ class Wd1(QWidget):
 
     def _calc_pec_group_report(
         self, dic_values, scale_, class_, dm_key, pec_raw, ep_raw, *,
-        dimension='H', eq=None,
+        dimension='H', eq=None, pec_decimals=None,
     ):
         samples, outlier_ids = self._pec_samples_group(
             dic_values, scale_, class_, dm_key)
         values = [s['dm'] for s in samples]
         extents = [s['extent'] for s in samples]
-        pec_lim = pec_test_limit(pec_raw)
+        pec_lim = pec_test_limit(pec_raw, decimals=pec_decimals)
+        is_ce = class_ in (CLASS_CE90, CLASS_LE90)
+        if is_ce and pec_decimals is not None:
+            pec_lim_txt = self._format_ce90_m(pec_lim, pec_decimals)
+            ep_txt = self._format_ce90_m(ep_raw, pec_decimals)
+            scale_txt = self._format_ce90_m(scale_, pec_decimals)
+        else:
+            pec_lim_txt = pec_lim
+            ep_txt = ep_raw
+            scale_txt = scale_
         reprov_ids = sorted({
             s['fid_r'] for s in samples
             if s['fid_r'] is not None and s['dm'] > pec_lim
@@ -5410,7 +6677,10 @@ class Wd1(QWidget):
             row = self._pec_norm_fail_row(
                 scale_, class_, pec_lim, samples, outlier_ids,
                 dimension=dimension, eq=eq)
-            if dimension == 'V':
+            if is_ce:
+                str_ = self.tr('{0}={1} m — {2}, {3} amostras').format(
+                    class_, scale_txt, norm_fail, len(values))
+            elif dimension == 'V':
                 str_ = self.tr('EQ {0} — 1:{1}.000-{2}= {3}, {4} amostras').format(
                     eq, scale_, class_, norm_fail, len(values))
             else:
@@ -5418,16 +6688,16 @@ class Wd1(QWidget):
                     scale_, class_, norm_fail, len(values))
             return row, str_
 
-        perc_q = perc_pec_quant(values, pec_raw)
-        perc_e = perc_pec_ext(values, extents, pec_raw)
-        pec_ok_q = perc_q >= 0.90
-        pec_ok_e = perc_e >= 0.90
+        perc_q = perc_pec_quant(values, pec_raw, decimals=pec_decimals)
+        perc_e = perc_pec_ext(values, extents, pec_raw, decimals=pec_decimals)
+        perc_q_pct = pec_percent_rounded(perc_q)
+        perc_e_pct = pec_percent_rounded(perc_e)
+        pec_ok_q = perc_q_pct >= PEC_PASS_PERCENT
+        pec_ok_e = perc_e_pct >= PEC_PASS_PERCENT
         rms_ = self.rms(values)
         ep_ok = math.isfinite(rms_) and rms_ <= ep_raw
         rms_show = round(rms_, 2) if math.isfinite(rms_) else float('nan')
         cmp_ep = '<=' if ep_ok else '>'
-        perc_q_pct = round(perc_q * 100)
-        perc_e_pct = round(perc_e * 100)
 
         row = {
             'scale': scale_,
@@ -5443,10 +6713,10 @@ class Wd1(QWidget):
             'perc_e': perc_e_pct,
             'result_e': self.tr('PASSOU') if pec_ok_e else self.tr('FALHOU'),
             'result_e_ok': pec_ok_e,
-            'teste_pec_q': f'{perc_q_pct} % <= {pec_lim}',
-            'teste_pec_e': f'{perc_e_pct} % <= {pec_lim}',
+            'teste_pec_q': f'{perc_q_pct:.1f} % <= {pec_lim_txt}',
+            'teste_pec_e': f'{perc_e_pct:.1f} % <= {pec_lim_txt}',
             'teste_ep': (
-                f'{rms_show} {cmp_ep} {ep_raw} EP'
+                f'{rms_show} {cmp_ep} {ep_txt} EP'
                 if math.isfinite(rms_show) else ''
             ),
             'result_ep': self.tr('PASSOU') if ep_ok else self.tr('FALHOU'),
@@ -5455,30 +6725,79 @@ class Wd1(QWidget):
             'reprovados_ids': ', '.join(str(i) for i in reprov_ids),
         }
 
-        if dimension == 'V':
+        if is_ce:
             str_ = self.tr(
-                'EQ {0} — 1:{1}.000-{2}= quant {3}% <= {4} - {5}, ext {6}% <= {4} - {7},'
+                '{0}={1} m — quant {2:.1f}% <= {3} - {4}, ext {5:.1f}% <= {3} - {6},'
+            ).format(
+                class_, scale_txt, perc_q_pct, pec_lim_txt, row['result_q'],
+                perc_e_pct, row['result_e'])
+        elif dimension == 'V':
+            str_ = self.tr(
+                'EQ {0} — 1:{1}.000-{2}= quant {3:.1f}% <= {4} - {5}, ext {6:.1f}% <= {4} - {7},'
             ).format(
                 eq, scale_, class_, perc_q_pct, pec_lim, row['result_q'],
                 perc_e_pct, row['result_e'])
         else:
             str_ = self.tr(
-                '1:{0}.000-{1}= quant {2}% <= {3} - {4}, ext {5}% <= {3} - {6},'
+                '1:{0}.000-{1}= quant {2:.1f}% <= {3} - {4}, ext {5:.1f}% <= {3} - {6},'
             ).format(
                 scale_, class_, perc_q_pct, pec_lim, row['result_q'],
                 perc_e_pct, row['result_e'])
         if ep_ok:
             str_ += self.tr(' {0} <= {1} EP - PASSOU, {2}').format(
                 rms_show if math.isfinite(rms_show) else self.tr('n/d'),
-                ep_raw, len(values))
+                ep_txt if is_ce else ep_raw, len(values))
         else:
             str_ += self.tr(' {0} > {1} EP - FALHOU, {2}').format(
                 rms_show if math.isfinite(rms_show) else self.tr('n/d'),
-                ep_raw, len(values))
+                ep_txt if is_ce else ep_raw, len(values))
         return row, str_
 
     def _pec_row_data_cells(self, row, dimension='H'):
         """Células de dados na ordem das colunas do relatório (plan. 11 cols / alt. 12 cols)."""
+        is_ce = row.get('class') in (CLASS_CE90, CLASS_LE90)
+        if is_ce:
+            dec = self._ce90_threshold_decimals()
+            try:
+                lim_m = float(row['scale'])
+            except (TypeError, ValueError):
+                lim_m = row['scale']
+            if isinstance(lim_m, (int, float)):
+                lim_txt = self._format_ce90_m(lim_m, dec)
+            else:
+                lim_txt = str(lim_m)
+            ciclo = row.get('ce90_ciclo')
+            if ciclo is None and isinstance(lim_m, (int, float)) and lim_m <= 0:
+                ciclo = 1
+            ciclo_txt = '' if ciclo is None else str(int(ciclo))
+            # CE/LE (m) | RODADA — mesma grelha nas duas tabelas (11 colunas)
+            head = [lim_txt, ciclo_txt]
+            blank_stats = (
+                (isinstance(lim_m, (int, float)) and lim_m <= 0)
+                or int(row.get('n_valid') or 0) == 0
+            )
+            pec_lim_txt = self._format_ce90_m(row.get('pec_lim'), dec)
+            if blank_stats:
+                n_out = n_val = ext_km = ''
+                t_q = t_e = t_ep = ''
+                failed = self.tr('FALHOU')
+                r_q = r_e = r_ep = failed
+            else:
+                n_out = row['n_outliers']
+                n_val = row['n_valid']
+                ext_km = row['ext_km']
+                t_q = row.get(
+                    'teste_pec_q',
+                    f"{row.get('perc_q', '')} % <= {pec_lim_txt}")
+                t_e = row.get(
+                    'teste_pec_e',
+                    f"{row.get('perc_e', '')} % <= {pec_lim_txt}")
+                t_ep = row.get('teste_ep', '')
+                r_q = row['result_q']
+                r_e = row['result_e']
+                r_ep = row['result_ep']
+            tail = [n_out, n_val, ext_km, t_q, r_q, t_e, r_e, t_ep, r_ep]
+            return head + tail
         if dimension == 'V':
             head = [
                 self.tr('1:{0}.000').format(row['scale']),
@@ -5503,8 +6822,29 @@ class Wd1(QWidget):
         ]
         return head + tail
 
-    def _pec_results_header_labels(self):
-        """Rótulos comuns do cabeçalho (padrão dissertação LaTeX)."""
+    def _pec_results_header_labels(self, altimetric=False):
+        """Rótulos do cabeçalho (PEC-PCD ou CE90/LE90)."""
+        if self._accuracy_standard_index() == ACCURACY_STANDARD_CE90:
+            return {
+                'escala': self.tr('LE (m)') if altimetric else self.tr('CE (m)'),
+                'eq': '',
+                'classe': self.tr('RODADA'),
+                'ce90_layout': True,
+                'outliers': self.tr('Outliers'),
+                'amostras': self.tr('Amostras Válidas'),
+                'quant': self.tr('Quant.'),
+                'ext_km': self.tr('Ext. (km)'),
+                'pec_group': (
+                    self.tr('LE90 (90% d_i ≤ limiar)')
+                    if altimetric
+                    else self.tr('CE90 (90% d_i ≤ limiar)')
+                ),
+                'pec_quant': self.tr('Quantitativo'),
+                'pec_ext': self.tr('Extensão'),
+                'teste': self.tr('Teste'),
+                'resultado': self.tr('Resultado'),
+                'ep_group': self.tr('EP (RMS ≤ EP)'),
+            }
         return {
             'escala': self.tr('Escala'),
             'eq': self.tr('EQ (m)'),
@@ -5524,17 +6864,18 @@ class Wd1(QWidget):
     def _pec_results_table_head_html(self, altimetric=False, widths_pct=None) -> str:
         return _pec_results_table_head_html(
             altimetric=altimetric,
-            header_labels=self._pec_results_header_labels(),
+            header_labels=self._pec_results_header_labels(altimetric=altimetric),
             widths_pct=widths_pct,
         )
 
     def _pec_results_table_head_txt_rows(self, altimetric=False):
         """Três linhas de cabeçalho tabulado (mesma estrutura lógica do LaTeX)."""
-        lb = self._pec_results_header_labels()
-        n = 12 if altimetric else 11
+        lb = self._pec_results_header_labels(altimetric=altimetric)
+        use_alt = bool(altimetric) and not bool(lb.get('ce90_layout'))
+        n = 12 if use_alt else 11
         blank = [''] * n
 
-        if altimetric:
+        if use_alt:
             row1 = [
                 lb['escala'], lb['eq'], lb['classe'], lb['outliers'],
                 lb['amostras'], '',
@@ -5551,7 +6892,7 @@ class Wd1(QWidget):
             ]
             row2 = blank[:3] + ['', ''] + [lb['pec_quant'], '', lb['pec_ext'], ''] + ['', '']
 
-        row3 = blank[:4] if altimetric else blank[:3]
+        row3 = blank[:4] if use_alt else blank[:3]
         row3 += [lb['quant'], lb['ext_km']]
         row3 += [lb['teste'], lb['resultado'], lb['teste'], lb['resultado']]
         row3 += [lb['teste'], lb['resultado']]
@@ -5562,13 +6903,22 @@ class Wd1(QWidget):
 
     def _pec_row_snapshot_entry(self, row, dimension='H') -> dict:
         """Entrada PEC no snapshot/PDF: texto traduzido + flags pass/fail (idioma-independente)."""
+        cells = []
+        for c in self._pec_row_to_cells(row, dimension):
+            if c is None or c == '':
+                cells.append('')
+            else:
+                cells.append(str(c))
+        # CE90/LE90 usam grelha de 11 colunas (como planimétrico)
+        is_ce = row.get('class') in (CLASS_CE90, CLASS_LE90)
         return {
-            'cells': [str(c) for c in self._pec_row_to_cells(row, dimension)],
+            'cells': cells,
             'result_ok': [
                 row.get('result_q_ok'),
                 row.get('result_e_ok'),
                 row.get('result_ep_ok'),
             ],
+            'ce90_layout': is_ce,
         }
 
     def _write_pec_results_txt(self):
@@ -5610,6 +6960,36 @@ class Wd1(QWidget):
         if not isinstance(meta, dict):
             return ''
         val = meta.get('value')
+        if meta.get('type') == 'checkbox':
+            try:
+                on = bool(int(val))
+            except (TypeError, ValueError):
+                on = bool(val)
+            return self.tr('gerar') if on else self.tr('não gerar')
+        if meta.get('type') == 'checkbox_group':
+            lst = meta.get('list') or []
+            try:
+                mask = int(float(val))
+            except (TypeError, ValueError):
+                mask = CE90_CRIT_DEFAULT
+            selected = [
+                str(lst[i]) for i in range(len(lst)) if mask & (1 << i)
+            ]
+            return ', '.join(selected) if selected else self.tr('(nenhum)')
+        if meta.get('type') == 'radio':
+            lst = meta.get('list') or []
+            try:
+                idx = int(val)
+            except (TypeError, ValueError):
+                idx = 0
+            if 0 <= idx < len(lst):
+                return str(lst[idx])
+            return '' if val is None else str(val)
+        if meta.get('type') == 'doublespin':
+            try:
+                return str(float(val))
+            except (TypeError, ValueError):
+                return '' if val is None else str(val)
         if 'list' in meta:
             lst = meta['list']
             try:
@@ -5620,9 +7000,18 @@ class Wd1(QWidget):
                 except (TypeError, ValueError):
                     idx = 0
             if isinstance(lst, (list, tuple)) and 0 <= idx < len(lst):
-                return str(lst[idx])
-            return str(val)
-        return '' if val is None else str(val)
+                item = lst[idx]
+                if 'string' in meta:
+                    try:
+                        return meta['string'].format(item)
+                    except (TypeError, ValueError, IndexError):
+                        return str(item)
+                return str(item)
+            # índice da opção em branco no fim do combo de escalas
+            if isinstance(lst, (list, tuple)) and idx == len(lst):
+                return ''
+            return '' if val is None or val == '' else str(val)
+        return '' if val is None or val == '' else str(val)
 
     def _report_extent_intersection_rows(self) -> list:
         """Linhas da tabela de envelope (colunas Xmin, Ymin, Xmax, Ymax)."""
@@ -5699,16 +7088,22 @@ class Wd1(QWidget):
         if not plan_rows and not alt_rows:
             empty_msg = self.tr(
                 '(ainda não há resultados de PEC nesta sessão — execute a análise até ao fim.)')
+        is_ce90 = self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
         return _build_pec_results_tables_html_blocks(
             intro=intro,
-            plan_title=self.tr('7.1 PEC Planimétrico'),
-            alt_title=self.tr('7.2 PEC Altimétrico'),
+            plan_title=(
+                self.tr('7.1 CE90') if is_ce90 else self.tr('7.1 PEC Planimétrico')
+            ),
+            alt_title=(
+                self.tr('7.2 LE90') if is_ce90 else self.tr('7.2 PEC Altimétrico')
+            ),
             plan_data_rows=[
                 self._pec_row_snapshot_entry(row, 'H') for row in plan_rows],
             alt_data_rows=[
                 self._pec_row_snapshot_entry(row, 'V') for row in alt_rows],
             empty_message=empty_msg,
-            header_labels=self._pec_results_header_labels(),
+            plan_header_labels=self._pec_results_header_labels(altimetric=False),
+            alt_header_labels=self._pec_results_header_labels(altimetric=True),
             plan_page_break=True,
             alt_page_break=True,
         )
@@ -5719,6 +7114,83 @@ class Wd1(QWidget):
                 self.settings_dlg.dic_param['step_normalize_prog']['fields']['norm_type']['value'])
         except (TypeError, ValueError, KeyError):
             return 0
+
+    def _dm_formula_index(self) -> int:
+        try:
+            return int(
+                self.settings_dlg.dic_param['step_dm_formula']['fields']['dm_formula']['value'])
+        except (TypeError, ValueError, KeyError):
+            return 0
+
+    def _accuracy_standard_index(self) -> int:
+        try:
+            return int(
+                self.settings_dlg.dic_param['step_buffers']['fields']['accuracy_standard']['value'])
+        except (TypeError, ValueError, KeyError):
+            return ACCURACY_STANDARD_BR
+
+    def _ce90_max_gsd_multipliers(self):
+        fields = self.settings_dlg.dic_param['step_buffers']['fields']
+        try:
+            max_h = float(fields.get('ce90_max_h', {}).get('value', 5.0))
+        except (TypeError, ValueError):
+            max_h = 5.0
+        try:
+            max_v = float(fields.get('ce90_max_v', {}).get('value', 2.0))
+        except (TypeError, ValueError):
+            max_v = 2.0
+        return max(0.1, max_h), max(0.1, max_v)
+
+    def _ce90_pass_criteria_mask(self) -> int:
+        fields = self.settings_dlg.dic_param['step_buffers']['fields']
+        try:
+            return int(float(fields.get('ce90_pass_criteria', {}).get(
+                'value', CE90_CRIT_DEFAULT)))
+        except (TypeError, ValueError):
+            return CE90_CRIT_DEFAULT
+
+    def _ce90_pass_criteria_dict(self) -> dict:
+        return ce90_criteria_from_mask(self._ce90_pass_criteria_mask())
+
+    def _test_dem_gsd(self):
+        try:
+            layer_ = self.dic_prj['dems'][1]['obj_cbx'].currentLayer()
+        except (TypeError, KeyError, AttributeError):
+            return None
+        if layer_ is None:
+            return None
+        try:
+            gsd = float(layer_.rasterUnitsPerPixelX())
+        except (TypeError, ValueError, AttributeError):
+            return None
+        if not math.isfinite(gsd) or gsd <= 0:
+            return None
+        return gsd
+
+    def _ce90_threshold_decimals(self) -> int:
+        """Casas decimais do limiar CE90/LE90 (pixel < 5 m → 2)."""
+        meta = getattr(self, '_ce90_meta', None) or {}
+        raw = meta.get('threshold_decimals')
+        if raw is not None:
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                pass
+        gsd = self._test_dem_gsd()
+        if gsd is None:
+            try:
+                gsd = float(meta.get('gsd') or 0.0)
+            except (TypeError, ValueError):
+                gsd = 0.0
+        return ce90_threshold_decimals(gsd)
+
+    def _format_ce90_m(self, value, decimals=None) -> str:
+        """Formata metros CE90/LE90 com as casas do limiar (para relatório/log)."""
+        dec = self._ce90_threshold_decimals() if decimals is None else int(decimals)
+        try:
+            return f'{float(value):.{dec}f}'
+        except (TypeError, ValueError):
+            return '' if value is None else str(value)
 
     @staticmethod
     def _geometry_wkt_for_report(geom) -> str:
@@ -5814,7 +7286,7 @@ class Wd1(QWidget):
         rows = []
         if norm_label:
             rows.append({
-                'label': self.tr('Método de normalização de progressivas'),
+                'label': self.tr('Método de compatibilização de progressivas'),
                 'value': norm_label,
             })
         if pairs:
@@ -5862,7 +7334,7 @@ class Wd1(QWidget):
             'title': self.tr('6. Pares homólogos — estatísticas'),
             'header': [self.tr('Opção'), self.tr('Valor')],
             'rows': rows,
-            'norm_caption': self.tr('Método de normalização de progressivas'),
+            'norm_caption': self.tr('Método de compatibilização de progressivas'),
             'norm_label': norm_label,
             'wkt_file_caption': self.tr('Ficheiro WKT dos perfis'),
             'empty_message': empty_msg,
@@ -5872,7 +7344,7 @@ class Wd1(QWidget):
         return {
             'datetime': self.tr('Data/hora'),
             'project_file': self.tr('Ficheiro de projeto'),
-            'norm_caption': self.tr('Método de normalização de progressivas'),
+            'norm_caption': self.tr('Método de compatibilização de progressivas'),
             'pair': self.tr('Par'),
             'ref_id': self.tr('ref_id'),
             'layer_ref': self.tr('camada_ref'),
@@ -5901,6 +7373,21 @@ class Wd1(QWidget):
 
         sly = self.cbx_study_area_layer.currentLayer()
         study_ly = sly.name() if isinstance(sly, QgsVectorLayer) else self.tr('(nenhuma)')
+        wf_rows = [
+            {
+                'option': self.tr('Definição da área de estudos'),
+                'value': self.cbx_workflow_study.currentText(),
+            },
+        ]
+        if self.cbx_workflow_study.currentIndex() == 2:
+            wf_rows.append({
+                'option': self.tr('Camada polígono (se aplicável)'),
+                'value': study_ly,
+            })
+        wf_rows.extend([
+            {'option': self.tr('Pares homólogos'), 'value': self.cbx_workflow_pairs.currentText()},
+            {'option': self.tr('Tratamento de outliers'), 'value': self.cbx_workflow_outliers.currentText()},
+        ])
 
         dem_rows = []
         for i in (0, 1):
@@ -5922,6 +7409,7 @@ class Wd1(QWidget):
 
         param_groups = []
         dlg = self.settings_dlg
+        is_ce90 = self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
         for sk, block in dlg.dic_param.items():
             if not isinstance(sk, str) or not sk.startswith('step_'):
                 continue
@@ -5931,10 +7419,24 @@ class Wd1(QWidget):
             for fk, meta in block['fields'].items():
                 if not isinstance(meta, dict):
                     continue
+                if sk == 'step_buffers':
+                    if fk == 'show_buffers_on_map':
+                        continue
+                    if is_ce90 and fk in ('max_scale', 'min_scale'):
+                        continue
+                    if not is_ce90 and fk in (
+                            'ce90_max_h', 'ce90_max_v', 'ce90_pass_criteria'):
+                        continue
+                if sk == 'step_dm_formula' and fk == 'dm_formula':
+                    fid, feq = dm_formula_report_row(meta.get('value'))
+                    fields.append({'label': self.tr(fid), 'value': feq})
+                    continue
                 fields.append({
                     'label': meta.get('label', fk),
                     'value': self._format_param_value_for_report(meta),
                 })
+            if not fields:
+                continue
             param_groups.append({
                 'label': block.get('label', sk),
                 'fields': fields,
@@ -5964,6 +7466,24 @@ class Wd1(QWidget):
                 'value': str(self._panel_stats_cache.get('pair_nr') or '—'),
             },
         ]
+        if is_ce90:
+            dec = self._ce90_threshold_decimals()
+            gsd = self._test_dem_gsd()
+            if gsd is None:
+                meta = getattr(self, '_ce90_meta', None) or {}
+                try:
+                    gsd = float(meta.get('gsd') or 0.0) or None
+                except (TypeError, ValueError):
+                    gsd = None
+            stats_rows.append({
+                'label': self.tr('Precisão do limiar CE90/LE90'),
+                'value': self.tr('{0} casa(s) decimal(is)').format(dec),
+            })
+            if gsd:
+                stats_rows.append({
+                    'label': self.tr('Pixel do MDE de teste'),
+                    'value': f'{gsd:.3f} m',
+                })
 
         plan_rows = getattr(self, '_pec_report_plan_rows', None) or []
         alt_rows = getattr(self, '_pec_report_alt_rows', None) or []
@@ -6000,12 +7520,7 @@ class Wd1(QWidget):
                 'workflow': {
                     'title': self.tr('2. Fluxo de trabalho'),
                     'header': [self.tr('Opção'), self.tr('Valor')],
-                    'rows': [
-                        {'option': self.tr('Definição da área de estudos'), 'value': self.cbx_workflow_study.currentText()},
-                        {'option': self.tr('Pares homólogos'), 'value': self.cbx_workflow_pairs.currentText()},
-                        {'option': self.tr('Tratamento de outliers'), 'value': self.cbx_workflow_outliers.currentText()},
-                        {'option': self.tr('Camada polígono (se aplicável)'), 'value': study_ly},
-                    ],
+                    'rows': wf_rows,
                 },
                 'dems': {
                     'title': self.tr('3. Modelos digitais de elevação (MDE)'),
@@ -6028,11 +7543,19 @@ class Wd1(QWidget):
                 },
                 'pairs': self._build_report_pairs_section(),
                 'pec': {
-                    'title': self.tr('7. Resultados PEC'),
+                    'title': (
+                        self.tr('7. Resultados CE90 / LE90')
+                        if self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
+                        else self.tr('7. Resultados PEC')
+                    ),
                     'intro': (getattr(self, '_pec_report_pec_intro', '') or '').strip(),
                     'header_labels': self._pec_results_header_labels(),
                     'plan': {
-                        'title': self.tr('7.1 PEC Planimétrico'),
+                        'title': (
+                            self.tr('7.1 CE90')
+                            if self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
+                            else self.tr('7.1 PEC Planimétrico')
+                        ),
                         'header_rows': list(self._pec_results_table_head_txt_rows(altimetric=False)),
                         'data_rows': [
                             self._pec_row_snapshot_entry(row, 'H')
@@ -6040,7 +7563,11 @@ class Wd1(QWidget):
                         ],
                     },
                     'alt': {
-                        'title': self.tr('7.2 PEC Altimétrico'),
+                        'title': (
+                            self.tr('7.2 LE90')
+                            if self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
+                            else self.tr('7.2 PEC Altimétrico')
+                        ),
                         'header_rows': list(self._pec_results_table_head_txt_rows(altimetric=True)),
                         'data_rows': [
                             self._pec_row_snapshot_entry(row, 'V')
@@ -6068,6 +7595,10 @@ class Wd1(QWidget):
             except (TypeError, ValueError, KeyError):
                 return False
         return _on('audit_horizontal'), _on('audit_vertical')
+
+    def _audit_csv_only_flag(self) -> bool:
+        """CSV é sempre gerado com a auditoria; PDF controla-se pelos checks H/V."""
+        return False
 
     def _audit_test_model_name(self) -> str:
         """Nome curto do MDE de teste para ficheiros Audit_*.pdf (nunca path TEMP)."""
@@ -6106,6 +7637,20 @@ class Wd1(QWidget):
         """Tabelas PEC-V / EQ no formato esperado pelo gerador de PDF."""
         pec_v_table = {}
         eq_v_table = {}
+        if self._accuracy_standard_index() == ACCURACY_STANDARD_CE90:
+            for scale in scales:
+                try:
+                    r = float(scale)
+                except (TypeError, ValueError):
+                    continue
+                eq_v_table[r] = r
+                pec_v_table[r] = {
+                    CLASS_LE90: {
+                        'pec': r,
+                        'ep': round(r * EP_RATIO_V, self._ce90_threshold_decimals()),
+                    }
+                }
+            return pec_v_table, eq_v_table
         for scale in scales:
             scale = int(scale)
             eq = self.dic_pec_v.get(scale)
@@ -6114,10 +7659,19 @@ class Wd1(QWidget):
             eq_v_table[scale] = eq
             pec_v_table[scale] = {}
             for class_ in self.dic_pec_mm.get('V', {}):
-                pec_v_table[scale][class_] = {
-                    'pec': float(eq) * float(self.dic_pec_mm['V'][class_]['pec']),
-                    'ep': float(eq) * float(self.dic_pec_mm['V'][class_]['ep']),
-                }
+                pec, ep = pec_alt_limits(
+                    scale,
+                    class_,
+                    self.dic_pec_alt,
+                    dic_eq=self.dic_pec_v,
+                    dic_pec_mm=self.dic_pec_mm,
+                )
+                if pec is None:
+                    continue
+                pec_v_table[scale][class_] = {'pec': pec, 'ep': ep}
+            if not pec_v_table[scale]:
+                pec_v_table.pop(scale, None)
+                eq_v_table.pop(scale, None)
         return pec_v_table, eq_v_table
 
     def _dm_by_scale_index_from_dic_values(self, dic_values):
@@ -6125,9 +7679,10 @@ class Wd1(QWidget):
         index = {}
         if not dic_values:
             return index
+        ce90 = self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
         for scale, by_class in dic_values.items():
             try:
-                scale_i = int(scale)
+                scale_i = float(scale) if ce90 else int(scale)
             except (TypeError, ValueError):
                 continue
             for class_, by_count in (by_class or {}).items():
@@ -6193,6 +7748,7 @@ class Wd1(QWidget):
                 pairs.append({
                     'id_ref': fid_r,
                     'id_test': fid_t,
+                    'tag': tag_,
                     'layer_ref': layer_r.name(),
                     'geom_r': orient_line_high_to_low(QgsGeometry(fr.geometry())),
                     'geom_t': orient_line_high_to_low(QgsGeometry(ft.geometry())),
@@ -6201,8 +7757,21 @@ class Wd1(QWidget):
         return pairs
 
     def _pec_h_tables_for_audit(self, scales):
-        """Tabela PEC-H (m) por escala/classe: scale × pec_mm."""
+        """Tabela PEC-H (m) por escala/classe: scale × pec_mm (ou limiar CE90)."""
         pec_h_table = {}
+        if self._accuracy_standard_index() == ACCURACY_STANDARD_CE90:
+            for scale in scales:
+                try:
+                    r = float(scale)
+                except (TypeError, ValueError):
+                    continue
+                pec_h_table[r] = {
+                    CLASS_CE90: {
+                        'pec': r,
+                        'ep': round(r * EP_RATIO_H, self._ce90_threshold_decimals()),
+                    }
+                }
+            return pec_h_table
         for scale in scales:
             scale = int(scale)
             pec_h_table[scale] = {}
@@ -6212,6 +7781,21 @@ class Wd1(QWidget):
                     'ep': float(scale) * float(self.dic_pec_mm['H'][class_]['ep']),
                 }
         return pec_h_table
+
+    def _audit_scales_for_dimension(self, dic_values, dimension='H'):
+        """Escalas (PEC-PCD) ou limiares (CE90/LE90) para auditoria."""
+        if self._accuracy_standard_index() == ACCURACY_STANDARD_CE90:
+            want = CLASS_CE90 if dimension == 'H' else CLASS_LE90
+            scales = []
+            if dic_values:
+                for scale_, classes in dic_values.items():
+                    if want in classes:
+                        try:
+                            scales.append(float(scale_))
+                        except (TypeError, ValueError):
+                            continue
+            return sorted(set(scales))
+        return self.get_list_scale() or []
 
     def _audit_progress_begin(self, total, msg=None):
         """Reinicia as duas barras (Referência/Teste) para a geração de auditoria."""
@@ -6246,8 +7830,10 @@ class Wd1(QWidget):
             self.update_bar({'key': key, 'end': total, 'msg': label})
         QApplication.processEvents()
 
-    def export_audit_horizontal_pdfs(self, dic_values=None, report_ts=None, progress=None):
-        """Gera Audit_horizontal_{modelo}_{escala}_{ts}.pdf."""
+    def export_audit_horizontal_pdfs(
+        self, dic_values=None, report_ts=None, progress=None, *, csv_only=None,
+    ):
+        """Gera Audit_horizontal_*.pdf e/ou CSV."""
         try:
             self.settings_dlg.flush_widgets_to_dic_param(log_values=False)
         except Exception:
@@ -6273,7 +7859,7 @@ class Wd1(QWidget):
             )
             return []
 
-        scales = self.get_list_scale()
+        scales = self._audit_scales_for_dimension(dic_values, 'H')
         if not scales:
             self.log_message(
                 self.tr('Auditoria horizontal: nenhuma escala definida.'), 'WARNING'
@@ -6304,9 +7890,12 @@ class Wd1(QWidget):
         ts = report_ts or getattr(self, '_last_report_ts', None)
         if not ts:
             ts = QDateTime.currentDateTime().toString('yyyy-MM-dd_HHmm')
+        if csv_only is None:
+            csv_only = self._audit_csv_only_flag()
         self.log_message(
-            self.tr('A gerar relatório de auditoria horizontal ({0} pares)…').format(
-                len(pairs)
+            self.tr('A gerar {0} de auditoria horizontal ({1} pares)…').format(
+                self.tr('CSV') if csv_only else self.tr('relatório'),
+                len(pairs),
             ),
             'INFO',
         )
@@ -6321,6 +7910,7 @@ class Wd1(QWidget):
                 timestamp=ts,
                 log=lambda msg: self.log_message(str(msg), 'INFO'),
                 progress=progress,
+                csv_only=csv_only,
             )
         except Exception as e:
             self.log_message(
@@ -6330,16 +7920,24 @@ class Wd1(QWidget):
             return []
 
         for out_path, drawn, _skipped in outputs:
-            self.log_message(
-                self.tr('Auditoria horizontal gravada: {0} ({1} páginas)').format(
-                    out_path, drawn
-                ),
-                'INFO',
-            )
+            if csv_only:
+                self.log_message(
+                    self.tr('CSV de auditoria horizontal gravado: {0}').format(out_path),
+                    'INFO',
+                )
+            else:
+                self.log_message(
+                    self.tr('Auditoria horizontal gravada: {0} ({1} páginas)').format(
+                        out_path, drawn
+                    ),
+                    'INFO',
+                )
         return outputs
 
-    def export_audit_vertical_pdfs(self, dic_values=None, report_ts=None, progress=None):
-        """Gera Audit_vertical_{modelo}_{linear|proximidade}_{escala}_{ts}.pdf."""
+    def export_audit_vertical_pdfs(
+        self, dic_values=None, report_ts=None, progress=None, *, csv_only=None,
+    ):
+        """Gera Audit_vertical_*.pdf e/ou CSV."""
         try:
             self.settings_dlg.flush_widgets_to_dic_param(log_values=False)
         except Exception:
@@ -6365,7 +7963,7 @@ class Wd1(QWidget):
             )
             return []
 
-        scales = self.get_list_scale()
+        scales = self._audit_scales_for_dimension(dic_values, 'V')
         if not scales:
             self.log_message(self.tr('Auditoria vertical: nenhuma escala definida.'), 'WARNING')
             return []
@@ -6392,8 +7990,13 @@ class Wd1(QWidget):
         ts = report_ts or getattr(self, '_last_report_ts', None)
         if not ts:
             ts = QDateTime.currentDateTime().toString('yyyy-MM-dd_HHmm')
+        if csv_only is None:
+            csv_only = self._audit_csv_only_flag()
         self.log_message(
-            self.tr('A gerar relatório de auditoria vertical ({0} pares)…').format(len(pairs)),
+            self.tr('A gerar {0} de auditoria vertical ({1} pares)…').format(
+                self.tr('CSV') if csv_only else self.tr('relatório'),
+                len(pairs),
+            ),
             'INFO',
         )
         try:
@@ -6408,6 +8011,7 @@ class Wd1(QWidget):
                 timestamp=ts,
                 log=lambda msg: self.log_message(str(msg), 'INFO'),
                 progress=progress,
+                csv_only=csv_only,
             )
         except Exception as e:
             self.log_message(
@@ -6417,12 +8021,18 @@ class Wd1(QWidget):
             return []
 
         for out_path, drawn, _skipped in outputs:
-            self.log_message(
-                self.tr('Auditoria vertical gravada: {0} ({1} páginas)').format(
-                    out_path, drawn
-                ),
-                'INFO',
-            )
+            if csv_only:
+                self.log_message(
+                    self.tr('CSV de auditoria vertical gravado: {0}').format(out_path),
+                    'INFO',
+                )
+            else:
+                self.log_message(
+                    self.tr('Auditoria vertical gravada: {0} ({1} páginas)').format(
+                        out_path, drawn
+                    ),
+                    'INFO',
+                )
         return outputs
 
     def _run_audit_exports_with_progress(self, dic_values=None, report_ts=None):
@@ -6431,9 +8041,29 @@ class Wd1(QWidget):
         if not audit_h and not audit_v:
             return
         pairs = self._build_audit_pair_specs(dic_values=dic_values)
-        scales = self.get_list_scale() or []
-        n_units = len(pairs) * len(scales) if pairs and scales else 0
-        total = n_units * (int(bool(audit_h)) + int(bool(audit_v)))
+        scales_h = self._audit_scales_for_dimension(dic_values, 'H') if audit_h else []
+        scales_v = self._audit_scales_for_dimension(dic_values, 'V') if audit_v else []
+        n_pairs = len(pairs) if pairs else 0
+        n_units = 0
+        is_ce90 = self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
+
+        def _pages_for_scales(scales):
+            if not n_pairs:
+                return 0
+            if is_ce90:
+                n_thr = sum(
+                    1 for s in scales
+                    if isinstance(s, (int, float)) and float(s) > 0
+                )
+                n_pages = max(1, (n_thr + 3) // 4) if n_thr else 0
+                return n_pairs * n_pages
+            return n_pairs * max(len(scales), 1)
+
+        if audit_h:
+            n_units += _pages_for_scales(scales_h)
+        if audit_v:
+            n_units += _pages_for_scales(scales_v)
+        total = n_units
         if total <= 0:
             # Ainda assim corre os exports (logs de aviso internos)
             if audit_h:
@@ -6620,16 +8250,7 @@ class Wd1(QWidget):
             x = _coerce_finite_measurement_scalar(v)
             if x is not None:
                 vals.append(x)
-        n = len(vals)
-        if n < 2:
-            return float('nan')
-        try:
-            sun_ = math.fsum(x * x for x in vals)
-            if not math.isfinite(sun_) or sun_ < 0:
-                return float('nan')
-            return math.sqrt(sun_ / (n - 1))
-        except (OverflowError, OSError, ValueError, ArithmeticError):
-            return float('nan')
+        return pec_rms(vals)
 
     def perc_pec(self, vet_, pec_):
         vals = []
@@ -6669,7 +8290,12 @@ class Wd1(QWidget):
         if dic_.get('logonly', None):
             self.log_message(dic_['logonly'])
             return
+        # Após Parar: não avançar a cadeia nem atualizar progresso (erros ainda podem registar-se).
+        if self._stop_requested and 'error' not in dic_:
+            return
         key_ = dic_['key']
+        if key_ not in self.dic_prj['dems']:
+            return
         prog_bar = self.dic_prj['dems'][key_]['obj_prog_bar']
         palette = QPalette()
         palette.setColor(QPalette.Highlight, QColor(Qt.cyan))
@@ -6780,15 +8406,24 @@ class Wd1(QWidget):
                 normalize_project_pa_file(self.gpkg_path)
                 self.get_gpkg_layer(prefix_=layer_name, gpkg_path=self.gpkg_path)
             if 'start_task' in dic_:
-                if key_ == 0:
+                if self._stop_requested:
+                    self._end_analysis_session()
+                elif key_ == 0:
+                    self.pipeline_set_etapa_fim('morfologia_referencia')
                     self.define_morphology(1)
                 elif key_ == 1:
+                    self.pipeline_set_etapa_fim('morfologia_teste')
                     self.matching_lines()
             if 'model' in dic_:
                 self.dic_prj["dems"][key_]['model'] = dic_['model']
         elif 'dic_values' in dic_:
+            if self._stop_requested:
+                self._end_analysis_session()
+                return
             self._finalize_buffers_map_display()
             dv = dic_['dic_values']
+            if 'ce90_meta' in dic_:
+                self._ce90_meta = dic_.get('ce90_meta')
             om = self.cbx_workflow_outliers.currentIndex()
             self._apply_outlier_workflow(dv)
             if om == 1:
@@ -6819,6 +8454,7 @@ class Wd1(QWidget):
                     self.tr('Falha na auditoria: {0}').format(e),
                     'ERROR',
                 )
+            self._end_analysis_session()
             # print(dic_['dic_values'])
         elif 'end' in dic_:
             palette.setColor(QPalette.Highlight, QColor(Qt.darkGreen))
@@ -6851,10 +8487,41 @@ class Wd1(QWidget):
             'pair_nr': tr_ui('Número de pares homólogos: {}'),
         }
         self.list_norm_type = [
-            tr_ui('Linear'), tr_ui('Por Proximidade'), tr_ui('Sem Normalização')]
+            tr_ui('Linear'), tr_ui('Por Proximidade'), tr_ui('Sem Compatibilização')]
+        self.list_accuracy_standard = [
+            tr_ui('Padrão Brasileiro - PEC PCD'),
+            tr_ui('CE90 e LE90'),
+        ]
+        self.list_dm_formula = [
+            tr_ui('dm-buffer-duplo (original)'),
+            tr_ui('dm-buffer-duplo-media (proposta)'),
+        ]
+        self.list_dm_formula_tooltips = [
+            tr_ui(
+                'dmᵢ = π · x · (A₂ᵢ − A₃ᵢ) / A₁ᵢ\n\n'
+                'dmᵢ — discrepância média do par i\n'
+                'π — constante pi\n'
+                'x — PEC (raio do buffer) da escala/classe\n'
+                'A₁ — área do buffer da feição de teste\n'
+                'A₂ — área do buffer da feição de referência\n'
+                'A₃ — área da interseção dos buffers'
+            ),
+            tr_ui(
+                'dmᵢ = π · x · ((A₁ᵢ + A₂ᵢ)/2 − A₃ᵢ) / ((A₁ᵢ + A₂ᵢ)/2)\n\n'
+                'A média (A₁ + A₂)/2 entra no numerador (no lugar de A₂) e no '
+                'denominador (no lugar de A₁), tratando os dois erros de extensão '
+                'com o mesmo peso.\n\n'
+                'dmᵢ — discrepância média do par i\n'
+                'π — constante pi\n'
+                'x — PEC (raio do buffer) da escala/classe\n'
+                'A₁ — área do buffer da feição de teste\n'
+                'A₂ — área do buffer da feição de referência\n'
+                'A₃ — área da interseção dos buffers'
+            ),
+        ]
 
         self.lb_title_proj.setText(self.tr('Projeto (.pa.gpkg):'))
-        self.pb_config.setToolTip(self.tr('Config'))
+        self._refresh_header_logo_tooltips()
         self.pb_lang.setToolTip(self.tr('Alterar idioma da interface'))
         self.pb_project_new.setToolTip(self.tr('Novo projeto…'))
         self.pb_project_open.setToolTip(self.tr('Abrir projeto…'))
@@ -6904,6 +8571,7 @@ class Wd1(QWidget):
             if obj_pb is not None:
                 obj_pb.setToolTip(self.tr('Informações do MDE selecionado'))
 
+        self._apply_panel_tooltips()
         self._refresh_extent_and_pairs_labels()
         self._refresh_proc_button()
 
@@ -6917,12 +8585,30 @@ class Wd1(QWidget):
 
         if refresh_open_language and self.language_dlg and self.language_dlg.isVisible():
             self.language_dlg.apply_language_live()
-        if refresh_open_settings and self.settings_dlg and self.settings_dlg.isVisible():
-            self.settings_dlg.apply_language_live()
+        # Sempre retraduzir a janela de parâmetros se existir (aberta ou fechada).
+        # Antes só atualizava quando estava visível — ao reabrir ficava no idioma antigo.
+        if self.settings_dlg is not None and (refresh_open_settings or rebuild_settings):
+            if rebuild_settings and not self.settings_dlg.isVisible():
+                old_dlg = self.settings_dlg
+                self.settings_dlg = None
+                if old_dlg is not None:
+                    try:
+                        old_dlg._save_window_geometry()
+                    except Exception:
+                        pass
+                    old_dlg.deleteLater()
+                self.settings_dlg = SettingsDlg(main=self.parent, parent=self)
+                self.reload_settings_from_project_file()
+            else:
+                self.settings_dlg.apply_language_live()
         elif rebuild_settings:
             old_dlg = self.settings_dlg
             self.settings_dlg = None
             if old_dlg is not None:
+                try:
+                    old_dlg._save_window_geometry()
+                except Exception:
+                    pass
                 old_dlg.deleteLater()
             self.settings_dlg = SettingsDlg(main=self.parent, parent=self)
             self.reload_settings_from_project_file()
@@ -6943,5 +8629,10 @@ class Wd1(QWidget):
         if not self.settings_dlg:
             self.settings_dlg = SettingsDlg(main=self.parent, parent=self)
             self.reload_settings_from_project_file()
+        else:
+            # Garante idioma atual (ex.: mudou idioma com a janela fechada).
+            self.settings_dlg.apply_language_live()
         self.settings_dlg.show()
+        self.settings_dlg.raise_()
+        self.settings_dlg.activateWindow()
 

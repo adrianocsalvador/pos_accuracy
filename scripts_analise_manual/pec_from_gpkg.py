@@ -30,6 +30,10 @@ from mods.mod_pec_constants import (  # noqa: E402
     DIC_PEC_V,
     EXTENT_REF_FIELD,
     LAYER_NAME_BUFFER_TEST,
+    PEC_PASS_PERCENT,
+    pec_percent_rounded,
+    pec_rms,
+    pec_v_from_eq,
 )
 from mods.mod_standalone_qgis import (  # noqa: E402
     exit_standalone_qgis,
@@ -366,10 +370,7 @@ def check_norm(values):
 
 
 def rms(values):
-    if len(values) < 2:
-        return float('nan')
-    sun_ = sum(v ** 2 for v in values)
-    return (sun_ / (len(values) - 1)) ** 0.5
+    return pec_rms(values)
 
 
 def pec_test_limit(pec_):
@@ -405,8 +406,9 @@ def _pec_ep_limits(scale_, class_, dimension):
         pec = round(scale_ * DIC_PEC_MM['H'][class_]['pec'], 2)
         ep = round(scale_ * DIC_PEC_MM['H'][class_]['ep'], 2)
     else:
-        pec = round(DIC_PEC_V[scale_][class_]['pec'], 2)
-        ep = round(DIC_PEC_V[scale_][class_]['ep'], 2)
+        pec, ep = pec_v_from_eq(scale_, class_)
+        if pec is None:
+            raise KeyError(f'Sem EQ/PEC-V para escala {scale_} classe {class_}')
     return pec, ep
 
 
@@ -486,13 +488,15 @@ def build_result_rows(layer, dic_stats, dimension, out_field):
 
         perc_q = perc_pec_quant(values, pec_)
         perc_e = perc_pec_ext(values, extents, pec_)
-        pec_ok_q = perc_q >= 0.90
-        pec_ok_e = perc_e >= 0.90
+        perc_q_pct = pec_percent_rounded(perc_q)
+        perc_e_pct = pec_percent_rounded(perc_e)
+        pec_ok_q = perc_q_pct >= PEC_PASS_PERCENT
+        pec_ok_e = perc_e_pct >= PEC_PASS_PERCENT
         rms_ = rms(values)
         ep_ok = math.isfinite(rms_) and rms_ <= ep_
 
-        teste_pec_q = f'{round(perc_q * 100)} % <= {pec_lim}'
-        teste_pec_e = f'{round(perc_e * 100)} % <= {pec_lim}'
+        teste_pec_q = f'{perc_q_pct:.1f} % <= {pec_lim}'
+        teste_pec_e = f'{perc_e_pct:.1f} % <= {pec_lim}'
         resultado_q = 'PASSOU' if pec_ok_q else 'FALHOU'
         resultado_e = 'PASSOU' if pec_ok_e else 'FALHOU'
         cmp_ = '<=' if ep_ok else '>'
@@ -679,7 +683,7 @@ def _collect_linear_scalars_from_gpkg(test_gpkg, ref_gpkg, test_names=None):
 
 
 def collect_linear_scalars(layer, results_dir, ref_gpkg=DEFAULT_REF_GPKG, test_gpkg=None):
-    """Recolhe k por modelo (normalização linear) a partir de Profile_*.csv ou GPKG de teste."""
+    """Recolhe k por modelo (compatibilização linear) a partir de Profile_*.csv ou GPKG de teste."""
     scalars_by_model = _collect_linear_scalars_from_profiles(layer, results_dir)
     if any(scalars_by_model.values()):
         return scalars_by_model

@@ -73,5 +73,8 @@ symbology-style.db
 # Arquivos compactados locais (resultados de teste)
 *.zip
 
-# Scripts auxiliares locais (exportação de relatórios, etc.)
+# Restos de i18n / ícones não usados no pacote
+i18n/_m33.txt
+
+# Scripts auxiliares locais (exportação de relatórios, etc.) — só máquina de dev
 scripts_aux/

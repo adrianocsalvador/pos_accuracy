@@ -1,18 +1,21 @@
 # UTF8
 """
-Gera PDF de pares homólogos: vista 2D + perfis por classe A–D.
+Gera PDF de pares homólogos: vista 2D + painéis de buffer.
 
-Layout por página (1 par × 1 escala):
-  Coluna 1 — mapa XY (altura de 4 linhas)
-  Coluna 2 — painéis empilhados A/B/C/D com:
-    ref + buffer V, teste sem compatibilização, teste compatibilizada + buffer V
+PEC-PCD — 1 página por par×escala:
+  Vertical: mapa XY + 4 painéis A/B/C/D
+  Horizontal: matriz 2×2 A/B/C/D
 
-Batch (1 PDF por modelo×escala): executar como script ou via scripts_aux/run_gen_audit.bat
+CE90/LE90 — 1 PDF por modelo; ordem = feição → todos os limiares:
+  Até 4 limiares por página (quadros vazios se sobrarem);
+  depois a próxima feição.
+  Também gera CSV (1 linha/feição, 1 coluna dm por raio).
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import math
 import os
 from datetime import datetime
@@ -30,6 +33,8 @@ from qgis.core import Qgis, QgsGeometry, QgsPointXY, QgsSpatialIndex, QgsVectorL
 _PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 from .mod_pec_constants import (
+    CLASS_CE90,
+    CLASS_LE90,
     CLASS_ORDER,
     DIC_EQ_V,
     DIC_NAME_LAYER,
@@ -234,7 +239,7 @@ def _scales_from_result(result_layer, model=None):
             scales.add(int(feat['scale']))
         except (TypeError, ValueError):
             continue
-    return sorted(s for s in scales if s in DIC_PEC_V)
+    return sorted(s for s in scales if s in DIC_EQ_V)
 
 
 def _norm_label(norm_type):
@@ -607,7 +612,7 @@ def _draw_page(
         geom_prof_t_raw = _shift_profile_geometry(geom_prof_t_raw)
 
     # Enquadramento comum = bbox do maior buffer V geométrico (classe D)
-    scale_pecs = pec_lookup.get(int(scale)) or {}
+    scale_pecs = _table_entry_for_scale(pec_lookup, scale)
 
     def _pec_of(class_name):
         raw = scale_pecs.get(class_name)
@@ -709,7 +714,7 @@ def _draw_page(
             ax.set_ylim(shared_limits[2], shared_limits[3])
         ax.set_clip_on(False)
 
-        eq_m = eq_lookup.get(int(scale), '')
+        eq_m = _eq_of_scale(eq_lookup, scale)
         ax.set_title(
             f'Classe {class_}  |  PEC-PCD (Vertical)={pec_v:.1f} m'
             f'  |  EQ = {eq_m}m  |  dm = {dm_str}',
@@ -798,11 +803,624 @@ def _draw_page(
 
 def _pec_h_of(scale, class_, pec_h_table=None):
     if pec_h_table is not None:
-        raw = (pec_h_table.get(int(scale)) or {}).get(class_)
+        entry = _table_entry_for_scale(pec_h_table, scale)
+        raw = (entry or {}).get(class_)
         if isinstance(raw, dict):
             return float(raw.get('pec', 0.0))
         return float(raw) if raw is not None else 0.0
     return float(int(scale) * DIC_PEC_MM['H'][class_]['pec'])
+
+
+def _table_entry_for_scale(table, scale):
+    """Lookup tolerante a int/float/str nas tabelas PEC por escala/limiar."""
+    if not table:
+        return {}
+    if scale in table:
+        return table.get(scale) or {}
+    try:
+        s_f = float(scale)
+    except (TypeError, ValueError):
+        return table.get(str(scale)) or {}
+    if s_f in table:
+        return table.get(s_f) or {}
+    if int(s_f) == s_f and int(s_f) in table:
+        return table.get(int(s_f)) or {}
+    s_s = str(scale)
+    if s_s in table:
+        return table.get(s_s) or {}
+    for k, v in table.items():
+        try:
+            if abs(float(k) - s_f) < 1e-9:
+                return v or {}
+        except (TypeError, ValueError):
+            continue
+    return {}
+
+
+def _dm_attrs_for_threshold(dm_by_scale, scale, class_names):
+    """Atributos DM/áreas para um limiar CE90/LE90 (ou classe PEC)."""
+    entry = _table_entry_for_scale(dm_by_scale or {}, scale)
+    if not entry:
+        return {}
+    for c in class_names:
+        if c in entry:
+            return entry.get(c) or {}
+    if len(entry) == 1:
+        return next(iter(entry.values())) or {}
+    return {}
+
+
+def _is_ce90_audit_table(pec_table) -> bool:
+    if not pec_table:
+        return False
+    for entry in pec_table.values():
+        if not isinstance(entry, dict):
+            continue
+        if CLASS_CE90 in entry or CLASS_LE90 in entry:
+            return True
+    return False
+
+
+def _ce90_positive_thresholds(scales):
+    """Limiares > 0 (metros), ordenados; 0 = falha sem buffer (omitido no PDF)."""
+    out = []
+    seen = set()
+    for s in scales or []:
+        try:
+            v = float(s)
+        except (TypeError, ValueError):
+            continue
+        if v <= 0 or not math.isfinite(v):
+            continue
+        key = round(v, 6)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(v)
+    return sorted(out)
+
+
+def _fmt_dm_csv(v):
+    """Formata dm para CSV (ponto decimal, casas fixas — evita .6g e confusão no Excel)."""
+    if v is None:
+        return ''
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return ''
+    if not math.isfinite(f):
+        return ''
+    # 6 casas; Excel PT-BR com delimitador ';' trata '.' como decimal sem engolir dígitos
+    return f'{f:.6f}'.rstrip('0').rstrip('.')
+
+
+def _dm_col_header(radius_m) -> str:
+    """Nome de coluna CSV para um raio/limiar (sem '.' — Excel parte dm_18.8 em duas colunas)."""
+    try:
+        r = float(radius_m)
+    except (TypeError, ValueError):
+        return f'dm_{radius_m}'
+    if not math.isfinite(r):
+        return f'dm_{radius_m}'
+    if abs(r - round(r)) < 1e-9:
+        return f'dm_{int(round(r))}'
+    # 18.8 → dm_18_8 ; 19.25 → dm_19_25
+    txt = f'{r:.6f}'.rstrip('0').rstrip('.')
+    return 'dm_' + txt.replace('.', '_')
+
+
+def write_audit_dm_csv(
+    out_path,
+    pairs,
+    *,
+    thresholds=None,
+    scales=None,
+    classes=None,
+    dm_key='DM_H',
+    class_names_ce90=None,
+    log=None,
+):
+    """CSV: 1 linha por feição/par; 1 coluna de dm por raio (CE90/LE90) ou escala×classe.
+
+    CE90/LE90 — passe ``thresholds`` (lista de raios > 0 m).
+    PEC-PCD — passe ``scales`` + ``classes`` (ex. A–D).
+
+    Formato pensado para Excel PT-BR: delimitador ``;``, UTF-8 com BOM,
+    cabeçalhos sem ponto decimal (``dm_18_8``).
+    """
+    _log = log or (lambda msg: None)
+    class_names_ce90 = tuple(class_names_ce90 or ())
+    os.makedirs(os.path.dirname(out_path) or '.', exist_ok=True)
+
+    col_specs = []  # (header, resolver(pair) -> value)
+    if thresholds is not None:
+        for thr in thresholds:
+            header = _dm_col_header(thr)
+            names = class_names_ce90
+
+            def _make_resolver(t, nms, key=dm_key):
+                def _resolve(pair):
+                    attrs = _dm_attrs_for_threshold(
+                        pair.get('dm_by_scale') or {}, t, nms)
+                    return _fmt_dm_csv(attrs.get(key))
+                return _resolve
+
+            col_specs.append((header, _make_resolver(thr, names)))
+    else:
+        scale_list = list(scales or [])
+        class_list = list(classes or CLASS_ORDER)
+        for scale in scale_list:
+            try:
+                scale_i = int(scale)
+            except (TypeError, ValueError):
+                continue
+            for class_ in class_list:
+                header = f'dm_{scale_i}_{class_}'
+
+                def _make_resolver(sc, cl, key=dm_key):
+                    def _resolve(pair):
+                        entry = (
+                            (pair.get('dm_by_scale') or {}).get(sc)
+                            or (pair.get('dm_by_scale') or {}).get(str(sc))
+                            or _table_entry_for_scale(
+                                pair.get('dm_by_scale') or {}, sc)
+                            or {}
+                        )
+                        attrs = entry.get(str(cl)) or entry.get(cl) or {}
+                        return _fmt_dm_csv(attrs.get(key))
+                    return _resolve
+
+                col_specs.append((header, _make_resolver(scale_i, class_)))
+
+    fieldnames = [
+        'id_ref', 'id_test', 'layer_ref', 'tag',
+        *(h for h, _ in col_specs),
+    ]
+    n_rows = 0
+    # utf-8-sig = BOM para o Excel reconhecer UTF-8; ';' = separador de lista PT-BR
+    with open(out_path, 'w', newline='', encoding='utf-8-sig') as fh:
+        writer = csv.DictWriter(
+            fh,
+            fieldnames=fieldnames,
+            extrasaction='ignore',
+            delimiter=';',
+            quoting=csv.QUOTE_MINIMAL,
+        )
+        writer.writeheader()
+        for pair in pairs or []:
+            row = {
+                'id_ref': pair.get('id_ref', ''),
+                'id_test': pair.get('id_test', ''),
+                'layer_ref': pair.get('layer_ref', ''),
+                'tag': pair.get('tag', ''),
+            }
+            for header, resolve in col_specs:
+                row[header] = resolve(pair)
+            writer.writerow(row)
+            n_rows += 1
+    _log(f'CSV gravado: {out_path}  |  linhas={n_rows}  |  colunas_dm={len(col_specs)}')
+    return out_path, n_rows
+
+
+def _pad_chunks(items, size=4):
+    """Particiona em páginas de `size` slots (None = quadro em branco)."""
+    items = list(items)
+    if not items:
+        return []
+    chunks = []
+    for i in range(0, len(items), size):
+        chunk = list(items[i:i + size])
+        while len(chunk) < size:
+            chunk.append(None)
+        chunks.append(chunk)
+    return chunks
+
+
+def _area_fmt_audit(v, label):
+    return (
+        f'{label} = {v:.1f} m²'
+        if v is not None and math.isfinite(float(v))
+        else f'{label} = n/d'
+    )
+
+
+def _draw_blank_panel(ax, *, xlabel=False, ylabel=False):
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title('—', fontsize=8, loc='left', color='#888888')
+    ax.text(
+        0.5, 0.5, '(sem limiar)',
+        transform=ax.transAxes, ha='center', va='center',
+        fontsize=8, color='#aaaaaa',
+    )
+    for spine in ax.spines.values():
+        spine.set_color('#dddddd')
+    if xlabel:
+        ax.set_xlabel(' ', fontsize=7)
+    if ylabel:
+        ax.set_ylabel(' ', fontsize=7)
+
+
+def _draw_page_ce90_horizontal(
+    pdf,
+    *,
+    test_name,
+    layer_ref,
+    id_ref,
+    id_test,
+    thresholds,
+    geom_r,
+    geom_t,
+    dm_by_scale,
+):
+    """Página CE90: até 4 limiares (2×2); slots None ficam em branco."""
+    geom_r = orient_line_high_to_low(geom_r)
+    geom_t = orient_line_high_to_low(geom_t)
+    used = [t for t in thresholds if t is not None]
+    lim_txt = ', '.join(f'{float(t):g}' for t in used) if used else '—'
+    title = (
+        f'{test_name}; CE90; limiares={lim_txt} m; {layer_ref}; '
+        f'id_ref={id_ref}; id_test={id_test}'
+    )
+
+    pec_max = max((float(t) for t in used), default=1.0)
+    extent_geoms = [g for g in (geom_r, geom_t) if g and not g.isEmpty()]
+    for g in (geom_r, geom_t):
+        if g is None or g.isEmpty():
+            continue
+        buf = _line_buffer_round(g, pec_max)
+        if buf is not None and not buf.isEmpty():
+            extent_geoms.append(buf)
+    shared_bbox = _bbox_from_geoms(extent_geoms)
+    shared_limits = None
+    if shared_bbox:
+        xmin, xmax, ymin, ymax = shared_bbox
+        pad = max((xmax - xmin) * 0.05, (ymax - ymin) * 0.05, pec_max * 0.5, 10.0)
+        shared_limits = (xmin - pad, xmax + pad, ymin - pad, ymax + pad)
+
+    fig = plt.figure(figsize=(11.69, 8.27))
+    gs = GridSpec(
+        2, 2, figure=fig,
+        left=0.06, right=0.985, top=0.92, bottom=0.07,
+        wspace=0.12 / 3, hspace=0.22 * 2 / 3,
+    )
+
+    for i, thr in enumerate(list(thresholds)[:4] + [None] * 4):
+        if i >= 4:
+            break
+        ax = fig.add_subplot(gs[i // 2, i % 2])
+        if thr is None:
+            _draw_blank_panel(ax, xlabel=(i // 2 == 1), ylabel=(i % 2 == 0))
+            continue
+
+        pec_h = float(thr)
+        attrs = _dm_attrs_for_threshold(dm_by_scale, thr, (CLASS_CE90,))
+        dm_h = attrs.get('DM_H')
+        dm_str = f'{dm_h:.2f}' if dm_h is not None else 'n/d'
+        area_ref = attrs.get('Area_Ref')
+        area_test = attrs.get('Area_Test')
+        area_inter = attrs.get('Area_Inter')
+        buf_r = buf_t = None
+
+        if geom_r is not None and not geom_r.isEmpty():
+            buf_r = _line_buffer_round(geom_r, pec_h)
+            _plot_polygon(
+                ax, buf_r,
+                facecolor=COLOR_BUF_REF, edgecolor=COLOR_BUF_REF,
+                alpha=0.28, linewidth=0.45, zorder=1, label='Buffer Ref',
+            )
+            _plot_line(
+                ax, geom_r, color=COLOR_REF, linewidth=0.75, label='Referência', zorder=4
+            )
+            if buf_r is not None and not buf_r.isEmpty() and area_ref is None:
+                area_ref = buf_r.area()
+
+        if geom_t is not None and not geom_t.isEmpty():
+            buf_t = _line_buffer_round(geom_t, pec_h)
+            _plot_polygon(
+                ax, buf_t,
+                facecolor=COLOR_BUF_TEST, edgecolor=COLOR_BUF_TEST,
+                alpha=0.22, linewidth=0.45, zorder=2, label='Buffer Teste',
+            )
+            _plot_line(
+                ax, geom_t, color=COLOR_TEST, linewidth=0.65, label='Teste', zorder=5
+            )
+            if buf_t is not None and not buf_t.isEmpty() and area_test is None:
+                area_test = buf_t.area()
+            if (
+                area_inter is None
+                and buf_r is not None and buf_t is not None
+                and not buf_r.isEmpty() and not buf_t.isEmpty()
+            ):
+                inter = buf_t.intersection(buf_r)
+                if inter and not inter.isEmpty():
+                    area_inter = inter.area()
+
+        prog0 = _line_start_xy(geom_r)
+        if prog0 is not None:
+            ax.plot(
+                prog0[0], prog0[1],
+                marker='o', markersize=7 * 2 / 3, linestyle='None',
+                color='#111111', markerfacecolor='#ffffff',
+                markeredgecolor='#111111', markeredgewidth=0.8,
+                label='Progressiva Zero', zorder=6,
+            )
+
+        if shared_limits:
+            ax.set_xlim(shared_limits[0], shared_limits[1])
+            ax.set_ylim(shared_limits[2], shared_limits[3])
+            ax.set_aspect('equal', adjustable='datalim')
+        else:
+            _set_equal_aspect_pad(ax, [geom_r, geom_t])
+        _apply_map_grid(ax, MAP_GRID_STEP_M)
+
+        ax.set_title(
+            f'CE90={pec_h:g} m  |  dm = {dm_str}',
+            fontsize=8, loc='left',
+        )
+        ax.text(
+            0.5, 0.97,
+            '  |  '.join([
+                _area_fmt_audit(area_ref, 'Área Ref'),
+                _area_fmt_audit(area_test, 'Área Teste'),
+                _area_fmt_audit(area_inter, 'Área Inter'),
+            ]),
+            transform=ax.transAxes, fontsize=6, va='top', ha='center',
+            bbox={
+                'boxstyle': 'round,pad=0.25', 'facecolor': 'white',
+                'edgecolor': 'none', 'alpha': 0.15,
+            },
+            zorder=10,
+        )
+        ax.tick_params(labelsize=6, pad=1)
+        for lab in ax.get_yticklabels():
+            lab.set_rotation(90)
+            lab.set_va('center')
+            lab.set_ha('right')
+        if i // 2 == 1:
+            ax.set_xlabel('X (m)', fontsize=7)
+        if i % 2 == 0:
+            ax.set_ylabel('Norte (Y)', fontsize=7, rotation=90, labelpad=2)
+
+        if i == 0:
+            legend_order = [
+                'Referência', 'Buffer Ref', 'Teste', 'Buffer Teste', 'Progressiva Zero',
+            ]
+            by_label = {
+                lab: hand for hand, lab in zip(*ax.get_legend_handles_labels())
+            }
+            handles = [by_label[lab] for lab in legend_order if lab in by_label]
+            labels = [lab for lab in legend_order if lab in by_label]
+            if handles:
+                ax.legend(
+                    handles, labels, loc='lower left', fontsize=5, framealpha=0.9,
+                    ncol=len(handles), columnspacing=0.7, handlelength=1.2,
+                    handletextpad=0.3, borderpad=0.25,
+                )
+
+    fig.suptitle(title, fontsize=9, x=0.545)
+    _add_page_logo(fig)
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def _draw_page_le90_vertical(
+    pdf,
+    *,
+    test_name,
+    layer_ref,
+    id_ref,
+    id_test,
+    thresholds,
+    geom_r,
+    geom_t,
+    profiles_scale,
+    profiles_raw,
+    dm_by_scale,
+    norm_label='Compatibilização Linear',
+    norm_type=NORM_SCALE,
+):
+    """Página LE90: mapa 2D + até 4 limiares empilhados; None = em branco."""
+    geom_r = orient_line_high_to_low(geom_r)
+    geom_t = orient_line_high_to_low(geom_t)
+    k_t = profiles_scale.get('k_t') if profiles_scale else None
+    k_str = f'{k_t:.2f}' if k_t is not None and math.isfinite(k_t) else 'n/d'
+    show_k = int(norm_type) == NORM_SCALE and k_str != 'n/d'
+    used = [t for t in thresholds if t is not None]
+    lim_txt = ', '.join(f'{float(t):g}' for t in used) if used else '—'
+    title = (
+        f'{test_name}; LE90; limiares={lim_txt} m; {norm_label}; {layer_ref}; '
+        f'id_ref={id_ref}; id_test={id_test}'
+    )
+    if show_k:
+        title += f'; fator de escala k={k_str}'
+
+    fig = plt.figure(figsize=(11.69, 8.27))
+    gs = GridSpec(
+        4, 2, figure=fig, width_ratios=[0.72, 1.0],
+        left=0.04, right=0.985, top=0.92, bottom=0.07,
+        wspace=0.08, hspace=0.32 * 2 / 3,
+    )
+
+    ax_2d = fig.add_subplot(gs[:, 0])
+    _plot_line(ax_2d, geom_r, color=COLOR_REF, linewidth=1.6, label='Referência', zorder=4)
+    _plot_line(ax_2d, geom_t, color=COLOR_TEST, linewidth=1.4, label='Teste', zorder=5)
+    prog0 = _line_start_xy(geom_r)
+    if prog0 is not None:
+        ax_2d.plot(
+            prog0[0], prog0[1],
+            marker='o', markersize=7 * 2 / 3, linestyle='None',
+            color='#111111', markerfacecolor='#ffffff',
+            markeredgecolor='#111111', markeredgewidth=0.8,
+            label='Progressiva Zero', zorder=6,
+        )
+    _set_equal_aspect_pad(ax_2d, [geom_r, geom_t])
+    _apply_map_grid(ax_2d, MAP_GRID_STEP_M)
+    ax_2d.set_title('Vista 2D', fontsize=9)
+    ax_2d.set_xlabel('X (m)', fontsize=8)
+    ax_2d.set_ylabel('Norte (Y)', fontsize=8, rotation=90, labelpad=2)
+    ax_2d.tick_params(axis='y', labelsize=7, pad=1)
+    ax_2d.tick_params(axis='x', labelsize=7)
+    for lab in ax_2d.get_yticklabels():
+        lab.set_rotation(90)
+        lab.set_va('center')
+        lab.set_ha('right')
+    ax_2d.legend(loc='upper right', fontsize=7, framealpha=0.9)
+
+    geom_prof_r = profiles_scale['geom_prof_r'] if profiles_scale else None
+    geom_prof_t = profiles_scale['geom_prof_t'] if profiles_scale else None
+    geom_prof_t_raw = profiles_raw['geom_prof_t'] if profiles_raw else None
+    if geom_prof_r is not None:
+        geom_prof_r = _shift_profile_geometry(geom_prof_r)
+    if geom_prof_t is not None:
+        geom_prof_t = _shift_profile_geometry(geom_prof_t)
+    if geom_prof_t_raw is not None:
+        geom_prof_t_raw = _shift_profile_geometry(geom_prof_t_raw)
+
+    pec_v_max = max((float(t) for t in used), default=1.0)
+    line_geoms = [g for g in (geom_prof_r, geom_prof_t, geom_prof_t_raw) if g]
+    buf_src = [g for g in (geom_prof_r, geom_prof_t) if g]
+    shared_limits = _shared_profile_limits(line_geoms, buf_src, pec_v_max)
+
+    for i, thr in enumerate(list(thresholds)[:4] + [None] * 4):
+        if i >= 4:
+            break
+        ax = fig.add_subplot(gs[i, 1])
+        if thr is None:
+            _draw_blank_panel(ax, xlabel=(i == 3), ylabel=True)
+            ax.set_ylabel('Cota (m)', fontsize=7, labelpad=2)
+            if i == 3:
+                ax.set_xlabel('Progressiva (m)', fontsize=7)
+            continue
+
+        pec_v = float(thr)
+        attrs = _dm_attrs_for_threshold(dm_by_scale, thr, (CLASS_LE90,))
+        dm_v = attrs.get('DM_V')
+        dm_str = f'{dm_v:.2f}' if dm_v is not None else 'n/d'
+        area_ref = attrs.get('Area_Ref_Prof')
+        area_test = attrs.get('Area_Test_Prof')
+        area_inter = attrs.get('Area_Inter_Prof')
+        buf_r = buf_t = None
+
+        if geom_prof_r is not None and not geom_prof_r.isEmpty():
+            buf_r = _line_buffer_round(geom_prof_r, pec_v)
+            _plot_polygon(
+                ax, buf_r,
+                facecolor=COLOR_BUF_REF, edgecolor=COLOR_BUF_REF,
+                alpha=0.28, linewidth=0.9, zorder=1, label='Buffer Ref',
+            )
+            _plot_line(
+                ax, geom_prof_r, color=COLOR_REF, linewidth=1.2, label='Ref', zorder=4
+            )
+            if buf_r is not None and not buf_r.isEmpty() and area_ref is None:
+                area_ref = buf_r.area()
+
+        if geom_prof_t_raw is not None:
+            _plot_line(
+                ax, geom_prof_t_raw, color=COLOR_TEST_RAW, linewidth=1.0,
+                linestyle='--', label='Teste original', zorder=5,
+            )
+
+        if geom_prof_t is not None and not geom_prof_t.isEmpty():
+            buf_t = _line_buffer_round(geom_prof_t, pec_v)
+            _plot_polygon(
+                ax, buf_t,
+                facecolor=COLOR_BUF_TEST, edgecolor=COLOR_BUF_TEST,
+                alpha=0.22, linewidth=0.9, zorder=2, label='Buffer Teste c.',
+            )
+            _plot_line(
+                ax, geom_prof_t, color=COLOR_TEST, linewidth=1.2,
+                label='Teste compat.', zorder=6,
+            )
+            if buf_t is not None and not buf_t.isEmpty() and area_test is None:
+                area_test = buf_t.area()
+            if (
+                area_inter is None
+                and buf_r is not None and buf_t is not None
+                and not buf_r.isEmpty() and not buf_t.isEmpty()
+            ):
+                inter = buf_t.intersection(buf_r)
+                if inter and not inter.isEmpty():
+                    area_inter = inter.area()
+
+        if shared_limits:
+            ax.set_xlim(shared_limits[0], shared_limits[1])
+            ax.set_ylim(shared_limits[2], shared_limits[3])
+        ax.set_clip_on(False)
+
+        ax.set_title(
+            f'LE90={pec_v:g} m  |  dm = {dm_str}',
+            fontsize=8, loc='left',
+        )
+        ax.text(
+            0.5, 0.97,
+            '  |  '.join([
+                _area_fmt_audit(area_ref, 'Área Ref'),
+                _area_fmt_audit(area_test, 'Área Teste'),
+                _area_fmt_audit(area_inter, 'Área Inter'),
+            ]),
+            transform=ax.transAxes, fontsize=6, va='top', ha='center',
+            bbox={
+                'boxstyle': 'round,pad=0.25', 'facecolor': 'white',
+                'edgecolor': 'none', 'alpha': 0.15,
+            },
+            zorder=10,
+        )
+        ax.tick_params(labelsize=6, pad=1)
+        ax.grid(True, alpha=0.25)
+        if i == 0:
+            legend_order = [
+                'Ref', 'Buffer Ref', 'Teste original', 'Teste compat.', 'Buffer Teste c.',
+            ]
+            by_label = {
+                lab: hand for hand, lab in zip(*ax.get_legend_handles_labels())
+            }
+            handles = [by_label[lab] for lab in legend_order if lab in by_label]
+            labels = [lab for lab in legend_order if lab in by_label]
+            if handles:
+                ax.legend(
+                    handles, labels, loc='lower left', fontsize=5.5, framealpha=0.9,
+                    ncol=5, columnspacing=0.9, handlelength=1.6,
+                    handletextpad=0.4, borderpad=0.35, labelspacing=0.2,
+                )
+        if i == 3:
+            ax.set_xlabel('Progressiva (m)', fontsize=7)
+        ax.set_ylabel('Cota (m)', fontsize=7, labelpad=2)
+
+    fig.suptitle(title, fontsize=9, x=0.545)
+    _add_page_logo(fig)
+    fig.text(
+        0.98, 0.008,
+        (
+            '*O comportamento estranho do buffer no início e final de cada perfil '
+            'é decorrente da diferença entre as escalas Horizontal e Vertical.'
+        ),
+        ha='right', va='bottom', fontsize=6.5,
+    )
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
+def _eq_of_scale(eq_lookup, scale):
+    if not eq_lookup:
+        return ''
+    if scale in eq_lookup:
+        return eq_lookup.get(scale, '')
+    try:
+        s_f = float(scale)
+    except (TypeError, ValueError):
+        return eq_lookup.get(str(scale), '')
+    if s_f in eq_lookup:
+        return eq_lookup.get(s_f, '')
+    if int(s_f) == s_f and int(s_f) in eq_lookup:
+        return eq_lookup.get(int(s_f), '')
+    for k, v in eq_lookup.items():
+        try:
+            if abs(float(k) - s_f) < 1e-9:
+                return v
+        except (TypeError, ValueError):
+            continue
+    return ''
 
 
 def _draw_page_horizontal(
@@ -816,22 +1434,15 @@ def _draw_page_horizontal(
     geom_r,
     geom_t,
     dm_by_class,
-    norm_label='Compatibilização Linear',
-    norm_type=NORM_SCALE,
     pec_h_table=None,
-    k_t=None,
 ):
     """Página planimétrica: matriz 2×2 (A B / C D) com buffers H e áreas."""
     geom_r = orient_line_high_to_low(geom_r)
     geom_t = orient_line_high_to_low(geom_t)
-    k_str = f'{k_t:.2f}' if k_t is not None and math.isfinite(k_t) else 'n/d'
-    show_k = int(norm_type) == NORM_SCALE and k_str != 'n/d'
     title = (
-        f'{test_name}; 1:{int(scale) * 1000}; {norm_label}; {layer_ref}; '
+        f'{test_name}; 1:{int(scale) * 1000}; {layer_ref}; '
         f'id_ref={id_ref}; id_test={id_test}'
     )
-    if show_k:
-        title += f'; fator de escala k={k_str}'
 
     pec_h_max = max(_pec_h_of(scale, c, pec_h_table) for c in CLASS_ORDER)
     extent_geoms = [g for g in (geom_r, geom_t) if g and not g.isEmpty()]
@@ -1044,8 +1655,8 @@ def generate_pdf(
         raise RuntimeError(f'Result.gpkg não encontrado:\n{gpkg_path}')
     if not os.path.isfile(lines_gpkg):
         raise RuntimeError(f'GPKG de linhas não encontrado:\n{lines_gpkg}')
-    if int(scale) not in DIC_PEC_V:
-        raise RuntimeError(f'Escala inválida: {scale} (use {sorted(DIC_PEC_V)})')
+    if int(scale) not in DIC_EQ_V:
+        raise RuntimeError(f'Escala inválida: {scale} (use {sorted(DIC_EQ_V)})')
 
     own_result = result_layer is None
     if own_result:
@@ -1148,14 +1759,14 @@ def generate_audit_pdfs_from_pairs(
     timestamp=None,
     log=None,
     progress=None,
+    csv_only=False,
 ):
     """
-    Gera Audit_vertical_{modelo}_{linear|proximidade}_{escala}_{timestamp}.pdf
+    Gera PDFs de auditoria vertical (e CSV).
 
-    pairs: lista de dicts com chaves
-      id_ref, id_test, layer_ref, geom_r, geom_t,
-      dm_by_scale (opcional): {scale: {class: {DM_V, Area_*}}}
-    progress: callback opcional(msg) chamado após cada par×escala
+    PEC-PCD: 1 PDF por escala (páginas = pares; 4 classes A–D).
+    LE90: 1 PDF; por feição, páginas com até 4 limiares (restantes em branco).
+    csv_only=True: grava só o CSV, sem PDF.
     """
     _log = log or (lambda msg: print(msg))
     _progress = progress if callable(progress) else None
@@ -1172,10 +1783,114 @@ def generate_audit_pdfs_from_pairs(
     if not ts:
         ts = datetime.now().strftime('%Y-%m-%d_%H%M')
 
+    if _is_ce90_audit_table(pec_lookup):
+        thresholds = _ce90_positive_thresholds(scales)
+        if not thresholds:
+            _log('Auditoria LE90: nenhum limiar > 0 m para desenhar.')
+            return []
+        csv_path = os.path.join(
+            out_dir,
+            f'Audit_vertical_{safe_model}_{norm_slug}_LE90_{ts}.csv',
+        )
+        write_audit_dm_csv(
+            csv_path,
+            pairs,
+            thresholds=thresholds,
+            dm_key='DM_V',
+            class_names_ce90=(CLASS_LE90,),
+            log=_log,
+        )
+        if csv_only:
+            if _progress:
+                for pair in pairs:
+                    _progress(f'LE90 CSV id_ref={pair.get("id_ref")}')
+            return [(csv_path, 0, 0)]
+        out_name = f'Audit_vertical_{safe_model}_{norm_slug}_LE90_{ts}.pdf'
+        out_path = os.path.join(out_dir, out_name)
+        drawn = 0
+        skipped = 0
+        chunks = _pad_chunks(thresholds, 4)
+        _log(
+            f'Auditoria LE90: {len(pairs)} pares × {len(thresholds)} limiares '
+            f'({len(chunks)} pág./par) → {out_path}'
+        )
+        with PdfPages(out_path) as pdf:
+            for pair in pairs:
+                geom_r = pair.get('geom_r')
+                geom_t = pair.get('geom_t')
+                id_ref = pair.get('id_ref')
+                if geom_r is None or geom_t is None or geom_r.isEmpty() or geom_t.isEmpty():
+                    skipped += 1
+                    if _progress:
+                        _progress(f'LE90 id_ref={id_ref} (skip)')
+                    continue
+                profiles_compat = build_compatibilized_profile_geometries(
+                    geom_r, geom_t, int(norm_type)
+                )
+                profiles_raw = build_compatibilized_profile_geometries(
+                    geom_r, geom_t, NORM_NONE
+                )
+                if not profiles_compat:
+                    skipped += 1
+                    if _progress:
+                        _progress(f'LE90 id_ref={id_ref} (skip)')
+                    continue
+                dm_by_scale = pair.get('dm_by_scale') or {}
+                for chunk in chunks:
+                    _draw_page_le90_vertical(
+                        pdf,
+                        test_name=str(test_name),
+                        layer_ref=str(pair.get('layer_ref') or ''),
+                        id_ref=id_ref,
+                        id_test=pair.get('id_test'),
+                        thresholds=chunk,
+                        geom_r=geom_r,
+                        geom_t=geom_t,
+                        profiles_scale=profiles_compat,
+                        profiles_raw=profiles_raw,
+                        dm_by_scale=dm_by_scale,
+                        norm_label=norm_label,
+                        norm_type=norm_type,
+                    )
+                    drawn += 1
+                    if _progress:
+                        lims = ','.join(f'{t:g}' for t in chunk if t is not None)
+                        _progress(f'LE90 id_ref={id_ref} [{lims}]')
+        _log(f'PDF gravado: {out_path}  |  páginas={drawn}  |  ignorados={skipped}')
+        return [(out_path, drawn, skipped)]
+
+    # PEC-PCD vertical: CSV único
+    pec_scales = []
+    for scale in scales:
+        try:
+            pec_scales.append(int(scale))
+        except (TypeError, ValueError):
+            continue
+    csv_path = None
+    if pec_scales:
+        csv_path = os.path.join(
+            out_dir, f'Audit_vertical_{safe_model}_{norm_slug}_{ts}.csv')
+        write_audit_dm_csv(
+            csv_path,
+            pairs,
+            scales=pec_scales,
+            classes=CLASS_ORDER,
+            dm_key='DM_V',
+            log=_log,
+        )
+    if csv_only:
+        if _progress:
+            for pair in pairs:
+                _progress(f'V CSV id_ref={pair.get("id_ref")}')
+        return [(csv_path, 0, 0)] if csv_path else []
+
     outputs = []
     for scale in scales:
-        scale = int(scale)
-        if scale not in pec_lookup:
+        try:
+            scale = int(scale)
+        except (TypeError, ValueError):
+            continue
+        if scale not in pec_lookup and not _table_entry_for_scale(pec_lookup, scale):
             _log(f'Auditoria vertical: escala {scale} sem PEC-V — ignorada.')
             if _progress:
                 for _pair in pairs:
@@ -1213,7 +1928,12 @@ def generate_audit_pdfs_from_pairs(
                         _progress(f'V 1:{scale * 1000} id_ref={id_ref} (skip)')
                     continue
                 dm_by_scale = pair.get('dm_by_scale') or {}
-                dm_by_class = dm_by_scale.get(scale) or dm_by_scale.get(str(scale)) or {}
+                dm_by_class = (
+                    dm_by_scale.get(scale)
+                    or dm_by_scale.get(str(scale))
+                    or _table_entry_for_scale(dm_by_scale, scale)
+                    or {}
+                )
                 _draw_page(
                     pdf,
                     test_name=str(test_name),
@@ -1250,11 +1970,14 @@ def generate_audit_horizontal_pdfs_from_pairs(
     timestamp=None,
     log=None,
     progress=None,
+    csv_only=False,
 ):
     """
-    Gera Audit_horizontal_{modelo}_{escala}_{timestamp}.pdf
-    (matriz 2×2 por classe; método de compatibilização não entra no nome).
-    progress: callback opcional(msg) chamado após cada par×escala
+    Gera PDFs de auditoria horizontal (e CSV).
+
+    PEC-PCD: 1 PDF por escala (matriz 2×2 A–D).
+    CE90: 1 PDF; por feição, páginas com até 4 limiares (restantes em branco).
+    csv_only=True: grava só o CSV, sem PDF.
     """
     _log = log or (lambda msg: print(msg))
     _progress = progress if callable(progress) else None
@@ -1262,15 +1985,101 @@ def generate_audit_horizontal_pdfs_from_pairs(
         _log('Auditoria horizontal: sem pares homólogos.')
         return []
     os.makedirs(out_dir or '.', exist_ok=True)
-    norm_label = _norm_label(norm_type)
     safe_model = _safe_filename_token(test_name, 'MODELO')
     ts = str(timestamp).strip() if timestamp else ''
     if not ts:
         ts = datetime.now().strftime('%Y-%m-%d_%H%M')
 
+    if _is_ce90_audit_table(pec_h_table):
+        thresholds = _ce90_positive_thresholds(scales)
+        if not thresholds:
+            _log('Auditoria CE90: nenhum limiar > 0 m para desenhar.')
+            return []
+        csv_path = os.path.join(
+            out_dir, f'Audit_horizontal_{safe_model}_CE90_{ts}.csv')
+        write_audit_dm_csv(
+            csv_path,
+            pairs,
+            thresholds=thresholds,
+            dm_key='DM_H',
+            class_names_ce90=(CLASS_CE90,),
+            log=_log,
+        )
+        if csv_only:
+            if _progress:
+                for pair in pairs:
+                    _progress(f'CE90 CSV id_ref={pair.get("id_ref")}')
+            return [(csv_path, 0, 0)]
+        out_name = f'Audit_horizontal_{safe_model}_CE90_{ts}.pdf'
+        out_path = os.path.join(out_dir, out_name)
+        drawn = 0
+        skipped = 0
+        chunks = _pad_chunks(thresholds, 4)
+        _log(
+            f'Auditoria CE90: {len(pairs)} pares × {len(thresholds)} limiares '
+            f'({len(chunks)} pág./par) → {out_path}'
+        )
+        with PdfPages(out_path) as pdf:
+            for pair in pairs:
+                geom_r = pair.get('geom_r')
+                geom_t = pair.get('geom_t')
+                id_ref = pair.get('id_ref')
+                if geom_r is None or geom_t is None or geom_r.isEmpty() or geom_t.isEmpty():
+                    skipped += 1
+                    if _progress:
+                        _progress(f'CE90 id_ref={id_ref} (skip)')
+                    continue
+                dm_by_scale = pair.get('dm_by_scale') or {}
+                for chunk in chunks:
+                    _draw_page_ce90_horizontal(
+                        pdf,
+                        test_name=str(test_name),
+                        layer_ref=str(pair.get('layer_ref') or ''),
+                        id_ref=id_ref,
+                        id_test=pair.get('id_test'),
+                        thresholds=chunk,
+                        geom_r=geom_r,
+                        geom_t=geom_t,
+                        dm_by_scale=dm_by_scale,
+                    )
+                    drawn += 1
+                    if _progress:
+                        lims = ','.join(f'{t:g}' for t in chunk if t is not None)
+                        _progress(f'CE90 id_ref={id_ref} [{lims}]')
+        _log(f'PDF gravado: {out_path}  |  páginas={drawn}  |  ignorados={skipped}')
+        return [(out_path, drawn, skipped)]
+
+    # PEC-PCD horizontal: CSV único (colunas dm_<escala>_<classe>)
+    pec_scales = []
+    for scale in scales:
+        try:
+            pec_scales.append(int(scale))
+        except (TypeError, ValueError):
+            continue
+    csv_path = None
+    if pec_scales:
+        csv_path = os.path.join(
+            out_dir, f'Audit_horizontal_{safe_model}_{ts}.csv')
+        write_audit_dm_csv(
+            csv_path,
+            pairs,
+            scales=pec_scales,
+            classes=CLASS_ORDER,
+            dm_key='DM_H',
+            log=_log,
+        )
+    if csv_only:
+        if _progress:
+            for pair in pairs:
+                _progress(f'H CSV id_ref={pair.get("id_ref")}')
+        return [(csv_path, 0, 0)] if csv_path else []
+
     outputs = []
     for scale in scales:
-        scale = int(scale)
+        try:
+            scale = int(scale)
+        except (TypeError, ValueError):
+            continue
         out_name = f'Audit_horizontal_{safe_model}_{scale}_{ts}.pdf'
         out_path = os.path.join(out_dir, out_name)
         drawn = 0
@@ -1291,15 +2100,13 @@ def generate_audit_horizontal_pdfs_from_pairs(
                     if _progress:
                         _progress(f'H 1:{scale * 1000} id_ref={id_ref} (skip)')
                     continue
-                k_t = None
-                if int(norm_type) == NORM_SCALE:
-                    profiles = build_compatibilized_profile_geometries(
-                        geom_r, geom_t, int(norm_type)
-                    )
-                    if profiles:
-                        k_t = profiles.get('k_t')
                 dm_by_scale = pair.get('dm_by_scale') or {}
-                dm_by_class = dm_by_scale.get(scale) or dm_by_scale.get(str(scale)) or {}
+                dm_by_class = (
+                    dm_by_scale.get(scale)
+                    or dm_by_scale.get(str(scale))
+                    or _table_entry_for_scale(dm_by_scale, scale)
+                    or {}
+                )
                 _draw_page_horizontal(
                     pdf,
                     test_name=str(test_name),
@@ -1310,10 +2117,7 @@ def generate_audit_horizontal_pdfs_from_pairs(
                     geom_r=geom_r,
                     geom_t=geom_t,
                     dm_by_class=dm_by_class,
-                    norm_label=norm_label,
-                    norm_type=norm_type,
                     pec_h_table=pec_h_table,
-                    k_t=k_t,
                 )
                 drawn += 1
                 if _progress:
@@ -1355,10 +2159,9 @@ def generate_horizontal_pdf(
         print('Indexando pares teste↔ref…')
         pair_index = _build_test_pair_index(lines_cache)
 
-    norm_label = _norm_label(norm_type)
     pairs = _unique_pairs_from_result(result_layer, scale, model=model)
     model_txt = model or 'TODOS'
-    print(f'Pares H {model_txt} @ escala {scale} (norm={norm_label}): {len(pairs)}')
+    print(f'Pares H {model_txt} @ escala {scale}: {len(pairs)}')
     if limit is not None and limit > 0:
         pairs = pairs[: int(limit)]
     print(f'Pares a desenhar: {len(pairs)} → {out_path}')
@@ -1382,13 +2185,6 @@ def generate_horizontal_pdf(
                 skipped += 1
                 continue
             id_test, geom_t = paired
-            k_t = None
-            if int(norm_type) == NORM_SCALE:
-                profiles = build_compatibilized_profile_geometries(
-                    geom_r, geom_t, int(norm_type)
-                )
-                if profiles:
-                    k_t = profiles.get('k_t')
             dm_by_class = _dm_attrs_by_class(
                 result_layer, test_name, layer_ref, id_ref, scale
             )
@@ -1407,9 +2203,6 @@ def generate_horizontal_pdf(
                 geom_r=geom_r,
                 geom_t=geom_t,
                 dm_by_class=dm_by_class,
-                norm_label=norm_label,
-                norm_type=norm_type,
-                k_t=k_t,
             )
             drawn += 1
 
@@ -1502,7 +2295,7 @@ def _parse_cli_args(argv=None):
         help='GPKG com linhas Z de ref e teste',
     )
     p.add_argument('--out', default=None, help='Caminho do PDF (modo simples)')
-    p.add_argument('--scale', type=int, default=None, choices=sorted(DIC_PEC_V.keys()))
+    p.add_argument('--scale', type=int, default=None, choices=sorted(DIC_EQ_V.keys()))
     p.add_argument('--model', default=None, help='Filtrar modelo (ex.: ANADEM)')
     p.add_argument(
         '--norm',
