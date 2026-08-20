@@ -13,7 +13,7 @@ from qgis.PyQt.QtWidgets import (QAction, QScrollArea, QGridLayout, QPushButton,
                                  QSpacerItem, QDockWidget, QSplitter, QComboBox, QLineEdit, QDialog, QFrame, QCheckBox,
                                  QHBoxLayout, QVBoxLayout, QFileDialog, QTableWidget,
                                  QProgressBar, QDateEdit, QWidget, QVBoxLayout, QPushButton, QPlainTextEdit,
-                                 QRadioButton, QButtonGroup, QDoubleSpinBox)
+                                 QRadioButton, QButtonGroup, QDoubleSpinBox, QSpinBox)
 from qgis.core import QgsVectorFileWriter, QgsWkbTypes, QgsCoordinateTransformContext, QgsCoordinateReferenceSystem, \
     QgsFeature, QgsVectorLayer, QgsFields, QgsField, QgsProject, QgsMapLayerProxyModel, QgsLayerTreeLayer
 from qgis.gui import QgsMapLayerComboBox
@@ -21,6 +21,18 @@ from .mod_aux_tools import AuxTools
 from .plugin_i18n import tr_ui
 
 plugin_path = os.path.dirname(os.path.dirname(__file__))
+
+
+def _narrow_value_widget(widget, *, fraction: float = 1.0 / 3.0, floor: int = 56):
+    """Largura dos spin/combo da 2.ª coluna ≈ 1/3 do sizeHint (mínimo e máximo)."""
+    if widget is None:
+        return
+    hint = max(widget.minimumSizeHint().width(), widget.sizeHint().width(), 1)
+    width = max(floor, int(hint * fraction))
+    widget.setMinimumWidth(width)
+    widget.setMaximumWidth(width)
+    widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
 
 class SettingsDlg(QDialog):
     """Settings Form"""
@@ -48,16 +60,24 @@ class SettingsDlg(QDialog):
                             'tooltip': tr_ui(
                                 'Controla a densidade das linhas: diminuir a área gera mais feições; '
                                 'aumentar gera menos. Padrão: 675000 m².'),
-                            'value': '675000',
-                            'default': '675000',
+                            'type': 'spin',
+                            'value': 675000,
+                            'default': 675000,
+                            'min': 1000,
+                            'max': 50000000,
+                            'step': 1000,
                             'obj': None},
                         'max_memo_grass': {
                             'label': tr_ui('Limite de Memória para Grass GIS (GB)'),
                             'tooltip': tr_ui(
-                                'Memória máxima do GRASS no r.watershed. Aumente se o processo falhar por RAM. '
+                                'Memória máxima do GRASS no r.watershed. Diminua se falhar. '
                                 'Padrão: 4 GB.'),
-                            'value': '4',
-                            'default': '4',
+                            'type': 'spin',
+                            'value': 4,
+                            'default': 4,
+                            'min': 1,
+                            'max': 128,
+                            'step': 1,
                             'obj': None},
                     },
                 },
@@ -72,8 +92,12 @@ class SettingsDlg(QDialog):
                                 'Filtro inicial: distância máxima entre centróides, em pixels do MDE de teste. '
                                 'Aumentar tende a aumentar candidatos; diminuir pode enviesar a amostra '
                                 'ou não atingir o mínimo. Padrão: 3 px.'),
-                            'value': '3',
-                            'default': '3',
+                            'type': 'spin',
+                            'value': 3,
+                            'default': 3,
+                            'min': 1,
+                            'max': 100,
+                            'step': 1,
                             'obj': None},
                         'percent_area': {
                             'label': tr_ui('Diferença % entre área dos mínimos envelopes'),
@@ -81,8 +105,12 @@ class SettingsDlg(QDialog):
                                 'Segundo filtro: geometrias semelhantes têm envelopes com áreas semelhantes, '
                                 'reduzindo a influência de erros posicionais. Aumentar ou diminuir tem o '
                                 'mesmo efeito que na distância entre centróides. Padrão: 10 %.'),
-                            'value': '10',
-                            'default': '10',
+                            'type': 'spin',
+                            'value': 10,
+                            'default': 10,
+                            'min': 1,
+                            'max': 100,
+                            'step': 1,
                             'obj': None},
                         'percent_length': {
                             'label': tr_ui(
@@ -90,17 +118,25 @@ class SettingsDlg(QDialog):
                             'tooltip': tr_ui(
                                 'Filtro pelo lado maior dos envelopes orientados. Pares homólogos devem ter '
                                 'comprimentos de envelope semelhantes. Padrão: 5 %.'),
-                            'value': '5',
-                            'default': '5',
+                            'type': 'spin',
+                            'value': 5,
+                            'default': 5,
+                            'min': 1,
+                            'max': 100,
+                            'step': 1,
                             'obj': None},
                         'min_extent_px': {
                             'label': tr_ui(
-                                'Extensão mínima da feição de teste (Pixels do MDE de teste)'),
+                                'Extensão mínima da feição de teste (pixels do MDE de teste)'),
                             'tooltip': tr_ui(
                                 'Descarta linhas de teste mais curtas que este comprimento (pixels × GSD do teste), '
                                 'evitando amostras pouco representativas. Padrão: 10 px.'),
-                            'value': '10',
-                            'default': '10',
+                            'type': 'spin',
+                            'value': 10,
+                            'default': 10,
+                            'min': 1,
+                            'max': 1000,
+                            'step': 1,
                             'obj': None},
                     },
                 },
@@ -115,6 +151,7 @@ class SettingsDlg(QDialog):
                                 'PEC-PCD classifica nas escalas e classes A–D. '
                                 'CE90/LE90 busca o menor limiar (m) que cumpre os testes de 90 % e RMS.'),
                             'type': 'radio',
+                            'layout': 'horizontal',
                             'list': self.parent.list_accuracy_standard,
                             'value': 0,
                             'default': 0,
@@ -167,9 +204,9 @@ class SettingsDlg(QDialog):
                         'show_buffers_on_map': {
                             'label': tr_ui('Mostrar buffers no mapa durante o processamento'),
                             'tooltip': tr_ui(
-                                'Se Sim, a camada de buffers aparece no mapa enquanto é gerada '
-                                '(pode tornar o processamento mais lento). Padrão: Não.'),
-                            'list': [tr_ui('Não'), tr_ui('Sim')],
+                                'Se marcado, a camada de buffers aparece no mapa enquanto é gerada '
+                                '(pode tornar o processamento mais lento). Padrão: desmarcado.'),
+                            'type': 'checkbox',
                             'value': 0,
                             'default': 0,
                             'obj': None},
@@ -210,32 +247,25 @@ class SettingsDlg(QDialog):
                 'step_audit_report': {
                     'label': tr_ui('Relatório de Auditoria'),
                     'tooltip': tr_ui(
-                        'PDFs/CSV par a par para conferir buffers e DM. '
-                        'Pode gerar só o planimétrico, só o altimétrico, ou ambos.'),
+                        'Gera PDF de auditoria (e sempre o CSV correspondente) '
+                        'para conferir buffers e DM. Pode activar só o planimétrico, '
+                        'só o altimétrico, ou ambos.'),
                     'fields': {
                         'audit_horizontal': {
-                            'label': tr_ui('Horizontal'),
+                            'label': tr_ui('Horizontal (PDF)'),
                             'tooltip': tr_ui(
-                                'Gera o relatório de auditoria planimétrica (buffers no plano XY).'),
+                                'Gera o PDF de auditoria planimétrica (buffers no plano XY). '
+                                'O CSV correspondente é sempre gravado.'),
                             'type': 'checkbox',
                             'value': 0,
                             'default': 0,
                             'enabled': True,
                             'obj': None},
                         'audit_vertical': {
-                            'label': tr_ui('Vertical'),
+                            'label': tr_ui('Vertical (PDF)'),
                             'tooltip': tr_ui(
-                                'Gera o relatório de auditoria altimétrica (perfis cota × progressiva).'),
-                            'type': 'checkbox',
-                            'value': 0,
-                            'default': 0,
-                            'enabled': True,
-                            'obj': None},
-                        'audit_csv_only': {
-                            'label': tr_ui('Apenas CSV (sem PDF)'),
-                            'tooltip': tr_ui(
-                                'Se marcado, grava só o CSV (uma linha por feição, colunas por raio/escala), '
-                                'sem gerar o PDF de auditoria.'),
+                                'Gera o PDF de auditoria altimétrica (perfis cota × progressiva). '
+                                'O CSV correspondente é sempre gravado.'),
                             'type': 'checkbox',
                             'value': 0,
                             'default': 0,
@@ -274,7 +304,7 @@ class SettingsDlg(QDialog):
         dp['step_morfologia']['fields']['max_memo_grass']['label'] = tr_ui(
             'Limite de Memória para Grass GIS (GB)')
         dp['step_morfologia']['fields']['max_memo_grass']['tooltip'] = tr_ui(
-            'Memória máxima do GRASS no r.watershed. Aumente se o processo falhar por RAM. '
+            'Memória máxima do GRASS no r.watershed. Diminua se falhar. '
             'Padrão: 4 GB.')
         dp['step_match']['label'] = tr_ui('Definições para Seleção dos Pares')
         dp['step_match']['tooltip'] = tr_ui(
@@ -298,7 +328,7 @@ class SettingsDlg(QDialog):
                 'comprimentos de envelope semelhantes. Padrão: 5 %.')
         if 'min_extent_px' in dp['step_match']['fields']:
             dp['step_match']['fields']['min_extent_px']['label'] = tr_ui(
-                'Extensão mínima da feição de teste (Pixels do MDE de teste)')
+                'Extensão mínima da feição de teste (pixels do MDE de teste)')
             dp['step_match']['fields']['min_extent_px']['tooltip'] = tr_ui(
                 'Descarta linhas de teste mais curtas que este comprimento (pixels × GSD do teste). '
                 'Padrão: 10 px.')
@@ -330,9 +360,8 @@ class SettingsDlg(QDialog):
         dp['step_buffers']['fields']['show_buffers_on_map']['label'] = tr_ui(
             'Mostrar buffers no mapa durante o processamento')
         dp['step_buffers']['fields']['show_buffers_on_map']['tooltip'] = tr_ui(
-            'Se Sim, a camada de buffers aparece no mapa enquanto é gerada. Padrão: Não.')
-        dp['step_buffers']['fields']['show_buffers_on_map']['list'] = [
-            tr_ui('Não'), tr_ui('Sim')]
+            'Se marcado, a camada de buffers aparece no mapa enquanto é gerada '
+            '(pode tornar o processamento mais lento). Padrão: desmarcado.')
         dp['step_normalize_prog']['label'] = tr_ui(
             'Definições para Compatibilização de Progressivas')
         dp['step_normalize_prog']['tooltip'] = tr_ui(
@@ -356,21 +385,20 @@ class SettingsDlg(QDialog):
         if 'step_audit_report' in dp:
             dp['step_audit_report']['label'] = tr_ui('Relatório de Auditoria')
             dp['step_audit_report']['tooltip'] = tr_ui(
-                'PDFs/CSV par a par para conferir buffers e DM (planimétrico e/ou altimétrico).')
+                'Gera PDF de auditoria (e sempre o CSV correspondente) '
+                'para conferir buffers e DM. Pode activar só o planimétrico, '
+                'só o altimétrico, ou ambos.')
             dp['step_audit_report']['fields']['audit_horizontal']['label'] = tr_ui(
-                'Horizontal')
+                'Horizontal (PDF)')
             dp['step_audit_report']['fields']['audit_horizontal']['tooltip'] = tr_ui(
-                'Gera o relatório de auditoria planimétrica (buffers no plano XY).')
+                'Gera o PDF de auditoria planimétrica (buffers no plano XY). '
+                'O CSV correspondente é sempre gravado.')
             dp['step_audit_report']['fields']['audit_vertical']['label'] = tr_ui(
-                'Vertical')
+                'Vertical (PDF)')
             dp['step_audit_report']['fields']['audit_vertical']['tooltip'] = tr_ui(
-                'Gera o relatório de auditoria altimétrica (perfis cota × progressiva).')
-            if 'audit_csv_only' in dp['step_audit_report']['fields']:
-                dp['step_audit_report']['fields']['audit_csv_only']['label'] = tr_ui(
-                    'Apenas CSV (sem PDF)')
-                dp['step_audit_report']['fields']['audit_csv_only']['tooltip'] = tr_ui(
-                    'Se marcado, grava só o CSV, sem gerar o PDF de auditoria.')
-
+                'Gera o PDF de auditoria altimétrica (perfis cota × progressiva). '
+                'O CSV correspondente é sempre gravado.')
+            dp['step_audit_report']['fields'].pop('audit_csv_only', None)
     def apply_language_live(self):
         """Actualiza textos da janela de parâmetros após mudança de idioma."""
         self.flush_widgets_to_dic_param()
@@ -380,11 +408,6 @@ class SettingsDlg(QDialog):
         self.pb_rest.setToolTip(tr_ui('Repõe todos os parâmetros desta janela nos valores padrão.'))
         self.pb_save.setText(tr_ui('Salvar'))
         self.pb_save.setToolTip(tr_ui('Grava os parâmetros no projeto (.pa.gpkg) e fecha a janela.'))
-        if getattr(self, 'pb_audit_csv', None) is not None:
-            self.pb_audit_csv.setText(tr_ui('Gerar CSV de auditoria'))
-            self.pb_audit_csv.setToolTip(tr_ui(
-                'Recalcula DM a partir do projeto e grava só os CSV '
-                '(Horizontal/Vertical conforme as opções acima). Sem PDF.'))
         for item_i, block in self.dic_param.items():
             if not item_i.startswith('step_'):
                 continue
@@ -416,6 +439,8 @@ class SettingsDlg(QDialog):
                     continue
                 if meta.get('type') == 'doublespin':
                     continue
+                if meta.get('type') == 'spin':
+                    continue
                 if 'list' not in meta:
                     continue
                 idx = obj.currentIndex()
@@ -427,8 +452,6 @@ class SettingsDlg(QDialog):
                     obj.addItem('')
                 elif item_j == 'norm_type':
                     obj.addItems(list(self.parent.list_norm_type))
-                elif item_j == 'show_buffers_on_map':
-                    obj.addItems(list(meta['list']))
                 else:
                     obj.addItems([str(x) for x in meta['list']])
                 if 0 <= idx < obj.count():
@@ -444,7 +467,19 @@ class SettingsDlg(QDialog):
                 for key_j in dic_from_settings[key_i]:
                     if key_j in self.dic_param[key_i]['fields']:
                         value_ = dic_from_settings[key_i][key_j]
-                        self.dic_param[key_i]['fields'][key_j]['value'] = value_
+                        meta = self.dic_param[key_i]['fields'][key_j]
+                        ftype = meta.get('type')
+                        if ftype in ('spin', 'checkbox'):
+                            try:
+                                value_ = int(float(value_))
+                            except (TypeError, ValueError):
+                                value_ = meta.get('default', 0)
+                        elif ftype == 'doublespin':
+                            try:
+                                value_ = float(value_)
+                            except (TypeError, ValueError):
+                                value_ = meta.get('default', 0.0)
+                        meta['value'] = value_
 
     def apply_defaults_to_values(self):
         """Copia 'default' → 'value' em cada field dos step_* (sem tocar nos widgets)."""
@@ -497,6 +532,14 @@ class SettingsDlg(QDialog):
                             obj.setValue(float(meta.get('default', 0)))
                         except (TypeError, ValueError):
                             pass
+                elif meta.get('type') == 'spin':
+                    try:
+                        obj.setValue(int(float(val)))
+                    except (TypeError, ValueError):
+                        try:
+                            obj.setValue(int(meta.get('default', 0)))
+                        except (TypeError, ValueError):
+                            pass
                 elif 'list' in meta:
                     try:
                         idx = int(val)
@@ -515,6 +558,9 @@ class SettingsDlg(QDialog):
     def create_layout(self):
         r_ = 0
         gl_ = QGridLayout()
+        # Coluna de rótulos (1) mais larga; coluna de widgets (2) ~1/3 do espaço extra
+        gl_.setColumnStretch(1, 2)
+        gl_.setColumnStretch(2, 1)
 
         for i, item_i in enumerate(self.dic_param):
             if item_i.startswith('step_'):
@@ -534,6 +580,7 @@ class SettingsDlg(QDialog):
                     if field_label:
                         lb_ = QLabel(field_label)
                         lb_.setObjectName('lb_' + item_j.lower())
+                        lb_.setWordWrap(True)
                         meta['label_obj'] = lb_
                         gl_.addWidget(lb_, r_, 1)
                     else:
@@ -554,8 +601,12 @@ class SettingsDlg(QDialog):
                     elif meta.get('type') == 'radio':
                         bg = QButtonGroup(self)
                         bg.setExclusive(True)
-                        vl_radio = QVBoxLayout()
-                        vl_radio.setContentsMargins(0, 0, 0, 0)
+                        if meta.get('layout') == 'horizontal':
+                            radio_layout = QHBoxLayout()
+                            radio_layout.setSpacing(16)
+                        else:
+                            radio_layout = QVBoxLayout()
+                        radio_layout.setContentsMargins(0, 0, 0, 0)
                         tips = meta.get('tooltips') or []
                         try:
                             selected = int(meta.get('value', 0))
@@ -568,11 +619,13 @@ class SettingsDlg(QDialog):
                             bg.addButton(rb, idx)
                             if idx == selected:
                                 rb.setChecked(True)
-                            vl_radio.addWidget(rb)
+                            radio_layout.addWidget(rb)
+                        if meta.get('layout') == 'horizontal':
+                            radio_layout.addStretch(1)
                         if bg.checkedId() < 0 and bg.buttons():
                             bg.button(0).setChecked(True)
                         meta['obj'] = bg
-                        gl_.addLayout(vl_radio, r_, 1, 1, 2)
+                        gl_.addLayout(radio_layout, r_, 1, 1, 2)
                     elif meta.get('type') == 'doublespin':
                         sp = QDoubleSpinBox(self)
                         sp.setMinimum(float(meta.get('min', 0.0)))
@@ -583,6 +636,19 @@ class SettingsDlg(QDialog):
                             sp.setValue(float(meta.get('value', meta.get('default', 0))))
                         except (TypeError, ValueError):
                             sp.setValue(float(meta.get('default', 0)))
+                        _narrow_value_widget(sp)
+                        meta['obj'] = sp
+                        gl_.addWidget(sp, r_, 2)
+                    elif meta.get('type') == 'spin':
+                        sp = QSpinBox(self)
+                        sp.setMinimum(int(meta.get('min', 0)))
+                        sp.setMaximum(int(meta.get('max', 100)))
+                        sp.setSingleStep(int(meta.get('step', 1)))
+                        try:
+                            sp.setValue(int(float(meta.get('value', meta.get('default', 0)))))
+                        except (TypeError, ValueError):
+                            sp.setValue(int(meta.get('default', 0)))
+                        _narrow_value_widget(sp)
                         meta['obj'] = sp
                         gl_.addWidget(sp, r_, 2)
                     elif 'list' in meta:
@@ -598,11 +664,12 @@ class SettingsDlg(QDialog):
                         cmb_.addItems(list_)
                         index_ = int(meta['value'])
                         cmb_.setCurrentIndex(index_)
+                        _narrow_value_widget(cmb_)
                         meta['obj'] = cmb_
                         gl_.addWidget(cmb_, r_, 2)
 
                     else:
-                        le_ = QLineEdit(meta['value'])
+                        le_ = QLineEdit(str(meta['value']))
                         le_.setObjectName('le_' + item_j.lower())
                         meta['obj'] = le_
                         gl_.addWidget(le_, r_, 2)
@@ -624,12 +691,6 @@ class SettingsDlg(QDialog):
         self.pb_rest.setToolTip(tr_ui('Repõe todos os parâmetros desta janela nos valores padrão.'))
         # self.pb_remove.setEnabled(False)
         hl_.addWidget(self.pb_rest)
-
-        self.pb_audit_csv = QPushButton(tr_ui('Gerar CSV de auditoria'), self)
-        self.pb_audit_csv.setToolTip(tr_ui(
-            'Recalcula DM a partir do projeto e grava só os CSV '
-            '(Horizontal/Vertical conforme as opções acima). Sem PDF.'))
-        hl_.addWidget(self.pb_audit_csv)
 
         self.pb_save = QPushButton(tr_ui('Salvar'), self)
         self.pb_save.setToolTip(tr_ui('Grava os parâmetros no projeto (.pa.gpkg) e fecha a janela.'))
@@ -729,24 +790,6 @@ class SettingsDlg(QDialog):
     def trigger_actions(self):
         self.pb_save.clicked.connect(self.set_dic_param)
         self.pb_rest.clicked.connect(self.rest_default)
-        self.pb_audit_csv.clicked.connect(self._on_generate_audit_csv)
-
-    def _on_generate_audit_csv(self):
-        """Gera CSV de auditoria sem fechar a janela nem gerar PDF."""
-        self.flush_widgets_to_dic_param(log_values=False)
-        parent = self.parent
-        if parent is None or not hasattr(parent, 'export_audit_csvs_now'):
-            return
-        try:
-            parent.export_audit_csvs_now()
-        except Exception as e:
-            try:
-                parent.log_message(
-                    tr_ui('Falha ao gerar CSV de auditoria: {0}').format(e),
-                    'ERROR',
-                )
-            except Exception:
-                pass
 
     def flush_widgets_to_dic_param(self, log_values: bool = False):
         """Copia o estado atual dos widgets para dic_param[*]['fields'][*]['value']."""
@@ -766,6 +809,8 @@ class SettingsDlg(QDialog):
                         value_ = 0
                 elif meta.get('type') == 'doublespin':
                     value_ = float(obj.value())
+                elif meta.get('type') == 'spin':
+                    value_ = int(obj.value())
                 elif 'list' in meta:
                     value_ = obj.currentIndex()
                 else:
@@ -798,10 +843,12 @@ class SettingsDlg(QDialog):
                             btn.setChecked(True)
                     elif meta.get('type') == 'doublespin':
                         obj.setValue(float(default_))
+                    elif meta.get('type') == 'spin':
+                        obj.setValue(int(default_))
                     elif 'list' in meta:
                         obj.setCurrentIndex(default_)
                     else:
-                        obj.setText(default_)
+                        obj.setText(str(default_))
                     meta['value'] = default_
         self._sync_buffer_standard_visibility()
 

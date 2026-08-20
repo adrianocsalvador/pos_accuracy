@@ -35,6 +35,14 @@ Os resultados e as camadas intermediárias ficam no ficheiro de projeto **`.pa.g
 
 ## Instalação
 
+### Gestor de complementos (recomendado, após publicação)
+
+1. **Complementos → Gerir e instalar complementos → Todos**.
+2. Procurar **MDE AP** e instalar.
+3. Confirmar que o fornecedor **GRASS** está activo em *Processamento*.
+
+### Cópia manual / ZIP
+
 1. Copiar a pasta `pos_accuracy` para o directório de plugins do perfil QGIS, por exemplo:
 
    `…/QGIS3/profiles/default/python/plugins/pos_accuracy`
@@ -42,6 +50,14 @@ Os resultados e as camadas intermediárias ficam no ficheiro de projeto **`.pa.g
 2. Em **Complementos → Gerir e instalar complementos**, activar **MDE AP - Acurácia Posicional**.
 
 3. Confirmar que o fornecedor **GRASS** está activo em *Processamento*.
+
+Para gerar o ZIP do repositório oficial (`plugins.qgis.org`):
+
+```
+python package_plugin.py
+```
+
+O ficheiro fica em `dist/pos_accuracy-<versão>.zip`. Inclui só o runtime do plugin (`mods`, `i18n/*.qm`, `icons`, `styles`). As pastas `scripts*` **permanecem no GitHub** para desenvolvimento e validação; **não entram** no ZIP enviado ao `plugins.qgis.org`.
 
 ---
 
@@ -101,7 +117,7 @@ Alterar só estes valores **repete a correspondência e os passos seguintes**, s
 | Escala máxima / mínima (PEC-PCD) | **1:10 000** |
 | Máximo horizontal CE90 | **5 px** do MDE de teste |
 | Máximo vertical LE90 | **2 px** do MDE de teste |
-| Mostrar buffers no mapa durante o processamento | **Não** |
+| Mostrar buffers no mapa durante o processamento | **desmarcado** |
 
 Alterar definições de buffer **regenera buffers e o cálculo de DM/PEC**, sem rematch.
 
@@ -138,7 +154,7 @@ Mudar só a fórmula **recalcula a DM** sem voltar a gerar as áreas no GeoPacka
 
 ### Relatório de auditoria
 
-Por omissão **desligado**. Pode activar-se auditoria horizontal, vertical e/ou **apenas CSV** (sem PDF).
+Por omissão **desligado**. Ao activar **Horizontal (PDF)** e/ou **Vertical (PDF)**, gera-se o PDF e **sempre** o CSV correspondente.
 
 ---
 
@@ -199,4 +215,4 @@ No GeoPackage: limites, interseção, linhas de morfologia, pares, buffers.
 
 ## Licença
 
-GNU General Public License v2 (ou posterior). Ver o cabeçalho de `__init__.py`.
+GNU General Public License v2 (ou posterior). Ver o ficheiro `LICENSE`.

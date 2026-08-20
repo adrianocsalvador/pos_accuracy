@@ -7304,12 +7304,8 @@ class Wd1(QWidget):
         return _on('audit_horizontal'), _on('audit_vertical')
 
     def _audit_csv_only_flag(self) -> bool:
-        try:
-            return bool(int(
-                self.settings_dlg.dic_param['step_audit_report']['fields']
-                ['audit_csv_only'].get('value', 0)))
-        except (TypeError, ValueError, KeyError, AttributeError):
-            return False
+        """CSV é sempre gerado com a auditoria; PDF controla-se pelos checks H/V."""
+        return False
 
     def _audit_test_model_name(self) -> str:
         """Nome curto do MDE de teste para ficheiros Audit_*.pdf (nunca path TEMP)."""
@@ -7744,62 +7740,6 @@ class Wd1(QWidget):
                     ),
                     'INFO',
                 )
-        return outputs
-
-    def export_audit_csvs_now(self):
-        """Recalcula DM no projeto e grava só CSV de auditoria (H e/ou V)."""
-        try:
-            self.settings_dlg.flush_widgets_to_dic_param(log_values=False)
-        except Exception:
-            pass
-
-        audit_h, audit_v = self._audit_report_flags()
-        if not audit_h and not audit_v:
-            self.log_message(
-                self.tr(
-                    'Marque Horizontal e/ou Vertical em Relatório de Auditoria '
-                    'antes de gerar o CSV.'),
-                'WARNING',
-            )
-            return []
-
-        pf = self.dic_prj.get('project_file')
-        if not pf or not os.path.isfile(pf):
-            self.log_message(
-                self.tr('Defina um projeto (.pa.gpkg) para exportar a auditoria.'),
-                'ERROR',
-            )
-            return []
-
-        self.log_message(
-            self.tr('A recalcular DM para CSV de auditoria…'), 'INFO')
-        try:
-            self.ensure_crs_from_reference_dem()
-            dv = self.recompute_dic_values_from_project()
-            self._apply_outlier_workflow(dv)
-        except Exception as e:
-            self.log_message(
-                self.tr('Falha ao recalcular DM: {0}').format(e), 'ERROR')
-            return []
-
-        ts = QDateTime.currentDateTime().toString('yyyy-MM-dd_HHmm')
-        outputs = []
-        n_steps = (1 if audit_h else 0) + (1 if audit_v else 0)
-        self._audit_progress_begin(n_steps, self.tr('CSV auditoria'))
-        step = 0
-        try:
-            if audit_h:
-                outputs.extend(self.export_audit_horizontal_pdfs(
-                    dic_values=dv, report_ts=ts, csv_only=True) or [])
-                step += 1
-                self._audit_progress_tick(step, n_steps, self.tr('CSV horizontal'))
-            if audit_v:
-                outputs.extend(self.export_audit_vertical_pdfs(
-                    dic_values=dv, report_ts=ts, csv_only=True) or [])
-                step += 1
-                self._audit_progress_tick(step, n_steps, self.tr('CSV vertical'))
-        finally:
-            self._audit_progress_end(n_steps, self.tr('CSV de auditoria concluído'))
         return outputs
 
     def _run_audit_exports_with_progress(self, dic_values=None, report_ts=None):

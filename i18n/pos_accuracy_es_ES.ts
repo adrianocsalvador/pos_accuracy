@@ -1372,34 +1372,6 @@ Suggestions:
         <translation><![CDATA[Auditoría vertical guardada: {0} ({1} páginas)]]></translation>
     </message>
     <message>
-        <source><![CDATA[Marque Horizontal e/ou Vertical em Relatório de Auditoria antes de gerar o CSV.]]></source>
-        <translation><![CDATA[Marque Horizontal y/o Vertical en el Informe de auditoría antes de generar el CSV.]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[A recalcular DM para CSV de auditoria…]]></source>
-        <translation><![CDATA[Recalculando DM para auditar CSV...]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Falha ao recalcular DM: {0}]]></source>
-        <translation><![CDATA[No se pudo volver a calcular DM: {0}]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[CSV auditoria]]></source>
-        <translation><![CDATA[CSV auditoria]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[CSV horizontal]]></source>
-        <translation><![CDATA[CSV horizontal]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[CSV vertical]]></source>
-        <translation><![CDATA[archivos CSV verticales]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[CSV de auditoria concluído]]></source>
-        <translation><![CDATA[CSV de auditoría concluido]]></translation>
-    </message>
-    <message>
         <source><![CDATA[Defina um projeto (.pa.gpkg) para exportar o relatório.]]></source>
         <translation><![CDATA[Defina un proyecto (.pa.gpkg) para exportar el informe.]]></translation>
     </message>
@@ -1492,8 +1464,8 @@ Suggestions:
         <translation><![CDATA[Límite de memoria para Grass GIS (GB)]]></translation>
     </message>
     <message>
-        <source><![CDATA[Memória máxima do GRASS no r.watershed. Aumente se o processo falhar por RAM. Padrão: 4 GB.]]></source>
-        <translation><![CDATA[Maximum GRASS memory for r.watershed. Increase if the process fails due to RAM. Default: 4 GB.]]></translation>
+        <source><![CDATA[Memória máxima do GRASS no r.watershed. Diminua se falhar. Padrão: 4 GB.]]></source>
+        <translation><![CDATA[Memoria máxima de GRASS en r.watershed. Disminuya si falla. Predeterminado: 4 GB.]]></translation>
     </message>
     <message>
         <source><![CDATA[Definições para Seleção dos Pares]]></source>
@@ -1528,7 +1500,7 @@ Suggestions:
         <translation><![CDATA[Filter on the longest side of oriented envelopes. Homologous pairs should have similar envelope lengths. Default: 5 %.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Extensão mínima da feição de teste (Pixels do MDE de teste)]]></source>
+        <source><![CDATA[Extensão mínima da feição de teste (pixels do MDE de teste)]]></source>
         <translation><![CDATA[Extensión mínima de la entidad de prueba (píxeles del MDE de prueba)]]></translation>
     </message>
     <message>
@@ -1584,16 +1556,8 @@ Suggestions:
         <translation><![CDATA[Mostrar zonas de influencia en el mapa durante el procesamiento]]></translation>
     </message>
     <message>
-        <source><![CDATA[Se Sim, a camada de buffers aparece no mapa enquanto é gerada (pode tornar o processamento mais lento). Padrão: Não.]]></source>
-        <translation><![CDATA[En caso afirmativo, la capa de zona de influencia aparece en el mapa a medida que se genera (puede ralentizar el procesamiento). Predeterminado: No.]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Não]]></source>
-        <translation><![CDATA[No]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Sim]]></source>
-        <translation><![CDATA[Sí]]></translation>
+        <source><![CDATA[Se marcado, a camada de buffers aparece no mapa enquanto é gerada (pode tornar o processamento mais lento). Padrão: desmarcado.]]></source>
+        <translation><![CDATA[Si está marcado, la capa de buffers aparece en el mapa mientras se genera (puede ralentizar el procesamiento). Predeterminado: desmarcado.]]></translation>
     </message>
     <message>
         <source><![CDATA[Definições para Compatibilização de Progressivas]]></source>
@@ -1624,32 +1588,24 @@ Suggestions:
         <translation><![CDATA[Informe de Auditoría]]></translation>
     </message>
     <message>
-        <source><![CDATA[PDFs/CSV par a par para conferir buffers e DM. Pode gerar só o planimétrico, só o altimétrico, ou ambos.]]></source>
-        <translation><![CDATA[Empareje archivos PDF/CSV para verificar buffers y DM. Puedes generar solo el planimétrico, solo el altimétrico o ambos.]]></translation>
+        <source><![CDATA[Gera PDF de auditoria (e sempre o CSV correspondente) para conferir buffers e DM. Pode activar só o planimétrico, só o altimétrico, ou ambos.]]></source>
+        <translation><![CDATA[Genera PDF de auditoría (y siempre el CSV correspondiente) para comprobar buffers y DM. Puede activar solo el planimétrico, solo el altimétrico, o ambos.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Horizontal]]></source>
-        <translation><![CDATA[Horizontal]]></translation>
+        <source><![CDATA[Horizontal (PDF)]]></source>
+        <translation><![CDATA[Horizontal (PDF)]]></translation>
     </message>
     <message>
-        <source><![CDATA[Gera o relatório de auditoria planimétrica (buffers no plano XY).]]></source>
-        <translation><![CDATA[Genera el informe de auditoría planimétrica (buffers en el plano XY).]]></translation>
+        <source><![CDATA[Gera o PDF de auditoria planimétrica (buffers no plano XY). O CSV correspondente é sempre gravado.]]></source>
+        <translation><![CDATA[Genera el PDF de auditoría planimétrica (buffers en el plano XY). El CSV correspondiente siempre se guarda.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Vertical]]></source>
-        <translation><![CDATA[Vertical]]></translation>
+        <source><![CDATA[Vertical (PDF)]]></source>
+        <translation><![CDATA[Vertical (PDF)]]></translation>
     </message>
     <message>
-        <source><![CDATA[Gera o relatório de auditoria altimétrica (perfis cota × progressiva).]]></source>
-        <translation><![CDATA[Genera el informe de auditoría de elevación (dimensión × perfiles progresivos).]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Apenas CSV (sem PDF)]]></source>
-        <translation><![CDATA[Solo CSV (sin PDF)]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Se marcado, grava só o CSV (uma linha por feição, colunas por raio/escala), sem gerar o PDF de auditoria.]]></source>
-        <translation><![CDATA[Si está marcado, solo guarda el CSV (una línea por característica, columnas por radio/escala), sin generar el PDF de auditoría.]]></translation>
+        <source><![CDATA[Gera o PDF de auditoria altimétrica (perfis cota × progressiva). O CSV correspondente é sempre gravado.]]></source>
+        <translation><![CDATA[Genera el PDF de auditoría altimétrica (perfiles cota × progresiva). El CSV correspondiente siempre se guarda.]]></translation>
     </message>
     <message>
         <source><![CDATA[Segundo filtro: geometrias semelhantes têm envelopes com áreas semelhantes, reduzindo a influência de erros posicionais. Padrão: 10 %.]]></source>
@@ -1672,18 +1628,6 @@ Suggestions:
         <translation><![CDATA[Techo de búsqueda LE90, en píxeles MDE de prueba. Predeterminado: 2 píxeles.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Se Sim, a camada de buffers aparece no mapa enquanto é gerada. Padrão: Não.]]></source>
-        <translation><![CDATA[En caso afirmativo, la capa de zona de influencia aparece en el mapa a medida que se genera. Predeterminado: No.]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[PDFs/CSV par a par para conferir buffers e DM (planimétrico e/ou altimétrico).]]></source>
-        <translation><![CDATA[PDF/CSV par a par para comprobar buffers y DM (planimétricos y/o altimétricos).]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Se marcado, grava só o CSV, sem gerar o PDF de auditoria.]]></source>
-        <translation><![CDATA[Si está marcado, solo guarda el CSV, sin generar el PDF de auditoría.]]></translation>
-    </message>
-    <message>
         <source><![CDATA[Restaurar]]></source>
         <translation><![CDATA[Restaurar]]></translation>
     </message>
@@ -1698,18 +1642,6 @@ Suggestions:
     <message>
         <source><![CDATA[Grava os parâmetros no projeto (.pa.gpkg) e fecha a janela.]]></source>
         <translation><![CDATA[Guarda los parámetros en el proyecto (.pa.gpkg) y cierra la ventana.]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Gerar CSV de auditoria]]></source>
-        <translation><![CDATA[Generar CSV de auditoría]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Recalcula DM a partir do projeto e grava só os CSV (Horizontal/Vertical conforme as opções acima). Sem PDF.]]></source>
-        <translation><![CDATA[Recalcula DM del proyecto y registra solo el CSV (Horizontal/Vertical según las opciones anteriores). Sin PDF.]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Falha ao gerar CSV de auditoria: {0}]]></source>
-        <translation><![CDATA[Failed to generate audit CSV: {0}]]></translation>
     </message>
     <message>
         <source><![CDATA[Idioma da interface]]></source>

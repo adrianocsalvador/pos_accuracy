@@ -427,7 +427,7 @@ EXTRA_EN: dict[str, str] = {
     'Universidade Federal de Viçosa\n(clique para abrir o site)': (
         'Federal University of Viçosa\n(click to open the site)'),
     'Programa de Pós-Graduação em Engenharia Civil\n(clique para abrir o site)': (
-        'Graduate Program in Civil Engineering\n(click to open the site)'),
+        'Postgraduate Program in Civil Engineering\n(click to open the site)'),
     'Caixa: abrir automaticamente após a avaliação.\nClique no texto para abrir o último relatório PDF.': (
         'Check: open automatically after evaluation.\nClick the text to open the last PDF report.'),
     'Nenhum relatório disponível para abrir.': 'No report available to open.',
@@ -519,7 +519,9 @@ EXTRA_EN: dict[str, str] = {
     'Controla a densidade das linhas: diminuir a área gera mais feições; aumentar gera menos. Padrão: 675000 m².': (
         'Controls line density: decreasing the area yields more features; increasing yields fewer. Default: 675000 m².'),
     'Memória máxima do GRASS no r.watershed. Aumente se o processo falhar por RAM. Padrão: 4 GB.': (
-        'Maximum GRASS memory for r.watershed. Increase if the process fails due to RAM. Default: 4 GB.'),
+        'Maximum GRASS memory for r.watershed. Decrease if it fails. Default: 4 GB.'),
+    'Memória máxima do GRASS no r.watershed. Diminua se falhar. Padrão: 4 GB.': (
+        'Maximum GRASS memory for r.watershed. Decrease if it fails. Default: 4 GB.'),
     'Filtros para formar pares homólogos entre linhas de referência e de teste.': (
         'Filters to form homologous pairs between reference and test lines.'),
     'Filtro inicial: distância máxima entre centróides, em pixels do MDE de teste. Aumentar tende a aumentar candidatos; diminuir pode enviesar a amostra ou não atingir o mínimo. Padrão: 3 px.': (
@@ -531,6 +533,8 @@ EXTRA_EN: dict[str, str] = {
     'Filtro pelo lado maior dos envelopes orientados. Pares homólogos devem ter comprimentos de envelope semelhantes. Padrão: 5 %.': (
         'Filter on the longest side of oriented envelopes. Homologous pairs should have similar envelope lengths. Default: 5 %.'),
     'Extensão mínima da feição de teste (Pixels do MDE de teste)': (
+        'Minimum test-feature extent (test DEM pixels)'),
+    'Extensão mínima da feição de teste (pixels do MDE de teste)': (
         'Minimum test-feature extent (test DEM pixels)'),
     'Descarta linhas de teste mais curtas que este comprimento (pixels × GSD do teste), evitando amostras pouco representativas. Padrão: 10 px.': (
         'Drops test lines shorter than this length (pixels × test GSD), avoiding poorly representative samples. Default: 10 px.'),
@@ -545,7 +549,9 @@ EXTRA_EN: dict[str, str] = {
     'Teto da busca do LE90, em pixels do MDE de teste (× GSD = metros). Padrão: 2 px.': (
         'Upper bound of the LE90 search, in test-DEM pixels (× GSD = metres). Default: 2 px.'),
     'Se Sim, a camada de buffers aparece no mapa enquanto é gerada (pode tornar o processamento mais lento). Padrão: Não.': (
-        'If Yes, the buffer layer appears on the map while it is generated (may slow processing). Default: No.'),
+        'If checked, the buffer layer appears on the map while it is generated (may slow processing). Default: unchecked.'),
+    'Se marcado, a camada de buffers aparece no mapa enquanto é gerada (pode tornar o processamento mais lento). Padrão: desmarcado.': (
+        'If checked, the buffer layer appears on the map while it is generated (may slow processing). Default: unchecked.'),
     'Compatibilização das progressivas dos perfis altimétricos (referência vs teste).': (
         'Chainage compatibilization of altimetric profiles (reference vs test).'),
     'Linear: reescala o comprimento do perfil de teste. Por proximidade: associa pontos pela menor distância. Sem normalização: usa as progressivas originais.': (
@@ -556,10 +562,19 @@ EXTRA_EN: dict[str, str] = {
         'Mean-discrepancy (MD) equation from double-buffer areas.'),
     'PDFs/CSV par a par para conferir buffers e DM. Pode gerar só o planimétrico, só o altimétrico, ou ambos.': (
         'Pair-by-pair PDFs/CSV to check buffers and MD. You may generate planimetric, altimetric, or both.'),
+    'Gera PDF de auditoria (e sempre o CSV correspondente) para conferir buffers e DM. Pode activar só o planimétrico, só o altimétrico, ou ambos.': (
+        'Generates an audit PDF (and always the matching CSV) to check buffers and MD. '
+        'You may enable planimetric only, altimetric only, or both.'),
+    'Horizontal (PDF)': 'Horizontal (PDF)',
+    'Vertical (PDF)': 'Vertical (PDF)',
     'Gera o relatório de auditoria planimétrica (buffers no plano XY).': (
         'Generates the planimetric audit report (buffers in the XY plane).'),
     'Gera o relatório de auditoria altimétrica (perfis cota × progressiva).': (
         'Generates the altimetric audit report (elevation × chainage profiles).'),
+    'Gera o PDF de auditoria planimétrica (buffers no plano XY). O CSV correspondente é sempre gravado.': (
+        'Generates the planimetric audit PDF (buffers in the XY plane). The matching CSV is always written.'),
+    'Gera o PDF de auditoria altimétrica (perfis cota × progressiva). O CSV correspondente é sempre gravado.': (
+        'Generates the altimetric audit PDF (elevation × chainage profiles). The matching CSV is always written.'),
     'Se marcado, grava só o CSV (uma linha por feição, colunas por raio/escala), sem gerar o PDF de auditoria.': (
         'If checked, writes only the CSV (one row per feature, columns per radius/scale), without the audit PDF.'),
     'Segundo filtro: geometrias semelhantes têm envelopes com áreas semelhantes, reduzindo a influência de erros posicionais. Padrão: 10 %.': (
@@ -573,11 +588,14 @@ EXTRA_EN: dict[str, str] = {
     'Teto da busca do LE90, em pixels do MDE de teste. Padrão: 2 px.': (
         'Upper bound of the LE90 search, in test-DEM pixels. Default: 2 px.'),
     'Se Sim, a camada de buffers aparece no mapa enquanto é gerada. Padrão: Não.': (
-        'If Yes, the buffer layer appears on the map while it is generated. Default: No.'),
+        'If checked, the buffer layer appears on the map while it is generated. Default: unchecked.'),
+    'Se marcado, a camada de buffers aparece no mapa enquanto é gerada. Padrão: desmarcado.': (
+        'If checked, the buffer layer appears on the map while it is generated. Default: unchecked.'),
     'PDFs/CSV par a par para conferir buffers e DM (planimétrico e/ou altimétrico).': (
         'Pair-by-pair PDFs/CSV to check buffers and MD (planimetric and/or altimetric).'),
     'Se marcado, grava só o CSV, sem gerar o PDF de auditoria.': (
         'If checked, writes only the CSV, without the audit PDF.'),
+    'Apenas CSV (sem PDF)': 'CSV only (no PDF)',
     'Repõe todos os parâmetros desta janela nos valores padrão.': (
         'Restores all parameters in this window to their default values.'),
     'Grava os parâmetros no projeto (.pa.gpkg) e fecha a janela.': (
@@ -625,6 +643,10 @@ SOURCE_RENAMES: dict[str, str] = {
         'RECALCULANDO DM (COMPATIBILIZAÇÃO / ALTIMETRIA)'),
     'Linear: reescala o comprimento do perfil de teste. Por proximidade: associa pontos pela menor distância. Sem normalização: usa as progressivas originais.': (
         'Linear: reescala o comprimento do perfil de teste. Por proximidade: associa pontos pela menor distância. Sem compatibilização: usa as progressivas originais.'),
+    'Memória máxima do GRASS no r.watershed. Aumente se o processo falhar por RAM. Padrão: 4 GB.': (
+        'Memória máxima do GRASS no r.watershed. Diminua se falhar. Padrão: 4 GB.'),
+    'Extensão mínima da feição de teste (Pixels do MDE de teste)': (
+        'Extensão mínima da feição de teste (pixels do MDE de teste)'),
 }
 
 
@@ -900,6 +922,28 @@ EXTRA_ES: dict[str, str] = {
         'Diferencia % entre las longitudes de las envolventes mínimas'),
     'Extensão mínima da feição de teste (Pixels do MDE de teste)': (
         'Extensión mínima de la entidad de prueba (píxeles del MDE de prueba)'),
+    'Extensão mínima da feição de teste (pixels do MDE de teste)': (
+        'Extensión mínima de la entidad de prueba (píxeles del MDE de prueba)'),
+    'Memória máxima do GRASS no r.watershed. Aumente se o processo falhar por RAM. Padrão: 4 GB.': (
+        'Memoria máxima de GRASS en r.watershed. Disminuya si falla. Predeterminado: 4 GB.'),
+    'Memória máxima do GRASS no r.watershed. Diminua se falhar. Padrão: 4 GB.': (
+        'Memoria máxima de GRASS en r.watershed. Disminuya si falla. Predeterminado: 4 GB.'),
+    'Se marcado, a camada de buffers aparece no mapa enquanto é gerada (pode tornar o processamento mais lento). Padrão: desmarcado.': (
+        'Si está marcado, la capa de buffers aparece en el mapa mientras se genera '
+        '(puede ralentizar el procesamiento). Predeterminado: desmarcado.'),
+    'Se marcado, a camada de buffers aparece no mapa enquanto é gerada. Padrão: desmarcado.': (
+        'Si está marcado, la capa de buffers aparece en el mapa mientras se genera. Predeterminado: desmarcado.'),
+    'Horizontal': 'Horizontal',
+    'Horizontal (PDF)': 'Horizontal (PDF)',
+    'Vertical': 'Vertical',
+    'Vertical (PDF)': 'Vertical (PDF)',
+    'Gera PDF de auditoria (e sempre o CSV correspondente) para conferir buffers e DM. Pode activar só o planimétrico, só o altimétrico, ou ambos.': (
+        'Genera PDF de auditoría (y siempre el CSV correspondiente) para comprobar buffers y DM. '
+        'Puede activar solo el planimétrico, solo el altimétrico, o ambos.'),
+    'Gera o PDF de auditoria planimétrica (buffers no plano XY). O CSV correspondente é sempre gravado.': (
+        'Genera el PDF de auditoría planimétrica (buffers en el plano XY). El CSV correspondiente siempre se guarda.'),
+    'Gera o PDF de auditoria altimétrica (perfis cota × progressiva). O CSV correspondente é sempre gravado.': (
+        'Genera el PDF de auditoría altimétrica (perfiles cota × progresiva). El CSV correspondiente siempre se guarda.'),
     'limites/interseção': 'límites/intersección',
     'Área de estudo': 'Área de estudio',
     'Extensão mínima da amostra': 'Extensión mínima de la muestra',
