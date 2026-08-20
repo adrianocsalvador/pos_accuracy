@@ -29,6 +29,19 @@ EXTRA_EN: dict[str, str] = {
     MENU_SOURCE: '&T MDE AP - Positional Accuracy',
     'MDE AP - Acurácia Posicional': 'MDE AP - Positional Accuracy',
     'Revisar': 'Review',
+    'Avaliar': 'Evaluate',
+    'Continuar': 'Continue',
+    'Parar': 'Stop',
+    'Cancelar parar ({0})': 'Cancel stop ({0})',
+    'Clique para abortar a interrupção e continuar a análise.': (
+        'Click to abort the interruption and continue the analysis.'),
+    'Paragem em 3 s — clique em «Cancelar parar» para continuar a análise.': (
+        'Stopping in 3 s — click «Cancel stop» to continue the analysis.'),
+    'Paragem cancelada — a análise continua.': 'Stop cancelled — analysis continues.',
+    'Interromper a análise em curso.': 'Stop the analysis in progress.',
+    'Interrompendo a análise…': 'Stopping analysis…',
+    'Análise interrompida pelo utilizador.': 'Analysis interrupted by the user.',
+    'Executar ou retomar a análise.': 'Run or resume the analysis.',
     'Retomando a partir da correspondência de linhas (parâmetros alterados).': (
         'Resuming from line matching (parameters changed).'),
     'Relatório — MDE AP — Acurácia Posicional': 'Report — MDE AP — Positional Accuracy',
@@ -794,6 +807,17 @@ EXTRA_ES: dict[str, str] = {
     'Restaurar': 'Restaurar',
     'Config': 'Configuración',
     'Avaliar': 'Evaluar',
+    'Parar': 'Parar',
+    'Cancelar parar ({0})': 'Cancelar parada ({0})',
+    'Clique para abortar a interrupção e continuar a análise.': (
+        'Haga clic para abortar la interrupción y continuar el análisis.'),
+    'Paragem em 3 s — clique em «Cancelar parar» para continuar a análise.': (
+        'Parada en 3 s — haga clic en «Cancelar parada» para continuar el análisis.'),
+    'Paragem cancelada — a análise continua.': 'Parada cancelada — el análisis continúa.',
+    'Interromper a análise em curso.': 'Interrumpir el análisis en curso.',
+    'Interrompendo a análise…': 'Interrumpiendo el análisis…',
+    'Análise interrompida pelo utilizador.': 'Análisis interrumpido por el usuario.',
+    'Executar ou retomar a análise.': 'Ejecutar o reanudar el análisis.',
     'Tratamento de outliers:': 'Tratamiento de valores atípicos:',
     'Tratamento de outliers': 'Tratamiento de valores atípicos',
     'English': 'English',

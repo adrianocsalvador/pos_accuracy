@@ -16,7 +16,7 @@ from functools import partial
 
 from osgeo import ogr
 from qgis.PyQt.QtCore import (QSettings, Qt, QSize, QSizeF, QTranslator, QCoreApplication, QEvent, QThreadPool, QDateTime,
-                              QVariant, QRectF, QByteArray, QBuffer, QIODevice, QMarginsF, QUrl)
+                              QVariant, QRectF, QByteArray, QBuffer, QIODevice, QMarginsF, QUrl, QTimer)
 from qgis.PyQt.QtGui import (
     QPixmap, QIcon, QFont, QPalette, QColor, QTextCharFormat, QBrush, QTextOption,
     QTextDocument, QPainter, QDesktopServices, QCursor, QImage, qAlpha,
@@ -74,6 +74,10 @@ sys.path.append(os.path.join(os.path.join(plugin_path, 'libs')))
 # Arquivo de projeto: GeoPackage com extensão composta (conteúdo GPKG)
 PROJECT_EXT = '.pa.gpkg'
 PLUGIN_DISPLAY_NAME = 'MDE AP - Acurácia Posicional'
+
+# Destaque de validação no painel (projeto / extensão da amostra)
+_UI_VALIDATION_HL = (
+    'background-color: #fff3cd; border: 2px solid #e6a800; border-radius: 3px;')
 
 # Mesmo limite que BufferThread (|dm_h|/|dm_v| acima → NaN + WARNING no log).
 _MAX_PEC_MEASUREMENT_ABS = DM_ABS_MAX_SANE
@@ -2874,6 +2878,16 @@ class Wd1(QWidget):
         self.task_queue = Queue()  # Task queue
         self.threads_running = 0  # Track active threads
         self.active_workers = {}  # Keep track of active workers
+        self._analysis_running = False  # sessão Avaliar em curso (inclui fases no thread principal)
+        self._stop_requested = False
+        self._stop_countdown_left = 0  # >0: confirmação animada «Cancelar parar»
+        self._stop_pulse_on = False
+        self._stop_countdown_timer = QTimer(self)
+        self._stop_countdown_timer.setInterval(1000)
+        self._stop_countdown_timer.timeout.connect(self._on_stop_countdown_tick)
+        self._stop_pulse_timer = QTimer(self)
+        self._stop_pulse_timer.setInterval(400)
+        self._stop_pulse_timer.timeout.connect(self._on_stop_countdown_pulse)
         self._workflow_pause = None  # None | 'post_intersection' | 'post_pairs_review'
         self._panel_stats_cache = {'area': '', 'ext_min': '', 'ext_match': '', 'pair_nr': ''}
         self._last_report_pdf_path = ''
@@ -3033,17 +3047,23 @@ class Wd1(QWidget):
         gl_tool.addWidget(sep_line, r_, 0, 1, 4)
 
         r_ += 1
+        self.frm_project = QFrame(self)
+        self.frm_project.setObjectName('frm_project')
+        self.frm_project.setFrameShape(QFrame.NoFrame)
+        gl_frm_proj = QGridLayout(self.frm_project)
+        gl_frm_proj.setContentsMargins(4, 4, 4, 4)
+        gl_frm_proj.setSpacing(4)
+
         gl_prj = QGridLayout()
         self.lb_title_proj = QLabel(self.tr('Projeto (.pa.gpkg):'))
         gl_prj.addWidget(self.lb_title_proj, 0, 0)
         self.lb_status_proj = QLabel(self.tr('Não definido'))
-        gl_prj.addWidget(self.lb_status_proj,  0, 1)
-        gl_tool.addLayout(gl_prj, r_, 0, 1, 4)
+        gl_prj.addWidget(self.lb_status_proj, 0, 1)
+        gl_frm_proj.addLayout(gl_prj, 0, 0, 1, 4)
 
-        r_ += 1
         self.lb_path_proj = QLabel('~~~')
         self.lb_path_proj.setWordWrap(True)
-        gl_tool.addWidget(self.lb_path_proj, r_, 0, 1, 3)
+        gl_frm_proj.addWidget(self.lb_path_proj, 1, 0, 1, 3)
         _proj_btn_style = (
             'QPushButton { border: 1px solid #9e9e9e; border-radius: 2px; padding: 0; margin: 0; '
             'min-width: 32px; max-width: 32px; min-height: 32px; max-height: 32px; '
@@ -3082,7 +3102,8 @@ class Wd1(QWidget):
         lay_proj_btns.addWidget(self.pb_project_open)
         w_proj_btns = QWidget()
         w_proj_btns.setLayout(lay_proj_btns)
-        gl_tool.addWidget(w_proj_btns, r_, 3, Qt.AlignRight | Qt.AlignTop)
+        gl_frm_proj.addWidget(w_proj_btns, 1, 3, Qt.AlignRight | Qt.AlignTop)
+        gl_tool.addWidget(self.frm_project, r_, 0, 1, 4)
 
         r_ += 1
         sep_line = QFrame(self)
@@ -3333,14 +3354,45 @@ class Wd1(QWidget):
         for key_ in self.dic_prj['dems']:
             self.dic_prj['dems'][key_]['obj_pb'].clicked.connect(partial(self.log_dem_layer_info, key_=key_))
             self.dic_prj['dems'][key_]['obj_cbx'].layerChanged.connect(self.persist_dem_layer_selection)
+            self.dic_prj['dems'][key_]['obj_cbx'].layerChanged.connect(
+                self._clear_sample_extent_highlight)
         self.cbx_workflow_study.currentIndexChanged.connect(self._on_workflow_study_changed)
         self.cbx_workflow_study.currentIndexChanged.connect(self._persist_workflow_ui_if_project)
+        self.cbx_workflow_study.currentIndexChanged.connect(self._clear_sample_extent_highlight)
         self.cbx_workflow_pairs.currentIndexChanged.connect(self._persist_workflow_ui_if_project)
+        self.cbx_workflow_pairs.currentIndexChanged.connect(self._clear_sample_extent_highlight)
         self.cbx_workflow_outliers.currentIndexChanged.connect(self._persist_workflow_ui_if_project)
+        self.cbx_workflow_outliers.currentIndexChanged.connect(self._clear_sample_extent_highlight)
         self.cbx_study_area_layer.layerChanged.connect(self._persist_workflow_ui_if_project)
+        self.cbx_study_area_layer.layerChanged.connect(self._clear_sample_extent_highlight)
         self.pb_proc.clicked.connect(self.exec_analyze)
         self.pb_config.clicked.connect(self.open_settings)
         self.cb_open_report.toggled.connect(self._save_open_report_pref)
+
+    def _set_project_region_highlight(self, on: bool) -> None:
+        """Destaca a região de definição do projeto (sem ficheiro / ao Avaliar)."""
+        frm = getattr(self, 'frm_project', None)
+        if frm is None:
+            return
+        if on:
+            frm.setStyleSheet(
+                f'QFrame#frm_project {{ {_UI_VALIDATION_HL} }}')
+        else:
+            frm.setStyleSheet('')
+
+    def _set_sample_extent_highlight(self, on: bool) -> None:
+        """Destaca extensão mínima e extensão da amostra quando a amostra é insuficiente."""
+        style = f'QLabel {{ {_UI_VALIDATION_HL} padding: 2px 4px; }}' if on else ''
+        for name in ('lb_ext_min', 'lb_ext_match'):
+            lb = getattr(self, name, None)
+            if lb is not None:
+                lb.setStyleSheet(style)
+
+    def _clear_project_region_highlight(self, *_args) -> None:
+        self._set_project_region_highlight(False)
+
+    def _clear_sample_extent_highlight(self, *_args) -> None:
+        self._set_sample_extent_highlight(False)
 
     def _refresh_header_logo_tooltips(self) -> None:
         if getattr(self, 'lb_session_logo', None):
@@ -3448,6 +3500,7 @@ class Wd1(QWidget):
         os.makedirs(data_dir, exist_ok=True)
         self.lb_path_proj.setText(project_file)
         self.node_group = None
+        self._clear_project_region_highlight()
 
     def _active_gpkg_path(self) -> str:
         return _norm_gpkg_path(self.gpkg_path or self.dic_prj.get('project_file') or '')
@@ -3800,8 +3853,99 @@ class Wd1(QWidget):
             sly.source() if isinstance(sly, QgsVectorLayer) else '')
         return out
 
+    def _begin_analysis_session(self) -> None:
+        """Marca análise em curso e muda o botão para Parar."""
+        self._clear_stop_countdown(silent=True)
+        self._stop_requested = False
+        self._analysis_running = True
+        self._refresh_proc_button()
+
+    def _end_analysis_session(self) -> None:
+        """Termina a sessão de análise e restaura Avaliar/Continuar."""
+        self._clear_stop_countdown(silent=True)
+        self._analysis_running = False
+        self._stop_requested = False
+        self._refresh_proc_button()
+
+    def _is_analysis_running(self) -> bool:
+        return bool(
+            self._analysis_running
+            or self.threads_running > 0
+            or self.active_workers
+        )
+
+    def _is_stop_countdown_active(self) -> bool:
+        return self._stop_countdown_left > 0
+
+    def _clear_stop_countdown(self, *, silent: bool = False) -> None:
+        was_active = self._stop_countdown_left > 0 or self._stop_countdown_timer.isActive()
+        self._stop_countdown_timer.stop()
+        self._stop_pulse_timer.stop()
+        self._stop_countdown_left = 0
+        self._stop_pulse_on = False
+        if getattr(self, 'pb_proc', None) is not None:
+            self.pb_proc.setStyleSheet('')
+        if was_active and not silent:
+            self.log_message(
+                self.tr('Paragem cancelada — a análise continua.'), 'INFO')
+
+    def _start_stop_countdown(self) -> None:
+        """3 s de confirmação animada; o botão passa a «Cancelar parar (N)»."""
+        if not self._is_analysis_running():
+            return
+        if self._is_stop_countdown_active():
+            return
+        self._stop_countdown_left = 3
+        self._stop_pulse_on = False
+        self._refresh_proc_button()
+        self._on_stop_countdown_pulse()  # estado visual imediato
+        self._stop_countdown_timer.start()
+        self._stop_pulse_timer.start()
+        self.log_message(
+            self.tr(
+                'Paragem em 3 s — clique em «Cancelar parar» para continuar a análise.'),
+            'WARNING',
+        )
+
+    def _on_stop_countdown_tick(self) -> None:
+        if self._stop_countdown_left <= 0:
+            self._clear_stop_countdown(silent=True)
+            return
+        self._stop_countdown_left -= 1
+        if self._stop_countdown_left <= 0:
+            self._clear_stop_countdown(silent=True)
+            self._commit_stop_analyze()
+            return
+        self._refresh_proc_button()
+
+    def _on_stop_countdown_pulse(self) -> None:
+        """Alterna o estilo do botão durante a contagem regressiva."""
+        if not self._is_stop_countdown_active() or getattr(self, 'pb_proc', None) is None:
+            return
+        self._stop_pulse_on = not self._stop_pulse_on
+        if self._stop_pulse_on:
+            self.pb_proc.setStyleSheet(
+                'QPushButton { background-color: #fff3cd; border: 2px solid #e6a800; '
+                'border-radius: 3px; font-weight: bold; }')
+        else:
+            self.pb_proc.setStyleSheet(
+                'QPushButton { background-color: #ffe08a; border: 2px solid #c48800; '
+                'border-radius: 3px; font-weight: bold; }')
+
     def _refresh_proc_button(self):
-        if self._workflow_pause == 'post_intersection':
+        if self._is_stop_countdown_active():
+            self.pb_proc.setText(
+                self.tr('Cancelar parar ({0})').format(self._stop_countdown_left))
+            self.pb_proc.setToolTip(
+                self.tr('Clique para abortar a interrupção e continuar a análise.'))
+            ic = self.style().standardIcon(QStyle.SP_BrowserReload)
+        elif self._is_analysis_running():
+            self.pb_proc.setText(self.tr('Parar'))
+            self.pb_proc.setToolTip(self.tr('Interromper a análise em curso.'))
+            ic = _icon_from_icons_file('icon_parar.png')
+            if ic.isNull():
+                ic = self.style().standardIcon(QStyle.SP_MediaStop)
+        elif self._workflow_pause == 'post_intersection':
             self.pb_proc.setText(self.tr('Continuar'))
             self.pb_proc.setToolTip(
                 self.tr('Continuar para morfologia após editar a área de interseção.'))
@@ -4442,10 +4586,12 @@ class Wd1(QWidget):
             self.lb_status_proj.setText(self.tr('Projeto OK'))
             self.lb_status_proj.setStyleSheet('color: green;')
             self.dic_prj['status'] = 1
+            self._clear_project_region_highlight()
         else:
             self.lb_status_proj.setText(self.tr('Arquivo .pa.gpkg ausente'))
             self.lb_status_proj.setStyleSheet('color: red;')
             self.dic_prj['status'] = 0
+            self._set_project_region_highlight(True)
 
     def _log_grass_provider_check(self):
         """Verifica provider GRASS no Processing e regista resultado explícito no log."""
@@ -4582,33 +4728,55 @@ class Wd1(QWidget):
 
     def task_done(self, key_):
         """ Called when a thread finishes processing, allowing another to start """
-        self.threads_running -= 1  # Reduce active thread count
+        self.threads_running = max(0, self.threads_running - 1)
         if key_ in self.active_workers:
-            del self.active_workers[key_]  # Remove from active workers
+            del self.active_workers[key_]
+
+        if self._stop_requested:
+            if not self.active_workers and self.task_queue.empty():
+                self._end_analysis_session()
+            else:
+                self._refresh_proc_button()
+            return
 
         # Start next task if there are pending tasks in the queue
         if not self.task_queue.empty():
             key_, dic_ = self.task_queue.get()
             self.start_task(key_, dic_)
+        else:
+            self._refresh_proc_button()
+            # Se a cadeia sync (update_bar) não arrancou nova tarefa, libertar o botão.
+            QTimer.singleShot(0, self._finish_analysis_if_idle)
+
+    def _finish_analysis_if_idle(self) -> None:
+        """Termina a sessão Parar→Avaliar quando já não há workers nem pausa de fluxo."""
+        if self._stop_requested or self._workflow_pause:
+            return
+        if self.active_workers or self.threads_running > 0 or not self.task_queue.empty():
+            return
+        if self._analysis_running:
+            self._end_analysis_session()
 
     def start_task(self, key_, dic_):
         """ Start a worker task and track it """
+        if self._stop_requested:
+            return
+        if not self._analysis_running:
+            self._begin_analysis_session()
         worker = Worker(key_, dic_, self)
         worker.finished.connect(self.task_done)  # Connect finished signal
         self.active_workers[key_] = worker
         worker.start()  # Start processing
         self.threads_running += 1
+        self._refresh_proc_button()
 
-    def unload_cleanup(self):
-        """Para workers, esvazia fila e fecha diálogos antes do unload / Plugin Reloader."""
-        if getattr(self, 'settings_dlg', None):
+    def _stop_all_workers(self) -> None:
+        """Para workers activos e esvazia a fila (sem fechar diálogos)."""
+        while True:
             try:
-                self.settings_dlg.reject()
-            except Exception:
-                try:
-                    self.settings_dlg.close()
-                except Exception:
-                    pass
+                self.task_queue.get_nowait()
+            except Empty:
+                break
         for key_ in list(self.active_workers.keys()):
             worker = self.active_workers.pop(key_, None)
             if not worker:
@@ -4630,22 +4798,68 @@ class Wd1(QWidget):
                 except TypeError:
                     pass
             worker.stop()
-        while True:
-            try:
-                self.task_queue.get_nowait()
-            except Empty:
-                break
         self.threads_running = 0
 
+    def stop_analyze(self):
+        """Inicia a contagem regressiva de 3 s antes de interromper (ou cancela se já activa)."""
+        if self._is_stop_countdown_active():
+            self._clear_stop_countdown(silent=False)
+            self._refresh_proc_button()
+            return
+        if not self._is_analysis_running():
+            return
+        self._start_stop_countdown()
+
+    def _commit_stop_analyze(self):
+        """Efectua a interrupção após a contagem regressiva."""
+        if not self._is_analysis_running() and not self._stop_requested:
+            self._refresh_proc_button()
+            return
+        self._stop_requested = True
+        self.log_message(self.tr('Interrompendo a análise…'), 'WARNING')
+        self._stop_all_workers()
+        try:
+            self._end_buffers_map_canvas_freeze(refresh=False)
+        except Exception:
+            pass
+        self._end_analysis_session()
+        self.log_message(self.tr('Análise interrompida pelo utilizador.'), 'WARNING')
+
+    def unload_cleanup(self):
+        """Para workers, esvazia fila e fecha diálogos antes do unload / Plugin Reloader."""
+        if getattr(self, 'settings_dlg', None):
+            try:
+                self.settings_dlg.reject()
+            except Exception:
+                try:
+                    self.settings_dlg.close()
+                except Exception:
+                    pass
+        self._clear_stop_countdown(silent=True)
+        self._stop_requested = True
+        self._stop_all_workers()
+        self._analysis_running = False
+        self._stop_requested = False
+
     def exec_analyze(self):
+        if self._is_stop_countdown_active():
+            self.stop_analyze()  # cancela a paragem
+            return
+        if self._is_analysis_running():
+            self.stop_analyze()  # inicia countdown
+            return
+
         if not self.dic_prj.get('project_file'):
+            self._set_project_region_highlight(True)
             self.log_message(
                 self.tr('Defina o projeto (.pa.gpkg): menu ⋯ → Abrir ou Novo.'), 'ERROR')
             return
         pf = self.dic_prj['project_file']
         if not os.path.isfile(pf):
+            self._set_project_region_highlight(True)
             self.log_message(self.tr('O arquivo .pa.gpkg do projeto não existe.'), 'ERROR')
             return
+        self._clear_project_region_highlight()
 
         layer_ref = self.dic_prj['dems'][0]['obj_cbx'].currentLayer()
         layer_test = self.dic_prj['dems'][1]['obj_cbx'].currentLayer()
@@ -4663,20 +4877,14 @@ class Wd1(QWidget):
         if self._workflow_pause == 'post_intersection':
             self.persist_project_config_from_widgets(log_values=False)
             self._workflow_pause = None
-            self._refresh_proc_button()
+            self._begin_analysis_session()
             self.define_morphology(0)
             return
         if self._workflow_pause == 'post_pairs_review':
             self.persist_project_config_from_widgets(log_values=False)
             self._workflow_pause = None
-            self._refresh_proc_button()
+            self._begin_analysis_session()
             self.define_buffers()
-            return
-
-        if self.threads_running > 0 or len(self.active_workers) > 0:
-            self.persist_project_config_from_widgets(log_values=False)
-            self.log_message(
-                self.tr('Aguarde o fim da análise em curso antes de nova avaliação.'), 'WARNING')
             return
 
         # Comparar com o estado gravado **antes** de persistir no .pa.gpkg; senão não há baseline
@@ -4736,7 +4944,9 @@ class Wd1(QWidget):
             self.log_message(
                 self.tr('Reprocessamento completo desde polígonos de limite e interseção.'), 'INFO')
             if self.cbx_workflow_study.currentIndex() == 2:
+                self._begin_analysis_session()
                 if not self.apply_study_area_from_map_layer():
+                    self._end_analysis_session()
                     return
                 return
             self.define_intersection()
@@ -4838,12 +5048,15 @@ class Wd1(QWidget):
             self.log_message(mss_, 'INFO')
             if self.cbx_workflow_study.currentIndex() == 1:
                 self._workflow_pause = 'post_intersection'
-                self._refresh_proc_button()
+                self._end_analysis_session()
                 self.log_message(
                     self.tr(
                         'Edite a camada de interseção se necessário e prima Continuar para morfologia.'),
                     'INFO')
             else:
+                if self._stop_requested:
+                    self._end_analysis_session()
+                    return
                 self.define_morphology(0)
 
     def ensure_pipeline_etapas_table(self, gpkg_path=None):
@@ -4999,6 +5212,10 @@ class Wd1(QWidget):
         return layer_
 
     def define_intersection(self):
+        if self._stop_requested:
+            self._end_analysis_session()
+            return
+        self._begin_analysis_session()
         for key_ in self.dic_prj['dems']:
             self.dic_prj['dems'][key_]['geom_status'] = False
         self._clear_features_from_limit_layers()
@@ -5023,10 +5240,16 @@ class Wd1(QWidget):
 
         # Start up to max_threads tasks
         while self.threads_running < self.max_threads and not self.task_queue.empty():
+            if self._stop_requested:
+                break
             key_, dic_ = self.task_queue.get()
             self.start_task(key_, dic_)
 
     def define_morphology(self, key_=0):
+        if self._stop_requested:
+            self._end_analysis_session()
+            return
+        self._begin_analysis_session()
         etapa = 'morfologia_referencia' if key_ == 0 else 'morfologia_teste'
         self.pipeline_set_etapa_inicio(etapa)
         mss_ = self.tr('=======================================\n')
@@ -5041,6 +5264,7 @@ class Wd1(QWidget):
                 ),
                 'ERROR',
             )
+            self._end_analysis_session()
             return
         dic_param_morphology = self.settings_dlg.dic_param['step_morfologia']['fields']
         mem_status = _windows_memory_status()
@@ -5105,6 +5329,8 @@ class Wd1(QWidget):
 
         # Start up to max_threads tasks
         while self.threads_running < self.max_threads and not self.task_queue.empty():
+            if self._stop_requested:
+                break
             key_, dic_ = self.task_queue.get()
             self.start_task(key_, dic_)
 
@@ -5399,6 +5625,7 @@ class Wd1(QWidget):
         ext_m = self._total_sample_extent_m_from_dic_match(dm)
         ext_km = ext_m / 1000.0
         if n_pairs == 0:
+            self._set_sample_extent_highlight(True)
             self.log_message(
                 self.tr(
                     'Não há pares homólogos válidos. O processamento foi interrompido antes dos buffers.\n\n'
@@ -5411,6 +5638,7 @@ class Wd1(QWidget):
             )
             return False
         if ext_km < ext_min_km:
+            self._set_sample_extent_highlight(True)
             self.log_message(
                 self.tr(
                     'A extensão total da amostra ({0} km) é menor que a extensão mínima recomendada ({1} km). '
@@ -5424,9 +5652,14 @@ class Wd1(QWidget):
                 'ERROR',
             )
             return False
+        self._clear_sample_extent_highlight()
         return True
 
     def matching_lines(self):
+        if self._stop_requested:
+            self._end_analysis_session()
+            return
+        self._begin_analysis_session()
         self.pipeline_set_etapa_inicio('correspondencia_linhas')
         conn = self.gpkg_conn()
         curs = conn.cursor()
@@ -5436,11 +5669,13 @@ class Wd1(QWidget):
         if not isinstance(layer_test, QgsRasterLayer) or not layer_test.isValid():
             self.log_message(
                 self.tr('MDE de teste inválido — não é possível aplicar a distância máxima em pixels.'), 'ERROR')
+            self._end_analysis_session()
             return
         gsd_test = layer_test.rasterUnitsPerPixelX()
         if not gsd_test or gsd_test <= 0:
             self.log_message(
                 self.tr('GSD do MDE de teste inválido — não é possível converter pixels em distância no mapa.'), 'ERROR')
+            self._end_analysis_session()
             return
         dist_max = dist_max_px * gsd_test
         area_percent = float(dic_param_match['percent_area']['value']) / 100
@@ -5562,13 +5797,16 @@ class Wd1(QWidget):
         # print('dic_match', self.dic_match)
         if self.cbx_workflow_pairs.currentIndex() == 1:
             self._workflow_pause = 'post_pairs_review'
-            self._refresh_proc_button()
+            self._end_analysis_session()
             self.log_message(
                 self.tr(
                     'Camada __Linhas_de_Correspondencia__: {0} pares. Edite, remova ou adicione linhas '
                     '(meio teste → meio referência); atributos: tipo, fid_r, fid_t. Prima Continuar.'
                 ).format(n_pairs),
                 'INFO')
+            return
+        if self._stop_requested:
+            self._end_analysis_session()
             return
         self.define_buffers()
 
@@ -5854,6 +6092,10 @@ class Wd1(QWidget):
         write_buffer_layer=False: recalcula DM (e PEC) sem esvaziar/regravar __Buffers__.
         recompute_focus: 'full' | 'alt' (ênfase altimétrica / compatibilização) | 'dm' (só fórmula).
         """
+        if self._stop_requested:
+            self._end_analysis_session()
+            return
+        self._begin_analysis_session()
         self._buffer_geom_diag_counts = {}
         self._buffers_layer_target_logged = False
         if write_buffer_layer:
@@ -5872,6 +6114,7 @@ class Wd1(QWidget):
                     self.tr(
                         'Define buffers: a camada __Linhas_de_Correspondencia__ está vazia ou sem pares válidos.'),
                     'ERROR')
+                self._end_analysis_session()
                 return
             self.dic_match = rebuilt
             ext_sum = self._total_sample_extent_m_from_dic_match(self.dic_match)
@@ -5883,7 +6126,7 @@ class Wd1(QWidget):
         if not self._check_sample_extent_vs_minimum():
             if self.cbx_workflow_pairs.currentIndex() == 1:
                 self._workflow_pause = 'post_pairs_review'
-                self._refresh_proc_button()
+            self._end_analysis_session()
             return
         mss_ = self.tr('=======================================\n')
         if not write_buffer_layer:
@@ -5906,6 +6149,7 @@ class Wd1(QWidget):
                         'CE90/LE90: resolução do MDE de teste indisponível. '
                         'Selecione o raster de teste e tente novamente.'),
                     'ERROR')
+                self._end_analysis_session()
                 return
             max_h, max_v = self._ce90_max_gsd_multipliers()
             dec = ce90_threshold_decimals(gsd)
@@ -5956,6 +6200,8 @@ class Wd1(QWidget):
 
         # Start up to max_threads tasks
         while self.threads_running < self.max_threads and not self.task_queue.empty():
+            if self._stop_requested:
+                break
             key_, dic_ = self.task_queue.get()
             self.start_task(key_, dic_)
 
@@ -8006,7 +8252,12 @@ class Wd1(QWidget):
         if dic_.get('logonly', None):
             self.log_message(dic_['logonly'])
             return
+        # Após Parar: não avançar a cadeia nem atualizar progresso (erros ainda podem registar-se).
+        if self._stop_requested and 'error' not in dic_:
+            return
         key_ = dic_['key']
+        if key_ not in self.dic_prj['dems']:
+            return
         prog_bar = self.dic_prj['dems'][key_]['obj_prog_bar']
         palette = QPalette()
         palette.setColor(QPalette.Highlight, QColor(Qt.cyan))
@@ -8117,7 +8368,9 @@ class Wd1(QWidget):
                 normalize_project_pa_file(self.gpkg_path)
                 self.get_gpkg_layer(prefix_=layer_name, gpkg_path=self.gpkg_path)
             if 'start_task' in dic_:
-                if key_ == 0:
+                if self._stop_requested:
+                    self._end_analysis_session()
+                elif key_ == 0:
                     self.pipeline_set_etapa_fim('morfologia_referencia')
                     self.define_morphology(1)
                 elif key_ == 1:
@@ -8126,6 +8379,9 @@ class Wd1(QWidget):
             if 'model' in dic_:
                 self.dic_prj["dems"][key_]['model'] = dic_['model']
         elif 'dic_values' in dic_:
+            if self._stop_requested:
+                self._end_analysis_session()
+                return
             self._finalize_buffers_map_display()
             dv = dic_['dic_values']
             if 'ce90_meta' in dic_:
@@ -8160,6 +8416,7 @@ class Wd1(QWidget):
                     self.tr('Falha na auditoria: {0}').format(e),
                     'ERROR',
                 )
+            self._end_analysis_session()
             # print(dic_['dic_values'])
         elif 'end' in dic_:
             palette.setColor(QPalette.Highlight, QColor(Qt.darkGreen))

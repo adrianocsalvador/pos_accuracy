@@ -717,7 +717,65 @@ class SettingsDlg(QDialog):
         self.trigger_actions()
         self._wire_accuracy_standard_visibility()
         self._apply_param_tooltips()
+        self._wire_param_change_clear_highlight()
         return vl_
+
+    def _wire_param_change_clear_highlight(self):
+        """Ao alterar qualquer parâmetro, remove o destaque de extensão da amostra no painel."""
+        parent = self.parent
+        if parent is None or not hasattr(parent, '_clear_sample_extent_highlight'):
+            return
+        clear_hl = parent._clear_sample_extent_highlight
+        for item_i, block in self.dic_param.items():
+            if not isinstance(item_i, str) or not item_i.startswith('step_'):
+                continue
+            if not isinstance(block, dict) or 'fields' not in block:
+                continue
+            for _fj, meta in block['fields'].items():
+                if not isinstance(meta, dict):
+                    continue
+                obj = meta.get('obj')
+                if obj is None:
+                    continue
+                ftype = meta.get('type')
+                if ftype == 'checkbox':
+                    try:
+                        obj.toggled.disconnect(clear_hl)
+                    except (TypeError, RuntimeError):
+                        pass
+                    obj.toggled.connect(clear_hl)
+                elif ftype == 'radio':
+                    try:
+                        obj.idClicked.disconnect(clear_hl)
+                    except (TypeError, RuntimeError):
+                        pass
+                    try:
+                        obj.buttonClicked.disconnect(clear_hl)
+                    except (TypeError, RuntimeError):
+                        pass
+                    # Qt5: buttonClicked; Qt6: idClicked — ligar o que existir
+                    if hasattr(obj, 'idClicked'):
+                        obj.idClicked.connect(clear_hl)
+                    else:
+                        obj.buttonClicked.connect(clear_hl)
+                elif ftype in ('spin', 'doublespin'):
+                    try:
+                        obj.valueChanged.disconnect(clear_hl)
+                    except (TypeError, RuntimeError):
+                        pass
+                    obj.valueChanged.connect(clear_hl)
+                elif 'list' in meta:
+                    try:
+                        obj.currentIndexChanged.disconnect(clear_hl)
+                    except (TypeError, RuntimeError):
+                        pass
+                    obj.currentIndexChanged.connect(clear_hl)
+                else:
+                    try:
+                        obj.textChanged.disconnect(clear_hl)
+                    except (TypeError, RuntimeError):
+                        pass
+                    obj.textChanged.connect(clear_hl)
 
     def _apply_param_tooltips(self):
         """Aplica tooltip do campo ao rótulo e ao widget (e à secção)."""
@@ -821,6 +879,8 @@ class SettingsDlg(QDialog):
 
     def set_dic_param(self):
         self.parent.persist_project_config_from_widgets(log_values=True)
+        if hasattr(self.parent, '_clear_sample_extent_highlight'):
+            self.parent._clear_sample_extent_highlight()
         self.close()
 
     def rest_default(self):
@@ -851,6 +911,8 @@ class SettingsDlg(QDialog):
                         obj.setText(str(default_))
                     meta['value'] = default_
         self._sync_buffer_standard_visibility()
+        if hasattr(self.parent, '_clear_sample_extent_highlight'):
+            self.parent._clear_sample_extent_highlight()
 
     def fill_inf(self):
         self.pb_remove.setEnabled(True)
