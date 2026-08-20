@@ -37,7 +37,7 @@ Os resultados e as camadas intermediárias ficam no ficheiro de projeto **`.pa.g
 
 ### Gestor de complementos (recomendado, após publicação)
 
-1. **Complementos → Gerir e instalar complementos → Todos**.
+1. **Complementos → Gerenciar e instalar complementos → Todos**.
 2. Procurar **MDE AP** e instalar.
 3. Confirmar que o fornecedor **GRASS** está activo em *Processamento*.
 
@@ -47,7 +47,7 @@ Os resultados e as camadas intermediárias ficam no ficheiro de projeto **`.pa.g
 
    `…/QGIS3/profiles/default/python/plugins/pos_accuracy`
 
-2. Em **Complementos → Gerir e instalar complementos**, activar **MDE AP - Acurácia Posicional**.
+2. Em **Complementos → Gerenciar e instalar complementos**, activar **MDE AP - Acurácia Posicional**.
 
 3. Confirmar que o fornecedor **GRASS** está activo em *Processamento*.
 
@@ -64,22 +64,35 @@ O ficheiro fica em `dist/pos_accuracy-<versão>.zip`. Inclui só o runtime do pl
 ## Uso rápido
 
 1. **Novo** ou **Abrir** um projeto (`.pa.gpkg`).
-2. Seleccionar o **MDE de referência** e o **MDE de teste**.
-3. Definir a área de estudo e, se necessário, os parâmetros em **Config**.
+2. Selecionar o **MDE de referência** e o **MDE de teste**.
+3. Se necessário Definir a área de estudo e os parâmetros em **Config**.
 4. Premir **Avaliar**.
 
-Se o projecto já estiver calculado e só alguns parâmetros mudarem, o plugin **retoma a cadeia no passo mais básico alterado** (não volta a correr tudo).
+Se o projecto já estiver calculado e só alguns parâmetros mudarem, o plugin **retoma a cadeia no passo mais básico alterado** (não volta a rodar tudo).
 
 ---
 
 ## Funcionalidades
 
-- Projecto persistente (`.pa.gpkg`) com MDEs, morfologia, pares, buffers e configuração.
-- Fluxo de área de estudo: interseção automática, revisão após interseção, ou camada polígono.
-- Selecção de pares automática ou com **revisão** no mapa.
-- Tratamento de *outliers* (automático / revisão / usar todos).
-- Compatibilização de progressivas para o perfil altimétrico (linear, por proximidade, ou nenhuma).
-- Duas fórmulas de DM (buffer duplo).
+- Persistência no projeto (`.pa.gpkg`) com MDEs, morfologia, pares, buffers e configuração.
+- Determinação da área de estudo:
+  - interseção dos MDEs (automática)
+  - revisão após interseção
+  - camada polígono
+- Selecção de pares:
+  - automática usando parâmetros definidos
+  - com **revisão** no mapa
+- Tratamento de *outliers*:
+  - remoção automática
+  - revisão
+  - usar tudo
+- Compatibilização de progressivas para o perfil altimétrico:
+  - linear
+  - por proximidade
+  - ou nenhuma
+- Fórmulas de DM (buffer duplo):
+  - Original
+  - Utilizando média $(A_{T} + A_{R}) / 2$
 - Relatório PDF com tabelas PEC ou CE90/LE90.
 - Auditoria horizontal e/ou vertical (PDF e/ou CSV).
 - Interface em português, inglês e espanhol.
@@ -102,10 +115,10 @@ Alterar estes valores **regenera as linhas** (watershed). A área de interseçã
 
 | Parâmetro | Padrão | Notas |
 |-----------|--------|--------|
-| Distância máxima entre centróides | **3 px** do MDE de teste | Convertida para metros via GSD do teste |
-| Diferença % da **área** dos mínimos envelopes | **10 %** | Relativa à área do envelope de teste |
-| Diferença % do **comprimento** dos mínimos envelopes | **5 %** | Lado maior do envelope orientado |
-| Extensão mínima da feição de teste | **10 px** do MDE de teste | Comprimento da linha de teste |
+| Distância máxima entre centróides | **3 pixels** do MDE de teste | Convertida para metros via GSD do teste |
+| Diferença % da **área** dos mínimos envelopes | **5 %** | Deferênça percentual entre às áreas do mínimo envelope orientado de teste e mínimo envelope orientado de referência|
+| Diferença % do **comprimento** dos mínimos envelopes | **5 %** | Deferênça percentual entre lados maiores dos mínimos envelopes orientados de teste e de referência|
+| Extensão mínima da feição de teste | **10 pixels** do MDE de teste | Comprimento da linha de teste |
 
 Alterar só estes valores **repete a correspondência e os passos seguintes**, sem refazer a morfologia.
 
@@ -114,10 +127,20 @@ Alterar só estes valores **repete a correspondência e os passos seguintes**, s
 | Parâmetro | Padrão |
 |-----------|--------|
 | Padrão | **PEC-PCD** (Brasil) |
-| Escala máxima / mínima (PEC-PCD) | **1:10 000** |
-| Máximo horizontal CE90 | **5 px** do MDE de teste |
-| Máximo vertical LE90 | **2 px** do MDE de teste |
-| Mostrar buffers no mapa durante o processamento | **desmarcado** |
+| Escala máxima  (PEC-PCD) | **1:10 000** |
+| Escala mínima (PEC-PCD) | **1:25 000** |
+
+
+| Parâmetro | Padrão |
+|-----------|--------|
+| Padrão | **CE90 e LE90** (Internacional) |
+| Máximo horizontal CE90 | **5 pixels** do MDE de teste |
+| Máximo vertical LE90 | **2 pixels** do MDE de teste |
+| Critério utilizado para aprovação | |
+| Quantitavo | Aprova se 90 %, ou mais, dos pares homólogos foram menores que o limiar (raio)|
+| Extensão | Aprova se 90%, ou mais, da extensão dos pares homólogos foram menores que o limiar (raio)|
+| RMS (EP) | Aprova se RMS da amostra é menor ou igual ao EP (0,17 x raio) |
+
 
 Alterar definições de buffer **regenera buffers e o cálculo de DM/PEC**, sem rematch.
 
@@ -135,53 +158,99 @@ Mudar o método **recalcula a DM altimétrica** (perfis); a camada de buffers pl
 
 **Original (padrão)**
 
-\[
-dm_i = \pi \cdot x \cdot \frac{A_{2i} - A_{3i}}{A_{1i}}
-\]
+$$
+dm_{i} = \pi \cdot x \cdot \frac{A_{R} - A_{I}}{A_{T}}
+$$
 
-**Média (A₁+A₂)/2**
+**Média $(A_{T} + A_{R})/2$**
 
-\[
-dm_i = \pi \cdot x \cdot \frac{(A_{1i}+A_{2i})/2 - A_{3i}}{(A_{1i}+A_{2i})/2}
-\]
+$$
+dm_{i} = \pi \cdot x \cdot \frac{(A_{T}+A_{R})/2 - A_{I}}{(A_{T}+A_{R})/2}
+$$
 
-- \(x\) — raio do buffer (PEC da escala/classe, ou limiar CE90/LE90)
-- \(A_1\) — área do buffer da feição de teste
-- \(A_2\) — área do buffer da feição de referência
-- \(A_3\) — área da interseção dos buffers
+- $x$ — raio do buffer (PEC da escala/classe, ou limiar CE90/LE90)
+- $A_{T}$ — área do buffer da feição de teste
+- $A_{R}$ — área do buffer da feição de referência
+- $A_{I}$ — área da interseção dos buffers
 
 Mudar só a fórmula **recalcula a DM** sem voltar a gerar as áreas no GeoPackage.
 
 ### Relatório de auditoria
 
-Por omissão **desligado**. Ao activar **Horizontal (PDF)** e/ou **Vertical (PDF)**, gera-se o PDF e **sempre** o CSV correspondente.
+Por omissão **desligado**. Ao activar **Horizontal (PDF)** e/ou **Vertical (PDF)**, gera-se o PDF e **sempre** os CSV correspondentes são gerados.
 
 ---
 
 ## Padrões de acurácia
+- ≥ 90 % das amostras com \(d_i \le\) limiar  
+- ≥ 90 % da extensão com \(d_i \le\) limiar  
+- RMS \(\le\) EP (razões da classe A do PEC-PCD) 
 
-### PEC-PCD (Brasil)
+### PEC-PCD (Brasil) 
 
-Classes **A, B, C, D**. Limites planimétricos em milímetros na escala; altimétricos = **EQ(escala) × coeficiente**.
+Classes **A, B, C, D**.
+Escalas:
 
-EQ por escala nominal (extracto): 1:10 000 → 5; 1:25 000 → 10; 1:50 000 → 20; 1:100 000 → 50.
+- 1:1.000
+- 1:2.000
+- 1:5.000
+- 1:10.000
+- 1:25.000
+- 1:50.000
+- 1:100.000
+- 1:250.000
+- 1:500.000
+- 1:1.000.000
+
+
+#### Planimetria
+
+Decreto n.º 89.817/84 e ET-CQDG. $E$ é o denominador da escala, desta forma PEC-PCD para a classe A da escala 1/1.000 é 0,28 metros e EP 0,17 metros.
+
+| Classe | PEC-PCD | EP |
+|--------|---------|-----|
+| A | 0,28 × $E$ | 0,17 × $E$ |
+| B | 0,50 × $E$ | 0,30 × $E$ |
+| C | 0,80 × $E$ | 0,50 × $E$ |
+| D | 1,00 × $E$ | 0,60 × $E$ |
+
+#### Atimetria
+
+Para a altimetria utiliza-se a Equidistância vertical (EQ) usual para a escala:
+
+| Escala | EQ (m) |
+|--------|--------|
+| 1:1.000 | 1 |
+| 1:2.000 | 1 |
+| 1:5.000 | 2 |
+| 1:10.000 | 5 |
+| 1:25.000 | 10 |
+| 1:50.000 | 20 |
+| 1:100.000 | 50 |
+| 1:250.000 | 100 |
+| 1:500.000 | 100 |
+| 1:1.000.000 | 100 |
+
+Os limites altimétricos são **EQ(Equidistância) × coeficiente**. Por exemplo, na classe A da escala 1:1.000 (EQ = 1 m) o PEC-PCD é 0,27 m e o EP 0,17 m.
+
+| Classe | PEC-PCD | EP |
+|--------|---------|-----|
+| A | 0,27 × $EQ$ | 0,17 × $EQ$ |
+| B | 0,50 × $EQ$ | 0,33 × $EQ$ |
+| C | 0,60 × $EQ$ | 0,40 × $EQ$ |
+| D | 0,75 × $EQ$ | 0,50 × $EQ$ |
 
 ### CE90 / LE90
 
 Busca o **menor limiar (m)** que cumpre, em conjunto:
 
-- ≥ 90 % das amostras com \(d_i \le\) limiar  
-- ≥ 90 % da extensão com \(d_i \le\) limiar  
-- RMS \(\le\) EP (razões da classe A do PEC-PCD)  
-- teste de normalidade nas amostras (após IQR)
-
-O tecto da busca é `máx. H/V (pixels) × GSD` do MDE de teste.
+O limites mínimos são 0 (zero) e os máximos são definidos em função do `pixel (GSD)` do MDE de teste.
 
 ---
 
-## Retoma da cadeia
+## Retoma da processamento
 
-Se o projecto já foi calculado e vários parâmetros mudam, usa-se o **passo mais básico** e segue-se até ao fim:
+Se o projeto já foi calculado e vários parâmetros mudam, usa-se o **passo mais básico** e segue-se até ao fim:
 
 1. Morfologia  
 2. Selecção de pares  
@@ -189,7 +258,7 @@ Se o projecto já foi calculado e vários parâmetros mudam, usa-se o **passo ma
 4. Compatibilização (só altimetria)  
 5. Fórmula DM  
 
-Mudar MDEs ou o modo de área de estudo implica **reprocessamento desde a interseção**. Opções só de auditoria **não** disparam recálculo.
+Mudar MDEs ou o modo de área de estudo implica **reprocessamento desde a definição da área**. Opções só de auditoria **não** disparam recálculo.
 
 ---
 
@@ -198,8 +267,8 @@ Mudar MDEs ou o modo de área de estudo implica **reprocessamento desde a inters
 Na pasta do projecto (junto ao `.pa.gpkg`):
 
 - Relatório PDF / TXT / HTML  
-- `Audit_horizontal_…_CE90_….pdf` / `.csv` (se activo)  
-- `Audit_vertical_…_LE90_….pdf` / `.csv` (se activo)  
+- `Audit_horizontal_…_CE90_….csv` / `.pdf` (se activo)  
+- `Audit_vertical_…_LE90_….csv` / `.pdf` (se activo) 
 
 No GeoPackage: limites, interseção, linhas de morfologia, pares, buffers.
 
