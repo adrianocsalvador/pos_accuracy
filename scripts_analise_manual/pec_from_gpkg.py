@@ -30,6 +30,9 @@ from mods.mod_pec_constants import (  # noqa: E402
     DIC_PEC_V,
     EXTENT_REF_FIELD,
     LAYER_NAME_BUFFER_TEST,
+    PEC_PASS_PERCENT,
+    pec_percent_rounded,
+    pec_rms,
     pec_v_from_eq,
 )
 from mods.mod_standalone_qgis import (  # noqa: E402
@@ -367,10 +370,7 @@ def check_norm(values):
 
 
 def rms(values):
-    if len(values) < 2:
-        return float('nan')
-    sun_ = sum(v ** 2 for v in values)
-    return (sun_ / (len(values) - 1)) ** 0.5
+    return pec_rms(values)
 
 
 def pec_test_limit(pec_):
@@ -488,13 +488,15 @@ def build_result_rows(layer, dic_stats, dimension, out_field):
 
         perc_q = perc_pec_quant(values, pec_)
         perc_e = perc_pec_ext(values, extents, pec_)
-        pec_ok_q = perc_q >= 0.90
-        pec_ok_e = perc_e >= 0.90
+        perc_q_pct = pec_percent_rounded(perc_q)
+        perc_e_pct = pec_percent_rounded(perc_e)
+        pec_ok_q = perc_q_pct >= PEC_PASS_PERCENT
+        pec_ok_e = perc_e_pct >= PEC_PASS_PERCENT
         rms_ = rms(values)
         ep_ok = math.isfinite(rms_) and rms_ <= ep_
 
-        teste_pec_q = f'{round(perc_q * 100)} % <= {pec_lim}'
-        teste_pec_e = f'{round(perc_e * 100)} % <= {pec_lim}'
+        teste_pec_q = f'{perc_q_pct:.1f} % <= {pec_lim}'
+        teste_pec_e = f'{perc_e_pct:.1f} % <= {pec_lim}'
         resultado_q = 'PASSOU' if pec_ok_q else 'FALHOU'
         resultado_e = 'PASSOU' if pec_ok_e else 'FALHOU'
         cmp_ = '<=' if ep_ok else '>'

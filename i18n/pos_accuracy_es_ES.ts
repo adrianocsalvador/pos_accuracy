@@ -56,12 +56,12 @@
         <translation><![CDATA[CE90 y LE90]]></translation>
     </message>
     <message>
-        <source><![CDATA[Equação original (eq:dm-buffer-duplo)]]></source>
-        <translation><![CDATA[Ecuación original (eq:dm-buffer-duplo)]]></translation>
+        <source><![CDATA[dm-buffer-duplo (original)]]></source>
+        <translation><![CDATA[dm-buffer-duplo (original)]]></translation>
     </message>
     <message>
-        <source><![CDATA[Nova equação (eq:dm-buffer-duplo-media)]]></source>
-        <translation><![CDATA[Nueva ecuación (eq:dm-buffer-duplo-media)]]></translation>
+        <source><![CDATA[dm-buffer-duplo-media (proposta)]]></source>
+        <translation><![CDATA[dm-buffer-duplo-media (propuesta)]]></translation>
     </message>
     <message>
         <source><![CDATA[dmᵢ = π · x · (A₂ᵢ − A₃ᵢ) / A₁ᵢ

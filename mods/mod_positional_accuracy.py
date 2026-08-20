@@ -45,6 +45,7 @@ from .mod_language_dlg import LanguageDlg
 from .mod_pec_constants import (
     ACCURACY_STANDARD_BR,
     ACCURACY_STANDARD_CE90,
+    CE90_CRIT_DEFAULT,
     CLASS_CE90,
     CLASS_LE90,
     DIC_EQ_BY_NOMINAL_SCALE,
@@ -52,7 +53,12 @@ from .mod_pec_constants import (
     DIC_PEC_MM,
     EP_RATIO_H,
     EP_RATIO_V,
+    PEC_PASS_PERCENT,
+    ce90_criteria_from_mask,
     ce90_threshold_decimals,
+    dm_formula_report_row,
+    pec_percent_rounded,
+    pec_rms,
     pec_v_from_eq,
 )
 from .plugin_i18n import (
@@ -1649,9 +1655,10 @@ def render_pdf_report_html(
         param_rows.append(
             f'<tr><td colspan="2" style="background:#eee"><b>{html.escape(grp.get("label", ""))}</b></td></tr>')
         for fld in grp.get('fields') or []:
+            val_html = html.escape(fld.get('value', '')).replace('\n', '<br/>')
             param_rows.append(
                 f'<tr><td>{html.escape(fld.get("label", ""))}</td>'
-                f'<td>{html.escape(fld.get("value", ""))}</td></tr>')
+                f'<td>{val_html}</td></tr>')
     par_hdr = par_sec.get('header') or ['Parâmetro', 'Valor']
     param_table = (
         f'<table><tr><th>{html.escape(par_hdr[0])}</th>'
@@ -2914,8 +2921,8 @@ class Wd1(QWidget):
             tr_ui('CE90 e LE90'),
         ]
         self.list_dm_formula = [
-            tr_ui('Equação original (eq:dm-buffer-duplo)'),
-            tr_ui('Nova equação (eq:dm-buffer-duplo-media)'),
+            tr_ui('dm-buffer-duplo (original)'),
+            tr_ui('dm-buffer-duplo-media (proposta)'),
         ]
         self.list_dm_formula_tooltips = [
             tr_ui(
@@ -6190,6 +6197,7 @@ class Wd1(QWidget):
             'gsd': gsd,
             'ce90_max_h': max_h_mult,
             'ce90_max_v': max_v_mult,
+            'ce90_pass_criteria': self._ce90_pass_criteria_mask(),
             'write_buffer_layer': bool(write_buffer_layer),
             'recompute_focus': recompute_focus or 'full',
             'parent': self,
@@ -6326,6 +6334,7 @@ class Wd1(QWidget):
                 'gsd': gsd,
                 'ce90_max_h': max_h_mult,
                 'ce90_max_v': max_v_mult,
+                'ce90_pass_criteria': self._ce90_pass_criteria_mask(),
             },
         )
         bt.run()
@@ -6681,14 +6690,14 @@ class Wd1(QWidget):
 
         perc_q = perc_pec_quant(values, pec_raw, decimals=pec_decimals)
         perc_e = perc_pec_ext(values, extents, pec_raw, decimals=pec_decimals)
-        pec_ok_q = perc_q >= 0.90
-        pec_ok_e = perc_e >= 0.90
+        perc_q_pct = pec_percent_rounded(perc_q)
+        perc_e_pct = pec_percent_rounded(perc_e)
+        pec_ok_q = perc_q_pct >= PEC_PASS_PERCENT
+        pec_ok_e = perc_e_pct >= PEC_PASS_PERCENT
         rms_ = self.rms(values)
         ep_ok = math.isfinite(rms_) and rms_ <= ep_raw
         rms_show = round(rms_, 2) if math.isfinite(rms_) else float('nan')
         cmp_ep = '<=' if ep_ok else '>'
-        perc_q_pct = round(perc_q * 100)
-        perc_e_pct = round(perc_e * 100)
 
         row = {
             'scale': scale_,
@@ -6704,8 +6713,8 @@ class Wd1(QWidget):
             'perc_e': perc_e_pct,
             'result_e': self.tr('PASSOU') if pec_ok_e else self.tr('FALHOU'),
             'result_e_ok': pec_ok_e,
-            'teste_pec_q': f'{perc_q_pct} % <= {pec_lim_txt}',
-            'teste_pec_e': f'{perc_e_pct} % <= {pec_lim_txt}',
+            'teste_pec_q': f'{perc_q_pct:.1f} % <= {pec_lim_txt}',
+            'teste_pec_e': f'{perc_e_pct:.1f} % <= {pec_lim_txt}',
             'teste_ep': (
                 f'{rms_show} {cmp_ep} {ep_txt} EP'
                 if math.isfinite(rms_show) else ''
@@ -6718,19 +6727,19 @@ class Wd1(QWidget):
 
         if is_ce:
             str_ = self.tr(
-                '{0}={1} m — quant {2}% <= {3} - {4}, ext {5}% <= {3} - {6},'
+                '{0}={1} m — quant {2:.1f}% <= {3} - {4}, ext {5:.1f}% <= {3} - {6},'
             ).format(
                 class_, scale_txt, perc_q_pct, pec_lim_txt, row['result_q'],
                 perc_e_pct, row['result_e'])
         elif dimension == 'V':
             str_ = self.tr(
-                'EQ {0} — 1:{1}.000-{2}= quant {3}% <= {4} - {5}, ext {6}% <= {4} - {7},'
+                'EQ {0} — 1:{1}.000-{2}= quant {3:.1f}% <= {4} - {5}, ext {6:.1f}% <= {4} - {7},'
             ).format(
                 eq, scale_, class_, perc_q_pct, pec_lim, row['result_q'],
                 perc_e_pct, row['result_e'])
         else:
             str_ = self.tr(
-                '1:{0}.000-{1}= quant {2}% <= {3} - {4}, ext {5}% <= {3} - {6},'
+                '1:{0}.000-{1}= quant {2:.1f}% <= {3} - {4}, ext {5:.1f}% <= {3} - {6},'
             ).format(
                 scale_, class_, perc_q_pct, pec_lim, row['result_q'],
                 perc_e_pct, row['result_e'])
@@ -6957,6 +6966,16 @@ class Wd1(QWidget):
             except (TypeError, ValueError):
                 on = bool(val)
             return self.tr('gerar') if on else self.tr('não gerar')
+        if meta.get('type') == 'checkbox_group':
+            lst = meta.get('list') or []
+            try:
+                mask = int(float(val))
+            except (TypeError, ValueError):
+                mask = CE90_CRIT_DEFAULT
+            selected = [
+                str(lst[i]) for i in range(len(lst)) if mask & (1 << i)
+            ]
+            return ', '.join(selected) if selected else self.tr('(nenhum)')
         if meta.get('type') == 'radio':
             lst = meta.get('list') or []
             try:
@@ -7121,6 +7140,17 @@ class Wd1(QWidget):
         except (TypeError, ValueError):
             max_v = 2.0
         return max(0.1, max_h), max(0.1, max_v)
+
+    def _ce90_pass_criteria_mask(self) -> int:
+        fields = self.settings_dlg.dic_param['step_buffers']['fields']
+        try:
+            return int(float(fields.get('ce90_pass_criteria', {}).get(
+                'value', CE90_CRIT_DEFAULT)))
+        except (TypeError, ValueError):
+            return CE90_CRIT_DEFAULT
+
+    def _ce90_pass_criteria_dict(self) -> dict:
+        return ce90_criteria_from_mask(self._ce90_pass_criteria_mask())
 
     def _test_dem_gsd(self):
         try:
@@ -7343,6 +7373,21 @@ class Wd1(QWidget):
 
         sly = self.cbx_study_area_layer.currentLayer()
         study_ly = sly.name() if isinstance(sly, QgsVectorLayer) else self.tr('(nenhuma)')
+        wf_rows = [
+            {
+                'option': self.tr('Definição da área de estudos'),
+                'value': self.cbx_workflow_study.currentText(),
+            },
+        ]
+        if self.cbx_workflow_study.currentIndex() == 2:
+            wf_rows.append({
+                'option': self.tr('Camada polígono (se aplicável)'),
+                'value': study_ly,
+            })
+        wf_rows.extend([
+            {'option': self.tr('Pares homólogos'), 'value': self.cbx_workflow_pairs.currentText()},
+            {'option': self.tr('Tratamento de outliers'), 'value': self.cbx_workflow_outliers.currentText()},
+        ])
 
         dem_rows = []
         for i in (0, 1):
@@ -7375,10 +7420,17 @@ class Wd1(QWidget):
                 if not isinstance(meta, dict):
                     continue
                 if sk == 'step_buffers':
+                    if fk == 'show_buffers_on_map':
+                        continue
                     if is_ce90 and fk in ('max_scale', 'min_scale'):
                         continue
-                    if not is_ce90 and fk in ('ce90_max_h', 'ce90_max_v'):
+                    if not is_ce90 and fk in (
+                            'ce90_max_h', 'ce90_max_v', 'ce90_pass_criteria'):
                         continue
+                if sk == 'step_dm_formula' and fk == 'dm_formula':
+                    fid, feq = dm_formula_report_row(meta.get('value'))
+                    fields.append({'label': self.tr(fid), 'value': feq})
+                    continue
                 fields.append({
                     'label': meta.get('label', fk),
                     'value': self._format_param_value_for_report(meta),
@@ -7468,12 +7520,7 @@ class Wd1(QWidget):
                 'workflow': {
                     'title': self.tr('2. Fluxo de trabalho'),
                     'header': [self.tr('Opção'), self.tr('Valor')],
-                    'rows': [
-                        {'option': self.tr('Definição da área de estudos'), 'value': self.cbx_workflow_study.currentText()},
-                        {'option': self.tr('Pares homólogos'), 'value': self.cbx_workflow_pairs.currentText()},
-                        {'option': self.tr('Tratamento de outliers'), 'value': self.cbx_workflow_outliers.currentText()},
-                        {'option': self.tr('Camada polígono (se aplicável)'), 'value': study_ly},
-                    ],
+                    'rows': wf_rows,
                 },
                 'dems': {
                     'title': self.tr('3. Modelos digitais de elevação (MDE)'),
@@ -8203,16 +8250,7 @@ class Wd1(QWidget):
             x = _coerce_finite_measurement_scalar(v)
             if x is not None:
                 vals.append(x)
-        n = len(vals)
-        if n < 2:
-            return float('nan')
-        try:
-            sun_ = math.fsum(x * x for x in vals)
-            if not math.isfinite(sun_) or sun_ < 0:
-                return float('nan')
-            return math.sqrt(sun_ / (n - 1))
-        except (OverflowError, OSError, ValueError, ArithmeticError):
-            return float('nan')
+        return pec_rms(vals)
 
     def perc_pec(self, vet_, pec_):
         vals = []
@@ -8455,8 +8493,8 @@ class Wd1(QWidget):
             tr_ui('CE90 e LE90'),
         ]
         self.list_dm_formula = [
-            tr_ui('Equação original (eq:dm-buffer-duplo)'),
-            tr_ui('Nova equação (eq:dm-buffer-duplo-media)'),
+            tr_ui('dm-buffer-duplo (original)'),
+            tr_ui('dm-buffer-duplo-media (proposta)'),
         ]
         self.list_dm_formula_tooltips = [
             tr_ui(

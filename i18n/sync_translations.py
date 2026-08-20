@@ -32,6 +32,20 @@ EXTRA_EN: dict[str, str] = {
     'Avaliar': 'Evaluate',
     'Continuar': 'Continue',
     'Parar': 'Stop',
+    'Critérios para aprovação': 'Acceptance criteria',
+    'Quantitativo': 'Quantitative',
+    'Extensão': 'Extent',
+    'RMS (EP)': 'RMS (EP)',
+    'Critérios da busca recursiva do limiar CE90/LE90. Só os marcados contam para a aprovação (a normalidade continua sempre obrigatória). Padrão: Quantitativo, Extensão e RMS (EP).': (
+        'Criteria for the recursive CE90/LE90 threshold search. Only checked items count toward approval '
+        '(normality remains always required). Default: Quantitative, Extent and RMS (EP).'),
+    'CE90/LE90 busca o menor limiar (m) que cumpre os critérios de aprovação marcados.': (
+        'CE90/LE90 finds the smallest threshold (m) that meets the checked acceptance criteria.'),
+    'PEC-PCD classifica nas escalas e classes A–D. CE90/LE90 busca o menor limiar (m) que cumpre os critérios de aprovação marcados.': (
+        'PEC-PCD classifies by scales and classes A–D. CE90/LE90 finds the smallest threshold (m) '
+        'that meets the checked acceptance criteria.'),
+    '{0}: critérios de aprovação na busca — {1}': '{0}: acceptance criteria in search — {1}',
+    '(nenhum)': '(none)',
     'Cancelar parar ({0})': 'Cancel stop ({0})',
     'Clique para abortar a interrupção e continuar a análise.': (
         'Click to abort the interruption and continue the analysis.'),
@@ -298,10 +312,8 @@ EXTRA_EN: dict[str, str] = {
     'Horizontal': 'Horizontal',
     'Fórmula para cálculo da Discrepância Média': (
         'Formula for Mean Discrepancy calculation'),
-    'Equação original (eq:dm-buffer-duplo)': (
-        'Original equation (eq:dm-buffer-duplo)'),
-    'Nova equação (eq:dm-buffer-duplo-media)': (
-        'New equation (eq:dm-buffer-duplo-media)'),
+    'dm-buffer-duplo (original)': 'dm-buffer-duplo (original)',
+    'dm-buffer-duplo-media (proposta)': 'dm-buffer-duplo-media (proposed)',
     'dmᵢ = π · x · (A₂ᵢ − A₃ᵢ) / A₁ᵢ\n\n'
     'dmᵢ — discrepância média do par i\n'
     'π — constante pi\n'
@@ -740,10 +752,8 @@ EXTRA_ES: dict[str, str] = {
     'Horizontal': 'Horizontal',
     'Fórmula para cálculo da Discrepância Média': (
         'Fórmula para el cálculo de la Discrepancia Media'),
-    'Equação original (eq:dm-buffer-duplo)': (
-        'Ecuación original (eq:dm-buffer-duplo)'),
-    'Nova equação (eq:dm-buffer-duplo-media)': (
-        'Nueva ecuación (eq:dm-buffer-duplo-media)'),
+    'dm-buffer-duplo (original)': 'dm-buffer-duplo (original)',
+    'dm-buffer-duplo-media (proposta)': 'dm-buffer-duplo-media (propuesta)',
     'dmᵢ = π · x · (A₂ᵢ − A₃ᵢ) / A₁ᵢ\n\n'
     'dmᵢ — discrepância média do par i\n'
     'π — constante pi\n'
@@ -808,6 +818,20 @@ EXTRA_ES: dict[str, str] = {
     'Config': 'Configuración',
     'Avaliar': 'Evaluar',
     'Parar': 'Parar',
+    'Critérios para aprovação': 'Criterios de aprobación',
+    'Quantitativo': 'Cuantitativo',
+    'Extensão': 'Extensión',
+    'RMS (EP)': 'RMS (EP)',
+    'Critérios da busca recursiva do limiar CE90/LE90. Só os marcados contam para a aprovação (a normalidade continua sempre obrigatória). Padrão: Quantitativo, Extensão e RMS (EP).': (
+        'Criterios de la búsqueda recursiva del umbral CE90/LE90. Solo los marcados cuentan para la aprobación '
+        '(la normalidad sigue siendo siempre obligatoria). Predeterminado: Cuantitativo, Extensión y RMS (EP).'),
+    'CE90/LE90 busca o menor limiar (m) que cumpre os critérios de aprovação marcados.': (
+        'CE90/LE90 busca el menor umbral (m) que cumple los criterios de aprobación marcados.'),
+    'PEC-PCD classifica nas escalas e classes A–D. CE90/LE90 busca o menor limiar (m) que cumpre os critérios de aprovação marcados.': (
+        'PEC-PCD clasifica en escalas y clases A–D. CE90/LE90 busca el menor umbral (m) '
+        'que cumple los criterios de aprobación marcados.'),
+    '{0}: critérios de aprovação na busca — {1}': '{0}: criterios de aprobación en la búsqueda — {1}',
+    '(nenhum)': '(ninguno)',
     'Cancelar parar ({0})': 'Cancelar parada ({0})',
     'Clique para abortar a interrupção e continuar a análise.': (
         'Haga clic para abortar la interrupción y continuar el análisis.'),

@@ -1052,23 +1052,16 @@ def _draw_page_ce90_horizontal(
     geom_r,
     geom_t,
     dm_by_scale,
-    norm_label='Compatibilização Linear',
-    norm_type=NORM_SCALE,
-    k_t=None,
 ):
     """Página CE90: até 4 limiares (2×2); slots None ficam em branco."""
     geom_r = orient_line_high_to_low(geom_r)
     geom_t = orient_line_high_to_low(geom_t)
-    k_str = f'{k_t:.2f}' if k_t is not None and math.isfinite(k_t) else 'n/d'
-    show_k = int(norm_type) == NORM_SCALE and k_str != 'n/d'
     used = [t for t in thresholds if t is not None]
     lim_txt = ', '.join(f'{float(t):g}' for t in used) if used else '—'
     title = (
-        f'{test_name}; CE90; limiares={lim_txt} m; {norm_label}; {layer_ref}; '
+        f'{test_name}; CE90; limiares={lim_txt} m; {layer_ref}; '
         f'id_ref={id_ref}; id_test={id_test}'
     )
-    if show_k:
-        title += f'; fator de escala k={k_str}'
 
     pec_max = max((float(t) for t in used), default=1.0)
     extent_geoms = [g for g in (geom_r, geom_t) if g and not g.isEmpty()]
@@ -1441,22 +1434,15 @@ def _draw_page_horizontal(
     geom_r,
     geom_t,
     dm_by_class,
-    norm_label='Compatibilização Linear',
-    norm_type=NORM_SCALE,
     pec_h_table=None,
-    k_t=None,
 ):
     """Página planimétrica: matriz 2×2 (A B / C D) com buffers H e áreas."""
     geom_r = orient_line_high_to_low(geom_r)
     geom_t = orient_line_high_to_low(geom_t)
-    k_str = f'{k_t:.2f}' if k_t is not None and math.isfinite(k_t) else 'n/d'
-    show_k = int(norm_type) == NORM_SCALE and k_str != 'n/d'
     title = (
-        f'{test_name}; 1:{int(scale) * 1000}; {norm_label}; {layer_ref}; '
+        f'{test_name}; 1:{int(scale) * 1000}; {layer_ref}; '
         f'id_ref={id_ref}; id_test={id_test}'
     )
-    if show_k:
-        title += f'; fator de escala k={k_str}'
 
     pec_h_max = max(_pec_h_of(scale, c, pec_h_table) for c in CLASS_ORDER)
     extent_geoms = [g for g in (geom_r, geom_t) if g and not g.isEmpty()]
@@ -1999,7 +1985,6 @@ def generate_audit_horizontal_pdfs_from_pairs(
         _log('Auditoria horizontal: sem pares homólogos.')
         return []
     os.makedirs(out_dir or '.', exist_ok=True)
-    norm_label = _norm_label(norm_type)
     safe_model = _safe_filename_token(test_name, 'MODELO')
     ts = str(timestamp).strip() if timestamp else ''
     if not ts:
@@ -2044,13 +2029,6 @@ def generate_audit_horizontal_pdfs_from_pairs(
                     if _progress:
                         _progress(f'CE90 id_ref={id_ref} (skip)')
                     continue
-                k_t = None
-                if int(norm_type) == NORM_SCALE:
-                    profiles = build_compatibilized_profile_geometries(
-                        geom_r, geom_t, int(norm_type)
-                    )
-                    if profiles:
-                        k_t = profiles.get('k_t')
                 dm_by_scale = pair.get('dm_by_scale') or {}
                 for chunk in chunks:
                     _draw_page_ce90_horizontal(
@@ -2063,9 +2041,6 @@ def generate_audit_horizontal_pdfs_from_pairs(
                         geom_r=geom_r,
                         geom_t=geom_t,
                         dm_by_scale=dm_by_scale,
-                        norm_label=norm_label,
-                        norm_type=norm_type,
-                        k_t=k_t,
                     )
                     drawn += 1
                     if _progress:
@@ -2125,13 +2100,6 @@ def generate_audit_horizontal_pdfs_from_pairs(
                     if _progress:
                         _progress(f'H 1:{scale * 1000} id_ref={id_ref} (skip)')
                     continue
-                k_t = None
-                if int(norm_type) == NORM_SCALE:
-                    profiles = build_compatibilized_profile_geometries(
-                        geom_r, geom_t, int(norm_type)
-                    )
-                    if profiles:
-                        k_t = profiles.get('k_t')
                 dm_by_scale = pair.get('dm_by_scale') or {}
                 dm_by_class = (
                     dm_by_scale.get(scale)
@@ -2149,10 +2117,7 @@ def generate_audit_horizontal_pdfs_from_pairs(
                     geom_r=geom_r,
                     geom_t=geom_t,
                     dm_by_class=dm_by_class,
-                    norm_label=norm_label,
-                    norm_type=norm_type,
                     pec_h_table=pec_h_table,
-                    k_t=k_t,
                 )
                 drawn += 1
                 if _progress:
@@ -2194,10 +2159,9 @@ def generate_horizontal_pdf(
         print('Indexando pares teste↔ref…')
         pair_index = _build_test_pair_index(lines_cache)
 
-    norm_label = _norm_label(norm_type)
     pairs = _unique_pairs_from_result(result_layer, scale, model=model)
     model_txt = model or 'TODOS'
-    print(f'Pares H {model_txt} @ escala {scale} (norm={norm_label}): {len(pairs)}')
+    print(f'Pares H {model_txt} @ escala {scale}: {len(pairs)}')
     if limit is not None and limit > 0:
         pairs = pairs[: int(limit)]
     print(f'Pares a desenhar: {len(pairs)} → {out_path}')
@@ -2221,13 +2185,6 @@ def generate_horizontal_pdf(
                 skipped += 1
                 continue
             id_test, geom_t = paired
-            k_t = None
-            if int(norm_type) == NORM_SCALE:
-                profiles = build_compatibilized_profile_geometries(
-                    geom_r, geom_t, int(norm_type)
-                )
-                if profiles:
-                    k_t = profiles.get('k_t')
             dm_by_class = _dm_attrs_by_class(
                 result_layer, test_name, layer_ref, id_ref, scale
             )
@@ -2246,9 +2203,6 @@ def generate_horizontal_pdf(
                 geom_r=geom_r,
                 geom_t=geom_t,
                 dm_by_class=dm_by_class,
-                norm_label=norm_label,
-                norm_type=norm_type,
-                k_t=k_t,
             )
             drawn += 1
 

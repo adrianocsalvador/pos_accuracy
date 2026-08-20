@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import math
+
 # Coeficientes PEC planimétrico (mm na escala) e altimétrico (× EQ)
 DIC_PEC_MM = {
     'H': {
@@ -84,6 +86,32 @@ DIC_PEC_ALT = DIC_PEC_V
 ACCURACY_STANDARD_BR = 0  # PEC-PCD (Brasil)
 ACCURACY_STANDARD_CE90 = 1  # CE90 / LE90 (busca por limiar × pixels do MDE de teste)
 
+# Fórmula DM (buffer duplo) — índice em step_dm_formula / dm_formula
+DM_FORMULA_ORIGINAL = 0  # dm-buffer-duplo (original)
+DM_FORMULA_MEDIA = 1  # dm-buffer-duplo-media (proposta)
+DM_FORMULA_ID = {
+    DM_FORMULA_ORIGINAL: 'dm-buffer-duplo (original)',
+    DM_FORMULA_MEDIA: 'dm-buffer-duplo-media (proposta)',
+}
+# At, Ar, Ai = áreas dos buffers de teste, referência e interseção; x = raio (PEC)
+DM_FORMULA_EQ = {
+    DM_FORMULA_ORIGINAL: 'dm = π · x · (Ar − Ai) / At',
+    DM_FORMULA_MEDIA: 'dm = π · x · ((At + Ar)/2 − Ai) / ((At + Ar)/2)',
+}
+DM_FORMULA_LEGEND = 'At, Ar, Ai — áreas dos buffers de teste, referência e interseção'
+
+
+def dm_formula_report_row(index):
+    """(id, equação+legenda) para o relatório de parâmetros."""
+    try:
+        i = int(index)
+    except (TypeError, ValueError):
+        i = DM_FORMULA_ORIGINAL
+    if i not in DM_FORMULA_ID:
+        i = DM_FORMULA_ORIGINAL
+    eq = DM_FORMULA_EQ[i]
+    return DM_FORMULA_ID[i], f'{eq}\n{DM_FORMULA_LEGEND}'
+
 # Classes sintéticas no modo CE90/LE90 (chaves em dic_values)
 CLASS_CE90 = 'CE90'
 CLASS_LE90 = 'LE90'
@@ -91,6 +119,68 @@ CLASS_LE90 = 'LE90'
 # Razões EP/PEC da classe A (mesmos critérios de aprovação no modo CE90/LE90)
 EP_RATIO_H = DIC_PEC_MM['H']['A']['ep'] / DIC_PEC_MM['H']['A']['pec']
 EP_RATIO_V = DIC_PEC_MM['V']['A']['ep'] / DIC_PEC_MM['V']['A']['pec']
+
+# Critérios opcionais na busca CE90/LE90 (máscara bit a bit em step_buffers.ce90_pass_criteria)
+CE90_CRIT_QUANT = 1 << 0  # Quantitativo (≥90 % das amostras)
+CE90_CRIT_EXT = 1 << 1    # Extensão (≥90 % da extensão)
+CE90_CRIT_RMS = 1 << 2    # RMS ≤ EP
+CE90_CRIT_DEFAULT = CE90_CRIT_QUANT | CE90_CRIT_EXT | CE90_CRIT_RMS
+
+# Percentual PEC/CE90: arredonda a 1 casa e só depois compara com 90 %
+PEC_PASS_PERCENT = 90.0
+PEC_PERCENT_DECIMALS = 1
+
+
+def pec_percent_rounded(ratio) -> float:
+    """Converte fracção 0–1 em percentual 0–100 com 1 casa decimal."""
+    try:
+        return round(float(ratio) * 100.0, PEC_PERCENT_DECIMALS)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def pec_percent_passes(ratio) -> bool:
+    """Aprova se o percentual já arredondado a 1 casa é ≥ 90 %."""
+    return pec_percent_rounded(ratio) >= PEC_PASS_PERCENT
+
+
+def pec_rms(values) -> float:
+    """RMS amostral sqrt(Σx²/(n−1)), o mesmo do relatório PEC."""
+    vals = []
+    for v in values or []:
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(x):
+            vals.append(x)
+    n = len(vals)
+    if n < 2:
+        return float('nan')
+    try:
+        sun_ = math.fsum(x * x for x in vals)
+        if not math.isfinite(sun_) or sun_ < 0:
+            return float('nan')
+        return math.sqrt(sun_ / (n - 1))
+    except (OverflowError, OSError, ValueError, ArithmeticError):
+        return float('nan')
+
+
+def ce90_criteria_from_mask(mask) -> dict:
+    """Converte máscara inteira em dict {quant, ext, rms}. Se nenhum bit, usa todos."""
+    try:
+        m = int(mask)
+    except (TypeError, ValueError):
+        m = CE90_CRIT_DEFAULT
+    out = {
+        'quant': bool(m & CE90_CRIT_QUANT),
+        'ext': bool(m & CE90_CRIT_EXT),
+        'rms': bool(m & CE90_CRIT_RMS),
+    }
+    if not any(out.values()):
+        return {'quant': True, 'ext': True, 'rms': True}
+    return out
+
 
 # Precisão do limiar na busca binária (metros)
 # Pixel do MDE de teste < 5 m → 2 casas (ex.: 0,50 m); senão → 1 casa.

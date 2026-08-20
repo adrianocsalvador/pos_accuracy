@@ -26,12 +26,17 @@ try:
     from .mod_pec_constants import (
         ACCURACY_STANDARD_BR,
         ACCURACY_STANDARD_CE90,
+        CE90_CRIT_DEFAULT,
         CE90_THRESHOLD_DECIMALS,
         CLASS_CE90,
         CLASS_LE90,
         EP_RATIO_H,
         EP_RATIO_V,
+        ce90_criteria_from_mask,
         ce90_threshold_decimals,
+        pec_percent_passes,
+        pec_percent_rounded,
+        pec_rms,
     )
 except ImportError:  # pragma: no cover
     ACCURACY_STANDARD_BR = 0
@@ -41,6 +46,7 @@ except ImportError:  # pragma: no cover
     CLASS_LE90 = 'LE90'
     EP_RATIO_H = 0.17 / 0.28
     EP_RATIO_V = 0.17 / 0.27
+    CE90_CRIT_DEFAULT = 7
 
     def ce90_threshold_decimals(pixel_m):
         try:
@@ -50,6 +56,32 @@ except ImportError:  # pragma: no cover
         if px > 0.0 and px < 5.0:
             return 2
         return CE90_THRESHOLD_DECIMALS
+
+    def ce90_criteria_from_mask(mask):
+        return {'quant': True, 'ext': True, 'rms': True}
+
+    def pec_percent_rounded(ratio):
+        try:
+            return round(float(ratio) * 100.0, 1)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def pec_percent_passes(ratio):
+        return pec_percent_rounded(ratio) >= 90.0
+
+    def pec_rms(values):
+        vals = []
+        for v in values or []:
+            try:
+                x = float(v)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(x):
+                vals.append(x)
+        n = len(vals)
+        if n < 2:
+            return float('nan')
+        return math.sqrt(sum(x * x for x in vals) / (n - 1))
 
 
 def _ce90_pec_limit(pec_, decimals=CE90_THRESHOLD_DECIMALS):
@@ -101,8 +133,14 @@ def _ce90_mark_outliers_iqr(group, dm_key, outlier_key):
             rec[outlier_key] = False
 
 
-def _ce90_group_evaluate(group, dm_key, pec_raw, ep_raw, decimals=CE90_THRESHOLD_DECIMALS):
-    """Avalia grupo CE90/LE90. Retorna (ok, info)."""
+def _ce90_group_evaluate(
+        group, dm_key, pec_raw, ep_raw, decimals=CE90_THRESHOLD_DECIMALS,
+        criteria=None):
+    """Avalia grupo CE90/LE90. Retorna (ok, info).
+
+    ``criteria``: dict com chaves quant/ext/rms (bool). Só os True entram no
+    resultado da busca; normalidade continua sempre obrigatória.
+    """
     outlier_key = 'outlier_h' if dm_key == 'dm_h' else 'outlier_v'
     _ce90_mark_outliers_iqr(group, dm_key, outlier_key)
     values = []
@@ -156,21 +194,34 @@ def _ce90_group_evaluate(group, dm_key, pec_raw, ep_raw, decimals=CE90_THRESHOLD
         perc_e = sum(
             ext for v, ext in zip(values, extents) if v <= pec_lim
         ) / total_ext
-    rms_ = math.sqrt(sum(v * v for v in values) / len(values))
+    rms_ = pec_rms(values)
     info['perc_q'] = perc_q
     info['perc_e'] = perc_e
     info['rms'] = rms_
-    info['pec_ok_q'] = perc_q >= 0.90
-    info['pec_ok_e'] = perc_e >= 0.90
+    info['pec_ok_q'] = pec_percent_passes(perc_q)
+    info['pec_ok_e'] = pec_percent_passes(perc_e)
     info['ep_ok'] = math.isfinite(rms_) and math.isfinite(ep_v) and rms_ <= ep_v
-    ok = info['pec_ok_q'] and info['pec_ok_e'] and info['ep_ok']
+    crit = criteria if isinstance(criteria, dict) else None
+    if not crit:
+        crit = {'quant': True, 'ext': True, 'rms': True}
+    elif not any(bool(crit.get(k)) for k in ('quant', 'ext', 'rms')):
+        crit = {'quant': True, 'ext': True, 'rms': True}
+    ok = True
+    if crit.get('quant'):
+        ok = ok and info['pec_ok_q']
+    if crit.get('ext'):
+        ok = ok and info['pec_ok_e']
+    if crit.get('rms'):
+        ok = ok and info['ep_ok']
     return ok, info
 
 
-def _ce90_group_passes(group, dm_key, pec_raw, ep_raw, decimals=CE90_THRESHOLD_DECIMALS):
-    """Aprova se normalidade + PEC quant/ext ≥90% + RMS ≤ EP."""
+def _ce90_group_passes(
+        group, dm_key, pec_raw, ep_raw, decimals=CE90_THRESHOLD_DECIMALS,
+        criteria=None):
+    """Aprova se normalidade + critérios marcados (quant/ext/RMS)."""
     ok, _info = _ce90_group_evaluate(
-        group, dm_key, pec_raw, ep_raw, decimals=decimals)
+        group, dm_key, pec_raw, ep_raw, decimals=decimals, criteria=criteria)
     return ok
 
 
@@ -1326,6 +1377,8 @@ class BufferThread(QThread):
             self.ce90_max_v = float(dic_.get('ce90_max_v', 2.0))
         except (TypeError, ValueError):
             self.ce90_max_v = 2.0
+        self.ce90_criteria = ce90_criteria_from_mask(
+            dic_.get('ce90_pass_criteria', CE90_CRIT_DEFAULT))
         self.write_buffer_layer = bool(dic_.get('write_buffer_layer', True))
         focus = str(dic_.get('recompute_focus') or 'full').strip().lower()
         self.recompute_focus = focus if focus in ('full', 'alt', 'dm') else 'full'
@@ -1685,6 +1738,7 @@ class BufferThread(QThread):
                 key,
                 ep_raw,
                 decimals=dec,
+                criteria=getattr(self, 'ce90_criteria', None),
             )
             trials[key] = group
             trials_meta[key] = {'ciclo': ciclo, 'ok': bool(ok)}
@@ -1704,14 +1758,14 @@ class BufferThread(QThread):
                     else float('nan')
                 )
                 detail = tr(
-                    'n={0} (out={1}); quant {2:.0f}% <= {3}; '
-                    'ext {4:.0f}% <= {3}; RMS={5} EP={6}'
+                    'n={0} (out={1}); quant {2:.1f}% <= {3}; '
+                    'ext {4:.1f}% <= {3}; RMS={5} EP={6}'
                 ).format(
                     info['n_valid'],
                     info['n_outliers'],
-                    info['perc_q'] * 100,
+                    pec_percent_rounded(info['perc_q']),
                     info['pec_lim'],
-                    info['perc_e'] * 100,
+                    pec_percent_rounded(info['perc_e']),
                     rms_show if math.isfinite(rms_show) else tr('n/d'),
                     info['ep'],
                 )
@@ -1733,6 +1787,20 @@ class BufferThread(QThread):
             'logonly': tr(
                 '--- {0}: busca entre 0.0 m e {1} m (passo {2:g} m) ---'
             ).format(label, fmt_m(max_r), step),
+        })
+        crit = getattr(self, 'ce90_criteria', None) or {
+            'quant': True, 'ext': True, 'rms': True}
+        crit_parts = []
+        if crit.get('quant'):
+            crit_parts.append(tr('Quantitativo'))
+        if crit.get('ext'):
+            crit_parts.append(tr('Extensão'))
+        if crit.get('rms'):
+            crit_parts.append(tr('RMS (EP)'))
+        self.sig_status.emit({
+            'logonly': tr(
+                '{0}: critérios de aprovação na busca — {1}'
+            ).format(label, ', '.join(crit_parts) if crit_parts else tr('(nenhum)')),
         })
 
         # RODADA 1: 0 (reprovado), intermediário e máximo (ex.: 0, 90, 180)

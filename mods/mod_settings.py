@@ -34,6 +34,31 @@ def _narrow_value_widget(widget, *, fraction: float = 1.0 / 3.0, floor: int = 56
     widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
 
+# Combos expansíveis ocupam 80 % da 2.ª coluna (20 % livres à direita)
+COMBO_EXPAND_FILL = 0.80
+
+
+def _expanding_value_host(widget, *, fill: float = COMBO_EXPAND_FILL, floor: int = 56):
+    """Combo que cresce com a janela, limitado a `fill` da 2.ª coluna."""
+    if widget is None:
+        return None
+    hint = max(widget.minimumSizeHint().width(), widget.sizeHint().width(), 1)
+    widget.setMinimumWidth(max(floor, min(hint, 120)))
+    widget.setMaximumWidth(16777215)
+    widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    fill = min(1.0, max(0.1, float(fill)))
+    host = QWidget()
+    hl = QHBoxLayout(host)
+    hl.setContentsMargins(0, 0, 0, 0)
+    hl.setSpacing(0)
+    num = max(1, int(round(fill * 100)))
+    den = max(0, 100 - num)
+    hl.addWidget(widget, num)
+    if den:
+        hl.addStretch(den)
+    return host
+
+
 class SettingsDlg(QDialog):
     """Settings Form"""
 
@@ -72,12 +97,13 @@ class SettingsDlg(QDialog):
                             'tooltip': tr_ui(
                                 'Memória máxima do GRASS no r.watershed. Diminua se falhar. '
                                 'Padrão: 4 GB.'),
-                            'type': 'spin',
-                            'value': 4,
-                            'default': 4,
-                            'min': 1,
-                            'max': 128,
-                            'step': 1,
+                            'type': 'doublespin',
+                            'value': 4.0,
+                            'default': 4.0,
+                            'min': 0.5,
+                            'max': 128.0,
+                            'decimals': 1,
+                            'step': 0.5,
                             'obj': None},
                     },
                 },
@@ -92,12 +118,13 @@ class SettingsDlg(QDialog):
                                 'Filtro inicial: distância máxima entre centróides, em pixels do MDE de teste. '
                                 'Aumentar tende a aumentar candidatos; diminuir pode enviesar a amostra '
                                 'ou não atingir o mínimo. Padrão: 3 px.'),
-                            'type': 'spin',
-                            'value': 3,
-                            'default': 3,
-                            'min': 1,
-                            'max': 100,
-                            'step': 1,
+                            'type': 'doublespin',
+                            'value': 3.0,
+                            'default': 3.0,
+                            'min': 0.5,
+                            'max': 100.0,
+                            'decimals': 1,
+                            'step': 0.5,
                             'obj': None},
                         'percent_area': {
                             'label': tr_ui('Diferença % entre área dos mínimos envelopes'),
@@ -105,12 +132,13 @@ class SettingsDlg(QDialog):
                                 'Segundo filtro: geometrias semelhantes têm envelopes com áreas semelhantes, '
                                 'reduzindo a influência de erros posicionais. Aumentar ou diminuir tem o '
                                 'mesmo efeito que na distância entre centróides. Padrão: 10 %.'),
-                            'type': 'spin',
-                            'value': 10,
-                            'default': 10,
-                            'min': 1,
-                            'max': 100,
-                            'step': 1,
+                            'type': 'doublespin',
+                            'value': 10.0,
+                            'default': 10.0,
+                            'min': 0.5,
+                            'max': 100.0,
+                            'decimals': 1,
+                            'step': 0.5,
                             'obj': None},
                         'percent_length': {
                             'label': tr_ui(
@@ -118,12 +146,13 @@ class SettingsDlg(QDialog):
                             'tooltip': tr_ui(
                                 'Filtro pelo lado maior dos envelopes orientados. Pares homólogos devem ter '
                                 'comprimentos de envelope semelhantes. Padrão: 5 %.'),
-                            'type': 'spin',
-                            'value': 5,
-                            'default': 5,
-                            'min': 1,
-                            'max': 100,
-                            'step': 1,
+                            'type': 'doublespin',
+                            'value': 5.0,
+                            'default': 5.0,
+                            'min': 0.5,
+                            'max': 100.0,
+                            'decimals': 1,
+                            'step': 0.5,
                             'obj': None},
                         'min_extent_px': {
                             'label': tr_ui(
@@ -131,12 +160,13 @@ class SettingsDlg(QDialog):
                             'tooltip': tr_ui(
                                 'Descarta linhas de teste mais curtas que este comprimento (pixels × GSD do teste), '
                                 'evitando amostras pouco representativas. Padrão: 10 px.'),
-                            'type': 'spin',
-                            'value': 10,
-                            'default': 10,
-                            'min': 1,
-                            'max': 1000,
-                            'step': 1,
+                            'type': 'doublespin',
+                            'value': 10.0,
+                            'default': 10.0,
+                            'min': 0.5,
+                            'max': 1000.0,
+                            'decimals': 1,
+                            'step': 0.5,
                             'obj': None},
                     },
                 },
@@ -149,7 +179,7 @@ class SettingsDlg(QDialog):
                             'label': '',
                             'tooltip': tr_ui(
                                 'PEC-PCD classifica nas escalas e classes A–D. '
-                                'CE90/LE90 busca o menor limiar (m) que cumpre os testes de 90 % e RMS.'),
+                                'CE90/LE90 busca o menor limiar (m) que cumpre os critérios de aprovação marcados.'),
                             'type': 'radio',
                             'layout': 'horizontal',
                             'list': self.parent.list_accuracy_standard,
@@ -162,6 +192,7 @@ class SettingsDlg(QDialog):
                                 'Maior escala (maior detalhe) da avaliação PEC-PCD, p.ex. 1:10.000.'),
                             'list': self.list_scale,
                             'string': '1:{}.000',
+                            'expand': True,
                             'value': 10,
                             'default': 10,
                             'obj': None},
@@ -172,6 +203,7 @@ class SettingsDlg(QDialog):
                                 'A análise percorre da máxima à mínima.'),
                             'list': self.list_scale,
                             'string': '1:{}.000',
+                            'expand': True,
                             'value': 10,
                             'default': 10,
                             'obj': None},
@@ -201,6 +233,24 @@ class SettingsDlg(QDialog):
                             'decimals': 1,
                             'step': 0.5,
                             'obj': None},
+                        'ce90_pass_criteria': {
+                            'label': tr_ui('Critérios para aprovação'),
+                            'bold_label': True,
+                            'tooltip': tr_ui(
+                                'Critérios da busca recursiva do limiar CE90/LE90. '
+                                'Só os marcados contam para a aprovação '
+                                '(a normalidade continua sempre obrigatória). '
+                                'Padrão: Quantitativo, Extensão e RMS (EP).'),
+                            'type': 'checkbox_group',
+                            'layout': 'vertical',
+                            'list': [
+                                tr_ui('Quantitativo'),
+                                tr_ui('Extensão'),
+                                tr_ui('RMS (EP)'),
+                            ],
+                            'value': 7,
+                            'default': 7,
+                            'obj': None},
                         'show_buffers_on_map': {
                             'label': tr_ui('Mostrar buffers no mapa durante o processamento'),
                             'tooltip': tr_ui(
@@ -224,6 +274,7 @@ class SettingsDlg(QDialog):
                                 'Por proximidade: associa pontos pela menor distância. '
                                 'Sem compatibilização: usa as progressivas originais.'),
                             'list': self.parent.list_norm_type,
+                            'expand': True,
                             'value': 0,
                             'default': 0,
                             'obj': None},
@@ -340,7 +391,7 @@ class SettingsDlg(QDialog):
                 self.parent.list_accuracy_standard)
             dp['step_buffers']['fields']['accuracy_standard']['tooltip'] = tr_ui(
                 'PEC-PCD classifica nas escalas e classes A–D. '
-                'CE90/LE90 busca o menor limiar (m) que cumpre os testes de 90 % e RMS.')
+                'CE90/LE90 busca o menor limiar (m) que cumpre os critérios de aprovação marcados.')
         dp['step_buffers']['fields']['max_scale']['label'] = tr_ui('Máxima Escala')
         dp['step_buffers']['fields']['max_scale']['tooltip'] = tr_ui(
             'Maior escala (maior detalhe) da avaliação PEC-PCD, p.ex. 1:10.000.')
@@ -357,6 +408,19 @@ class SettingsDlg(QDialog):
                 'Máximo Vertical (pixels do MDE de teste)')
             dp['step_buffers']['fields']['ce90_max_v']['tooltip'] = tr_ui(
                 'Teto da busca do LE90, em pixels do MDE de teste. Padrão: 2 px.')
+        if 'ce90_pass_criteria' in dp['step_buffers']['fields']:
+            dp['step_buffers']['fields']['ce90_pass_criteria']['label'] = tr_ui(
+                'Critérios para aprovação')
+            dp['step_buffers']['fields']['ce90_pass_criteria']['tooltip'] = tr_ui(
+                'Critérios da busca recursiva do limiar CE90/LE90. '
+                'Só os marcados contam para a aprovação '
+                '(a normalidade continua sempre obrigatória). '
+                'Padrão: Quantitativo, Extensão e RMS (EP).')
+            dp['step_buffers']['fields']['ce90_pass_criteria']['list'] = [
+                tr_ui('Quantitativo'),
+                tr_ui('Extensão'),
+                tr_ui('RMS (EP)'),
+            ]
         dp['step_buffers']['fields']['show_buffers_on_map']['label'] = tr_ui(
             'Mostrar buffers no mapa durante o processamento')
         dp['step_buffers']['fields']['show_buffers_on_map']['tooltip'] = tr_ui(
@@ -427,6 +491,18 @@ class SettingsDlg(QDialog):
                     continue
                 if meta.get('type') == 'checkbox':
                     continue
+                if meta.get('type') == 'checkbox_group':
+                    labels = meta.get('list') or []
+                    item_lbs = meta.get('item_label_objs') or []
+                    if item_lbs:
+                        for idx, lb_item in enumerate(item_lbs):
+                            if 0 <= idx < len(labels):
+                                lb_item.setText(str(labels[idx]))
+                    else:
+                        for idx, cb in enumerate(obj or []):
+                            if 0 <= idx < len(labels):
+                                cb.setText(str(labels[idx]))
+                    continue
                 if meta.get('type') == 'radio':
                     tips = meta.get('tooltips') or []
                     labels = meta.get('list') or []
@@ -469,7 +545,7 @@ class SettingsDlg(QDialog):
                         value_ = dic_from_settings[key_i][key_j]
                         meta = self.dic_param[key_i]['fields'][key_j]
                         ftype = meta.get('type')
-                        if ftype in ('spin', 'checkbox'):
+                        if ftype in ('spin', 'checkbox', 'checkbox_group'):
                             try:
                                 value_ = int(float(value_))
                             except (TypeError, ValueError):
@@ -514,6 +590,18 @@ class SettingsDlg(QDialog):
                     obj.blockSignals(True)
                     obj.setChecked(checked)
                     obj.blockSignals(False)
+                elif meta.get('type') == 'checkbox_group':
+                    try:
+                        mask = int(float(val))
+                    except (TypeError, ValueError):
+                        try:
+                            mask = int(float(meta.get('default', 7)))
+                        except (TypeError, ValueError):
+                            mask = 7
+                    for idx, cb in enumerate(obj or []):
+                        cb.blockSignals(True)
+                        cb.setChecked(bool(mask & (1 << idx)))
+                        cb.blockSignals(False)
                 elif meta.get('type') == 'radio':
                     try:
                         idx = int(val)
@@ -581,6 +669,10 @@ class SettingsDlg(QDialog):
                         lb_ = QLabel(field_label)
                         lb_.setObjectName('lb_' + item_j.lower())
                         lb_.setWordWrap(True)
+                        if meta.get('bold_label'):
+                            font = lb_.font()
+                            font.setBold(True)
+                            lb_.setFont(font)
                         meta['label_obj'] = lb_
                         gl_.addWidget(lb_, r_, 1)
                     else:
@@ -598,6 +690,26 @@ class SettingsDlg(QDialog):
                                 lb_.setEnabled(False)
                         meta['obj'] = cb_
                         gl_.addWidget(cb_, r_, 2)
+                    elif meta.get('type') == 'checkbox_group':
+                        try:
+                            mask = int(meta.get('value', meta.get('default', 7)))
+                        except (TypeError, ValueError):
+                            mask = 7
+                        cbs = []
+                        item_labels = []
+                        for idx, text in enumerate(meta.get('list') or []):
+                            r_ += 1
+                            item_lb = QLabel(str(text))
+                            item_lb.setWordWrap(True)
+                            item_lb.setContentsMargins(18, 0, 0, 0)
+                            gl_.addWidget(item_lb, r_, 1)
+                            item_labels.append(item_lb)
+                            cb = QCheckBox(self)
+                            cb.setChecked(bool(mask & (1 << idx)))
+                            gl_.addWidget(cb, r_, 2)
+                            cbs.append(cb)
+                        meta['obj'] = cbs
+                        meta['item_label_objs'] = item_labels
                     elif meta.get('type') == 'radio':
                         bg = QButtonGroup(self)
                         bg.setExclusive(True)
@@ -664,9 +776,15 @@ class SettingsDlg(QDialog):
                         cmb_.addItems(list_)
                         index_ = int(meta['value'])
                         cmb_.setCurrentIndex(index_)
-                        _narrow_value_widget(cmb_)
-                        meta['obj'] = cmb_
-                        gl_.addWidget(cmb_, r_, 2)
+                        if meta.get('expand'):
+                            host = _expanding_value_host(cmb_)
+                            meta['obj'] = cmb_
+                            meta['value_host'] = host
+                            gl_.addWidget(host, r_, 2)
+                        else:
+                            _narrow_value_widget(cmb_)
+                            meta['obj'] = cmb_
+                            gl_.addWidget(cmb_, r_, 2)
 
                     else:
                         le_ = QLineEdit(str(meta['value']))
@@ -738,12 +856,19 @@ class SettingsDlg(QDialog):
                 if obj is None:
                     continue
                 ftype = meta.get('type')
-                if ftype == 'checkbox':
+                if meta.get('type') == 'checkbox':
                     try:
                         obj.toggled.disconnect(clear_hl)
                     except (TypeError, RuntimeError):
                         pass
                     obj.toggled.connect(clear_hl)
+                elif meta.get('type') == 'checkbox_group':
+                    for cb in (obj or []):
+                        try:
+                            cb.toggled.disconnect(clear_hl)
+                        except (TypeError, RuntimeError):
+                            pass
+                        cb.toggled.connect(clear_hl)
                 elif ftype == 'radio':
                     try:
                         obj.idClicked.disconnect(clear_hl)
@@ -806,6 +931,11 @@ class SettingsDlg(QDialog):
                             continue
                         if not btn.toolTip():
                             btn.setToolTip(tip)
+                elif meta.get('type') == 'checkbox_group':
+                    for cb in (obj or []):
+                        cb.setToolTip(tip)
+                    for lb_item in meta.get('item_label_objs') or []:
+                        lb_item.setToolTip(tip)
                 else:
                     obj.setToolTip(tip)
 
@@ -819,7 +949,15 @@ class SettingsDlg(QDialog):
         if meta.get('type') == 'radio':
             for btn in obj.buttons():
                 btn.setVisible(visible)
+        elif meta.get('type') == 'checkbox_group':
+            for cb in (obj or []):
+                cb.setVisible(visible)
+            for lb_item in meta.get('item_label_objs') or []:
+                lb_item.setVisible(visible)
         else:
+            host = meta.get('value_host')
+            if host is not None:
+                host.setVisible(visible)
             obj.setVisible(visible)
 
     def _sync_buffer_standard_visibility(self):
@@ -833,7 +971,7 @@ class SettingsDlg(QDialog):
         for key in ('max_scale', 'min_scale'):
             if key in fields:
                 self._set_field_row_visible(fields[key], not is_ce90)
-        for key in ('ce90_max_h', 'ce90_max_v'):
+        for key in ('ce90_max_h', 'ce90_max_v', 'ce90_pass_criteria'):
             if key in fields:
                 self._set_field_row_visible(fields[key], is_ce90)
 
@@ -861,6 +999,12 @@ class SettingsDlg(QDialog):
                     continue
                 if meta.get('type') == 'checkbox':
                     value_ = 1 if obj.isChecked() else 0
+                elif meta.get('type') == 'checkbox_group':
+                    mask = 0
+                    for idx, cb in enumerate(obj or []):
+                        if cb.isChecked():
+                            mask |= (1 << idx)
+                    value_ = mask
                 elif meta.get('type') == 'radio':
                     value_ = obj.checkedId()
                     if value_ < 0:
@@ -895,6 +1039,13 @@ class SettingsDlg(QDialog):
                         continue
                     if meta.get('type') == 'checkbox':
                         obj.setChecked(bool(int(default_)))
+                    elif meta.get('type') == 'checkbox_group':
+                        try:
+                            mask = int(default_)
+                        except (TypeError, ValueError):
+                            mask = 7
+                        for idx, cb in enumerate(obj or []):
+                            cb.setChecked(bool(mask & (1 << idx)))
                     elif meta.get('type') == 'radio':
                         btn = obj.button(int(default_))
                         if btn is None and obj.buttons():
