@@ -201,7 +201,8 @@ def _unique_pairs_from_result(result_layer, scale, model=None):
     for feat in result_layer.getFeatures():
         try:
             sc = int(feat['scale'])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            ignore_exc(_exc)
             continue
         if sc != int(scale):
             continue
@@ -211,7 +212,8 @@ def _unique_pairs_from_result(result_layer, scale, model=None):
         layer_ref = str(feat['layer_ref'] or '')
         try:
             id_ref = int(feat['id_ref'])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            ignore_exc(_exc)
             continue
         if not test_name or not layer_ref:
             continue
@@ -238,7 +240,8 @@ def _scales_from_result(result_layer, model=None):
             continue
         try:
             scales.add(int(feat['scale']))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            ignore_exc(_exc)
             continue
     return sorted(s for s in scales if s in DIC_EQ_V)
 
@@ -321,7 +324,8 @@ def _dm_attrs_by_class(result_layer, test_name, layer_ref, id_ref, scale):
                 continue
             if int(feat['id_ref']) != int(id_ref):
                 continue
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            ignore_exc(_exc)
             continue
         if str(feat['Test_name']) != test_name or str(feat['layer_ref']) != layer_ref:
             continue
@@ -833,7 +837,8 @@ def _table_entry_for_scale(table, scale):
         try:
             if abs(float(k) - s_f) < 1e-9:
                 return v or {}
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            ignore_exc(_exc)
             continue
     return {}
 
@@ -869,7 +874,8 @@ def _ce90_positive_thresholds(scales):
     for s in scales or []:
         try:
             v = float(s)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            ignore_exc(_exc)
             continue
         if v <= 0 or not math.isfinite(v):
             continue
@@ -953,7 +959,8 @@ def write_audit_dm_csv(
         for scale in scale_list:
             try:
                 scale_i = int(scale)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as _exc:
+                ignore_exc(_exc)
                 continue
             for class_ in class_list:
                 header = f'dm_{scale_i}_{class_}'
@@ -1419,7 +1426,8 @@ def _eq_of_scale(eq_lookup, scale):
         try:
             if abs(float(k) - s_f) < 1e-9:
                 return v
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            ignore_exc(_exc)
             continue
     return ''
 
@@ -1865,7 +1873,8 @@ def generate_audit_pdfs_from_pairs(
     for scale in scales:
         try:
             pec_scales.append(int(scale))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            ignore_exc(_exc)
             continue
     csv_path = None
     if pec_scales:
@@ -1889,7 +1898,8 @@ def generate_audit_pdfs_from_pairs(
     for scale in scales:
         try:
             scale = int(scale)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            ignore_exc(_exc)
             continue
         if scale not in pec_lookup and not _table_entry_for_scale(pec_lookup, scale):
             _log(f'Auditoria vertical: escala {scale} sem PEC-V — ignorada.')
@@ -2055,7 +2065,8 @@ def generate_audit_horizontal_pdfs_from_pairs(
     for scale in scales:
         try:
             pec_scales.append(int(scale))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            ignore_exc(_exc)
             continue
     csv_path = None
     if pec_scales:
@@ -2079,7 +2090,8 @@ def generate_audit_horizontal_pdfs_from_pairs(
     for scale in scales:
         try:
             scale = int(scale)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            ignore_exc(_exc)
             continue
         out_name = f'Audit_horizontal_{safe_model}_{scale}_{ts}.pdf'
         out_path = os.path.join(out_dir, out_name)

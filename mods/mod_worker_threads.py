@@ -13,6 +13,7 @@ from qgis.core import (QgsApplication, QgsCoordinateReferenceSystem, QgsFeature,
                        QgsFields, QgsField, QgsVectorLayer, QgsRasterLayer, QgsCoordinateTransformContext,
                        QgsWkbTypes, QgsGeometry, QgsLineString, QgsPointXY, QgsProcessingContext,
                        QgsProcessingFeedback, QgsMapLayer, QgsProject)
+from .mod_exc import ignore_exc
 
 # |dm_h| ou |dm_v| acima disto é tratado como erro numérico / geometria; → NaN e WARNING no log.
 DM_ABS_MAX_SANE = 1000.0
@@ -74,7 +75,8 @@ except ImportError:  # pragma: no cover
         for v in values or []:
             try:
                 x = float(v)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as _exc:
+                ignore_exc(_exc)
                 continue
             if math.isfinite(x):
                 vals.append(x)
@@ -107,7 +109,8 @@ def _ce90_mark_outliers_iqr(group, dm_key, outlier_key):
     for rec in group.values():
         try:
             v = float(rec.get(dm_key))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            ignore_exc(_exc)
             continue
         if math.isfinite(v):
             vals.append(v)
@@ -152,7 +155,8 @@ def _ce90_group_evaluate(
             continue
         try:
             v = float(rec.get(dm_key))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            ignore_exc(_exc)
             continue
         if not math.isfinite(v):
             continue

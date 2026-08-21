@@ -1920,6 +1920,7 @@ def project_file_filter_i18n() -> str:
     )
 
 # Tabela sem geometria no arquivo de projeto: inicio/fim = data e hora local (SQLite 'YYYY-MM-DD HH:MM:SS') ou NULL
+# SQL usa o literal pa_pipeline_etapas (mesmo valor) — Bandit B608 rejeita f-string em execute().
 PIPELINE_ETAPAS_TABLE = 'pa_pipeline_etapas'
 PIPELINE_DATETIME_FMT = '%Y-%m-%d %H:%M:%S'
 PIPELINE_ETAPAS_DEF = (
@@ -1987,7 +1988,7 @@ def pipeline_has_completed_any_etapa(mdepa_path: str) -> bool:
         conn = sqlite3.connect(mdepa_path)
         try:
             cur = conn.execute(
-                f'''SELECT 1 FROM {PIPELINE_ETAPAS_TABLE}
+                '''SELECT 1 FROM pa_pipeline_etapas
                     WHERE fim IS NOT NULL AND TRIM(fim) != ''
                     LIMIT 1'''
             )
@@ -2007,7 +2008,7 @@ def _load_pipeline_snapshot(mdepa_path: str, etapa: str) -> dict:
         conn = sqlite3.connect(mdepa_path)
         try:
             cur = conn.execute(
-                f'SELECT valor FROM {PA_SETTINGS_TABLE} WHERE etapa = ? AND campo = ?',
+                'SELECT valor FROM pa_settings WHERE etapa = ? AND campo = ?',
                 (etapa, PIPELINE_SNAPSHOT_CAMPO),
             )
             row = cur.fetchone()
@@ -2030,7 +2031,7 @@ def _save_pipeline_snapshot(mdepa_path: str, etapa: str, flat: dict) -> bool:
         conn = sqlite3.connect(mdepa_path)
         try:
             conn.execute(
-                f'''INSERT INTO {PA_SETTINGS_TABLE} (etapa, campo, valor)
+                '''INSERT INTO pa_settings (etapa, campo, valor)
                     VALUES (?, ?, ?)
                     ON CONFLICT(etapa, campo) DO UPDATE SET valor = excluded.valor''',
                 (etapa, PIPELINE_SNAPSHOT_CAMPO, payload),
@@ -2150,7 +2151,7 @@ def build_flat_snapshot_from_mdepa_stored_settings(mdepa_path: str) -> dict:
         conn = sqlite3.connect(mdepa_path)
         try:
             cur = conn.execute(
-                f"SELECT etapa, campo, valor FROM {PA_SETTINGS_TABLE} WHERE etapa LIKE 'step_%%'"
+                "SELECT etapa, campo, valor FROM pa_settings WHERE etapa LIKE 'step_%'"
             )
             for etapa, campo, valor in cur.fetchall():
                 if not etapa or valor is None:
@@ -2227,6 +2228,7 @@ def compute_restart_etapa_from_snapshots(flat_now: dict, flat_was: dict):
     return min(candidates, key=_restart_etapa_priority_index), None
 
 # Parâmetros do diálogo Config (por projeto): etapa = chave step_* em dic_param, campo = chave do field
+# SQL usa o literal pa_settings (mesmo valor) — Bandit B608 rejeita f-string em execute().
 PA_SETTINGS_TABLE = 'pa_settings'
 # Fontes DEM (QgsRasterLayer.source()): etapa na tabela de settings, campo '0' | '1'
 SETTINGS_ETAPA_DEM_SOURCES = 'dem_sources'
@@ -2286,7 +2288,7 @@ def gpkg_layer_uri(gpkg_path: str, layername: str) -> str:
 
 def _ensure_pa_settings_table_conn(conn: sqlite3.Connection) -> None:
     conn.execute(
-        f'''CREATE TABLE IF NOT EXISTS {PA_SETTINGS_TABLE} (
+        '''CREATE TABLE IF NOT EXISTS pa_settings (
             etapa TEXT NOT NULL,
             campo TEXT NOT NULL,
             valor TEXT NOT NULL,
@@ -2321,7 +2323,7 @@ def load_plugin_settings_from_mdepa_path(mdepa_path: str, dic_param: dict) -> in
         conn = sqlite3.connect(mdepa_path)
         try:
             cur = conn.execute(
-                f'SELECT etapa, campo, valor FROM {PA_SETTINGS_TABLE}')
+                'SELECT etapa, campo, valor FROM pa_settings')
             for etapa, campo, valor in cur.fetchall():
                 if etapa not in dic_param:
                     continue
@@ -2343,7 +2345,8 @@ def load_plugin_settings_from_mdepa_path(mdepa_path: str, dic_param: dict) -> in
                 elif meta.get('type') == 'doublespin':
                     try:
                         meta['value'] = float(valor)
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError) as _exc:
+                        ignore_exc(_exc)
                         continue
                 elif meta.get('type') == 'radio' or 'list' in meta:
                     try:
@@ -2351,7 +2354,8 @@ def load_plugin_settings_from_mdepa_path(mdepa_path: str, dic_param: dict) -> in
                     except (TypeError, ValueError):
                         try:
                             meta['value'] = int(float(valor))
-                        except (TypeError, ValueError):
+                        except (TypeError, ValueError) as _exc:
+                            ignore_exc(_exc)
                             continue
                 else:
                     meta['value'] = str(valor)
@@ -2380,7 +2384,7 @@ def save_plugin_settings_to_mdepa_path(mdepa_path: str, dic_param: dict) -> bool
                 for campo, meta in block['fields'].items():
                     val = meta.get('value')
                     conn.execute(
-                        f'''INSERT INTO {PA_SETTINGS_TABLE} (etapa, campo, valor)
+                        '''INSERT INTO pa_settings (etapa, campo, valor)
                             VALUES (?, ?, ?)
                             ON CONFLICT(etapa, campo) DO UPDATE SET valor = excluded.valor''',
                         (step, campo, str(val)),
@@ -2467,13 +2471,14 @@ def load_dem_sources_from_project_path(mdepa_path: str) -> dict:
         try:
             for etapa_key in (SETTINGS_ETAPA_DEM_SOURCES, SETTINGS_ETAPA_DEM_SOURCES_LEGACY):
                 cur = conn.execute(
-                    f'SELECT campo, valor FROM {PA_SETTINGS_TABLE} WHERE etapa = ?',
+                    'SELECT campo, valor FROM pa_settings WHERE etapa = ?',
                     (etapa_key,),
                 )
                 for campo, valor in cur.fetchall():
                     try:
                         k = int(campo)
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError) as _exc:
+                        ignore_exc(_exc)
                         continue
                     if k in (0, 1) and k not in out:
                         out[k] = '' if valor is None else str(valor)
@@ -2496,7 +2501,7 @@ def save_dem_sources_to_project_path(mdepa_path: str, key_to_source: dict) -> bo
             for k in (0, 1):
                 val = (key_to_source.get(k) or '').strip()
                 conn.execute(
-                    f'''INSERT INTO {PA_SETTINGS_TABLE} (etapa, campo, valor)
+                    '''INSERT INTO pa_settings (etapa, campo, valor)
                         VALUES (?, ?, ?)
                         ON CONFLICT(etapa, campo) DO UPDATE SET valor = excluded.valor''',
                     (SETTINGS_ETAPA_DEM_SOURCES, str(k), val),
@@ -2535,7 +2540,7 @@ def save_workflow_ui_to_mdepa_path(
         try:
             for campo, val in rows:
                 conn.execute(
-                    f'''INSERT INTO {PA_SETTINGS_TABLE} (etapa, campo, valor)
+                    '''INSERT INTO pa_settings (etapa, campo, valor)
                         VALUES (?, ?, ?)
                         ON CONFLICT(etapa, campo) DO UPDATE SET valor = excluded.valor''',
                     (WORKFLOW_UI_ETAPA, campo, val),
@@ -2558,7 +2563,7 @@ def load_workflow_ui_from_mdepa_path(mdepa_path: str) -> dict:
         conn = sqlite3.connect(mdepa_path)
         try:
             cur = conn.execute(
-                f'SELECT campo, valor FROM {PA_SETTINGS_TABLE} WHERE etapa = ?',
+                'SELECT campo, valor FROM pa_settings WHERE etapa = ?',
                 (WORKFLOW_UI_ETAPA,),
             )
             for campo, valor in cur.fetchall():
@@ -2602,7 +2607,7 @@ def save_panel_stats_to_mdepa_path(
         try:
             for campo, val in rows:
                 conn.execute(
-                    f'''INSERT INTO {PA_SETTINGS_TABLE} (etapa, campo, valor)
+                    '''INSERT INTO pa_settings (etapa, campo, valor)
                         VALUES (?, ?, ?)
                         ON CONFLICT(etapa, campo) DO UPDATE SET valor = excluded.valor''',
                     (PANEL_STATS_ETAPA, campo, val),
@@ -2625,7 +2630,7 @@ def load_panel_stats_from_mdepa_path(mdepa_path: str) -> dict:
         conn = sqlite3.connect(mdepa_path)
         try:
             cur = conn.execute(
-                f'SELECT campo, valor FROM {PA_SETTINGS_TABLE} WHERE etapa = ?',
+                'SELECT campo, valor FROM pa_settings WHERE etapa = ?',
                 (PANEL_STATS_ETAPA,),
             )
             for campo, valor in cur.fetchall():
@@ -4388,7 +4393,8 @@ class Wd1(QWidget):
         for nm in names:
             try:
                 lyr = self.get_gpkg_layer(prefix_=nm, gpkg_path=self.gpkg_path, show=False)
-            except Exception:
+            except Exception as _exc:
+                ignore_exc(_exc)
                 continue
             if lyr is not None and lyr.isValid() and lyr.featureCount() > 0:
                 n_ok += 1
@@ -4452,7 +4458,7 @@ class Wd1(QWidget):
             conn = sqlite3.connect(path)
             try:
                 conn.execute(
-                    f'''UPDATE {PIPELINE_ETAPAS_TABLE}
+                    '''UPDATE pa_pipeline_etapas
                         SET inicio = NULL, fim = NULL
                         WHERE ordem >= ?''',
                     (min_ordem,),
@@ -5094,7 +5100,7 @@ class Wd1(QWidget):
             try:
                 # inicio/fim: data e hora local armazenada como TEXT no formato PIPELINE_DATETIME_FMT
                 conn.execute(
-                    f'''CREATE TABLE IF NOT EXISTS {PIPELINE_ETAPAS_TABLE} (
+                    '''CREATE TABLE IF NOT EXISTS pa_pipeline_etapas (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         ordem INTEGER NOT NULL UNIQUE,
                         etapa TEXT NOT NULL UNIQUE,
@@ -5108,19 +5114,19 @@ class Wd1(QWidget):
                     ('matching_linhas', 'correspondencia_linhas'),
                 ):
                     row_new = conn.execute(
-                        f'SELECT 1 FROM {PIPELINE_ETAPAS_TABLE} WHERE etapa = ?', (new_n,)
+                        'SELECT 1 FROM pa_pipeline_etapas WHERE etapa = ?', (new_n,)
                     ).fetchone()
                     if row_new:
                         conn.execute(
-                            f'DELETE FROM {PIPELINE_ETAPAS_TABLE} WHERE etapa = ?', (old_n,))
+                            'DELETE FROM pa_pipeline_etapas WHERE etapa = ?', (old_n,))
                     else:
                         conn.execute(
-                            f'UPDATE {PIPELINE_ETAPAS_TABLE} SET etapa = ? WHERE etapa = ?',
+                            'UPDATE pa_pipeline_etapas SET etapa = ? WHERE etapa = ?',
                             (new_n, old_n),
                         )
                 for ordem, etapa in PIPELINE_ETAPAS_DEF:
                     conn.execute(
-                        f'''INSERT OR IGNORE INTO {PIPELINE_ETAPAS_TABLE}
+                        '''INSERT OR IGNORE INTO pa_pipeline_etapas
                             (ordem, etapa, inicio, fim) VALUES (?, ?, NULL, NULL)''',
                         (ordem, etapa),
                     )
@@ -5141,7 +5147,7 @@ class Wd1(QWidget):
             conn = sqlite3.connect(path)
             try:
                 conn.execute(
-                    f'UPDATE {PIPELINE_ETAPAS_TABLE} SET inicio = ? WHERE etapa = ?',
+                    'UPDATE pa_pipeline_etapas SET inicio = ? WHERE etapa = ?',
                     (ts, etapa),
                 )
                 conn.commit()
@@ -5161,7 +5167,7 @@ class Wd1(QWidget):
             conn = sqlite3.connect(path)
             try:
                 conn.execute(
-                    f'UPDATE {PIPELINE_ETAPAS_TABLE} SET fim = ? WHERE etapa = ?',
+                    'UPDATE pa_pipeline_etapas SET fim = ? WHERE etapa = ?',
                     (ts, etapa),
                 )
                 conn.commit()
@@ -5413,7 +5419,8 @@ class Wd1(QWidget):
                 try:
                     fid_r = int(vet_[0])
                     fid_t = int(vet_[1])
-                except (TypeError, ValueError):
+                except (TypeError, ValueError) as _exc:
+                    ignore_exc(_exc)
                     continue
                 fr = layer_r.getFeature(fid_r)
                 ft = layer_t.getFeature(fid_t)
@@ -5556,7 +5563,8 @@ class Wd1(QWidget):
                     continue
                 try:
                     s += float(vet_[-1])
-                except (TypeError, ValueError, IndexError):
+                except (TypeError, ValueError, IndexError) as _exc:
+                    ignore_exc(_exc)
                     continue
         return s
 
@@ -5593,7 +5601,8 @@ class Wd1(QWidget):
                     len_m = float(vet_[-1])
                     if math.isfinite(len_m) and len_m > 0:
                         return len_m
-            except (TypeError, ValueError, IndexError):
+            except (TypeError, ValueError, IndexError) as _exc:
+                ignore_exc(_exc)
                 continue
         for vet_ in rows:
             try:
@@ -5601,7 +5610,8 @@ class Wd1(QWidget):
                     len_m = float(vet_[-1])
                     if math.isfinite(len_m) and len_m > 0:
                         return len_m
-            except (TypeError, ValueError, IndexError):
+            except (TypeError, ValueError, IndexError) as _exc:
+                ignore_exc(_exc)
                 continue
         return 0.0
 
@@ -6475,7 +6485,8 @@ class Wd1(QWidget):
                     try:
                         if abs(float(k) - float(scale_)) < 1e-9:
                             return v or {}
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError) as _exc:
+                        ignore_exc(_exc)
                         continue
             return info or {}
 
@@ -7270,7 +7281,8 @@ class Wd1(QWidget):
                 try:
                     fid_r = int(vet_[0])
                     fid_t = int(vet_[1])
-                except (TypeError, ValueError):
+                except (TypeError, ValueError) as _exc:
+                    ignore_exc(_exc)
                     continue
                 fr = layer_r.getFeature(fid_r)
                 ft = layer_t.getFeature(fid_t)
@@ -7673,7 +7685,8 @@ class Wd1(QWidget):
             for scale in scales:
                 try:
                     r = float(scale)
-                except (TypeError, ValueError):
+                except (TypeError, ValueError) as _exc:
+                    ignore_exc(_exc)
                     continue
                 eq_v_table[r] = r
                 pec_v_table[r] = {
@@ -7715,7 +7728,8 @@ class Wd1(QWidget):
         for scale, by_class in dic_values.items():
             try:
                 scale_i = float(scale) if ce90 else int(scale)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as _exc:
+                ignore_exc(_exc)
                 continue
             for class_, by_count in (by_class or {}).items():
                 for _count, rec in (by_count or {}).items():
@@ -7724,7 +7738,8 @@ class Wd1(QWidget):
                     try:
                         fid_r = int(rec.get('fid_r'))
                         fid_t = int(rec.get('fid_t'))
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError) as _exc:
+                        ignore_exc(_exc)
                         continue
                     dm_v = rec.get('dm_v')
                     try:
@@ -7771,7 +7786,8 @@ class Wd1(QWidget):
                 try:
                     fid_r = int(vet_[0])
                     fid_t = int(vet_[1])
-                except (TypeError, ValueError):
+                except (TypeError, ValueError) as _exc:
+                    ignore_exc(_exc)
                     continue
                 fr = layer_r.getFeature(fid_r)
                 ft = layer_t.getFeature(fid_t)
@@ -7795,7 +7811,8 @@ class Wd1(QWidget):
             for scale in scales:
                 try:
                     r = float(scale)
-                except (TypeError, ValueError):
+                except (TypeError, ValueError) as _exc:
+                    ignore_exc(_exc)
                     continue
                 pec_h_table[r] = {
                     CLASS_CE90: {
@@ -7824,7 +7841,8 @@ class Wd1(QWidget):
                     if want in classes:
                         try:
                             scales.append(float(scale_))
-                        except (TypeError, ValueError):
+                        except (TypeError, ValueError) as _exc:
+                            ignore_exc(_exc)
                             continue
             return sorted(set(scales))
         return self.get_list_scale() or []

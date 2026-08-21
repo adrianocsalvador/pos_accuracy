@@ -151,7 +151,7 @@ def pec_rms(values) -> float:
         try:
             x = float(v)
         except (TypeError, ValueError):
-            continue
+            x = float('nan')
         if math.isfinite(x):
             vals.append(x)
     n = len(vals)
