@@ -10,16 +10,16 @@ Desenvolvido no [Programa de Pós-Graduação em Engenharia Civil (PPGEC)](https
 
 ## O que o plugin faz
 
-A cadeia automática:
+No processo 100% automático:
 
-1. **Área de estudo** — interseção dos MDEs, edição manual ou polígono de uma camada.
-2. **Morfologia** — extração de linhas (cumeadas e hidrografia) com *watershed* GRASS (`r.watershed`).
+1. **Área de estudo** — pela interseção dos MDEs.
+2. **Morfologia** — extração de linhas (cumeadas e hidrografia numérica) com *watershed* GRASS (`r.watershed`).
 3. **Pares homólogos** — correspondência entre linhas de referência e teste.
 4. **Buffers e discrepância média (DM)** — buffer duplo planimétrico e perfil altimétrico.
 5. **Classificação** — padrão brasileiro **PEC-PCD** (classes A–D) ou busca de limiar **CE90 / LE90**.
-6. **Relatórios** — PDF/TXT do resultado e, opcionalmente, PDFs/CSV de auditoria.
+6. **Relatórios** — PDF/TXT do resultado e CSVs de auditoria, opcionalmente, PDFs de auditoria.
 
-Os resultados e as camadas intermediárias ficam no ficheiro de projeto **`.pa.gpkg`**.
+Os resultados e as camadas intermediárias ficam no arquivo de projeto **`.pa.gpkg`**.
 
 ---
 
@@ -28,28 +28,28 @@ Os resultados e as camadas intermediárias ficam no ficheiro de projeto **`.pa.g
 | Item | Valor |
 |------|--------|
 | QGIS | ≥ 3.30 |
-| GRASS GIS | fornecedor de processamento activo (morfologia) |
+| GRASS GIS | provedor de processamento ativo (morfologia) |
 | Licença | GNU GPL v2 (ou posterior) |
 
 ---
 
 ## Instalação
 
-### Gestor de complementos (recomendado, após publicação)
+### Gerenciador de complementos (recomendado, após publicação)
 
 1. **Complementos → Gerenciar e instalar complementos → Todos**.
 2. Procurar **MDE AP** e instalar.
-3. Confirmar que o fornecedor **GRASS** está activo em *Processamento*.
+3. Confirmar que o provedor **GRASS** está ativo em *Processamento*.
 
 ### Cópia manual / ZIP
 
-1. Copiar a pasta `pos_accuracy` para o directório de plugins do perfil QGIS, por exemplo:
+1. Copiar a pasta `pos_accuracy` para o diretório de plugins do perfil QGIS, por exemplo:
 
    `…/QGIS3/profiles/default/python/plugins/pos_accuracy`
 
-2. Em **Complementos → Gerenciar e instalar complementos**, activar **MDE AP - Acurácia Posicional**.
+2. Em **Complementos → Gerenciar e instalar complementos**, ativar **MDE AP - Acurácia Posicional**.
 
-3. Confirmar que o fornecedor **GRASS** está activo em *Processamento*.
+3. Confirmar que o provedor **GRASS** está ativo em *Processamento*.
 
 Para gerar o ZIP do repositório oficial (`plugins.qgis.org`):
 
@@ -57,7 +57,7 @@ Para gerar o ZIP do repositório oficial (`plugins.qgis.org`):
 python package_plugin.py
 ```
 
-O ficheiro fica em `dist/pos_accuracy-<versão>.zip`. Inclui só o runtime do plugin (`mods`, `i18n/*.qm`, `icons`, `styles`). As pastas `scripts*` **permanecem no GitHub** para desenvolvimento e validação; **não entram** no ZIP enviado ao `plugins.qgis.org`.
+O arquivo fica em `dist/pos_accuracy-<versão>.zip`. Inclui só o runtime do plugin (`mods`, `i18n/*.qm`, `icons`, `styles`). As pastas `scripts*` **permanecem no GitHub** para desenvolvimento e validação; **não entram** no ZIP enviado ao `plugins.qgis.org`.
 
 ---
 
@@ -65,10 +65,10 @@ O ficheiro fica em `dist/pos_accuracy-<versão>.zip`. Inclui só o runtime do pl
 
 1. **Novo** ou **Abrir** um projeto (`.pa.gpkg`).
 2. Selecionar o **MDE de referência** e o **MDE de teste**.
-3. Se necessário Definir a área de estudo e os parâmetros em **Config**.
-4. Premir **Avaliar**.
+3. Se necessário, definir a área de estudo e os parâmetros em **Config**.
+4. Pressionar **Avaliar**.
 
-Se o projecto já estiver calculado e só alguns parâmetros mudarem, o plugin **retoma a cadeia no passo mais básico alterado** (não volta a rodar tudo).
+Se o projeto já estiver calculado e só alguns parâmetros mudarem, o plugin **retoma a cadeia no passo mais básico alterado** (não volta a rodar tudo).
 
 ---
 
@@ -79,7 +79,7 @@ Se o projecto já estiver calculado e só alguns parâmetros mudarem, o plugin *
   - interseção dos MDEs (automática)
   - revisão após interseção
   - camada polígono
-- Selecção de pares:
+- Seleção de pares:
   - automática usando parâmetros definidos
   - com **revisão** no mapa
 - Tratamento de *outliers*:
@@ -111,13 +111,13 @@ Se o projecto já estiver calculado e só alguns parâmetros mudarem, o plugin *
 
 Alterar estes valores **regenera as linhas** (watershed). A área de interseção dos MDEs **não** é recalculada.
 
-### Selecção dos pares
+### Seleção dos pares
 
 | Parâmetro | Padrão | Notas |
 |-----------|--------|--------|
 | Distância máxima entre centróides | **3 pixels** do MDE de teste | Convertida para metros via GSD do teste |
-| Diferença % da **área** dos mínimos envelopes | **5 %** | Deferênça percentual entre às áreas do mínimo envelope orientado de teste e mínimo envelope orientado de referência|
-| Diferença % do **comprimento** dos mínimos envelopes | **5 %** | Deferênça percentual entre lados maiores dos mínimos envelopes orientados de teste e de referência|
+| Diferença % da **área** dos mínimos envelopes | **5 %** | Diferença percentual entre as áreas do mínimo envelope orientado de teste e do mínimo envelope orientado de referência |
+| Diferença % do **comprimento** dos mínimos envelopes | **5 %** | Diferença percentual entre os lados maiores dos mínimos envelopes orientados de teste e de referência |
 | Extensão mínima da feição de teste | **10 pixels** do MDE de teste | Comprimento da linha de teste |
 
 Alterar só estes valores **repete a correspondência e os passos seguintes**, sem refazer a morfologia.
@@ -137,7 +137,7 @@ Alterar só estes valores **repete a correspondência e os passos seguintes**, s
 | Máximo horizontal CE90 | **5 pixels** do MDE de teste |
 | Máximo vertical LE90 | **2 pixels** do MDE de teste |
 | Critério utilizado para aprovação | |
-| Quantitavo | Aprova se 90 %, ou mais, dos pares homólogos foram menores que o limiar (raio)|
+| Quantitativo | Aprova se 90 %, ou mais, dos pares homólogos foram menores que o limiar (raio) |
 | Extensão | Aprova se 90%, ou mais, da extensão dos pares homólogos foram menores que o limiar (raio)|
 | RMS (EP) | Aprova se RMS da amostra é menor ou igual ao EP (0,17 x raio) |
 
@@ -177,7 +177,7 @@ Mudar só a fórmula **recalcula a DM** sem voltar a gerar as áreas no GeoPacka
 
 ### Relatório de auditoria
 
-Por omissão **desligado**. Ao activar **Horizontal (PDF)** e/ou **Vertical (PDF)**, gera-se o PDF e **sempre** os CSV correspondentes são gerados.
+Por padrão **desligado**. Ao ativar **Horizontal (PDF)** e/ou **Vertical (PDF)**, gera-se o PDF e **sempre** os CSV correspondentes.
 
 ---
 
@@ -206,7 +206,7 @@ Escalas:
 
 #### Planimetria
 
-Decreto n.º 89.817/84 e ET-CQDG. $E$ é o denominador da escala, desta forma PEC-PCD para a classe A da escala 1/1.000 é 0,28 metros e EP 0,17 metros.
+Decreto n. 89.817/84 e ET-CQDG. $E$ é o denominador da escala; assim, o PEC-PCD da classe A na escala 1/1.000 é 0,28 m e o EP 0,17 m.
 
 | Classe | PEC-PCD (m) | EP (m) |
 |--------|-------------|--------|
@@ -215,9 +215,9 @@ Decreto n.º 89.817/84 e ET-CQDG. $E$ é o denominador da escala, desta forma PE
 | C | 0,80 × $E$ × $10^{-3}$ | 0,50 × $E$ × $10^{-3}$ |
 | D | 1,00 × $E$ × $10^{-3}$ | 0,60 × $E$ × $10^{-3}$ |
 
-#### Atimetria
+#### Altimetria
 
-Para a altimetria utiliza-se a Equidistância vertical (EQ) usual para a escala:
+Para a altimetria usa-se a equidistância vertical (EQ) usual da escala:
 
 | Escala | EQ (m) |
 |--------|--------|
@@ -245,16 +245,16 @@ Os limites altimétricos são **EQ (Equidistância) × coeficiente**. Por exempl
 
 Busca o **menor limiar (m)** que cumpre, em conjunto:
 
-O limites mínimos são 0 (zero) e os máximos são definidos em função do `pixel (GSD)` do MDE de teste.
+Os limites mínimos são 0 (zero) e os máximos são definidos em função do `pixel (GSD)` do MDE de teste.
 
 ---
 
-## Retoma da processamento
+## Retomada do processamento
 
 Se o projeto já foi calculado e vários parâmetros mudam, usa-se o **passo mais básico** e segue-se até ao fim:
 
 1. Morfologia  
-2. Selecção de pares  
+2. Seleção de pares  
 3. Buffers  
 4. Compatibilização (só altimetria)  
 5. Fórmula DM  
@@ -265,11 +265,11 @@ Mudar MDEs ou o modo de área de estudo implica **reprocessamento desde a defini
 
 ## Saídas
 
-Na pasta do projecto (junto ao `.pa.gpkg`):
+Na pasta do projeto (junto ao `.pa.gpkg`):
 
 - Relatório PDF / TXT / HTML  
-- `Audit_horizontal_…_CE90_….csv` / `.pdf` (se activo)  
-- `Audit_vertical_…_LE90_….csv` / `.pdf` (se activo) 
+- `Audit_horizontal_…_CE90_….csv` / `.pdf` (se ativo)  
+- `Audit_vertical_…_LE90_….csv` / `.pdf` (se ativo) 
 
 No GeoPackage: limites, interseção, linhas de morfologia, pares, buffers.
 
@@ -285,4 +285,4 @@ No GeoPackage: limites, interseção, linhas de morfologia, pares, buffers.
 
 ## Licença
 
-GNU General Public License v2 (ou posterior). Ver o ficheiro `LICENSE`.
+GNU General Public License v2 (ou posterior). Ver o arquivo `LICENSE`.
