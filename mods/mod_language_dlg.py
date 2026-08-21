@@ -51,7 +51,7 @@ class LanguageDlg(QDialog):
         self.cmb_locale.currentIndexChanged.connect(self._on_ui_locale_changed)
 
         frame = QFrame(self)
-        frame.setFrameShape(QFrame.HLine)
+        frame.setFrameShape(QFrame.Shape.HLine)
         pb_close = QPushButton(tr_ui('Fechar'), self)
         pb_close.clicked.connect(self.close)
 
@@ -60,7 +60,7 @@ class LanguageDlg(QDialog):
         vl = QVBoxLayout(self)
         vl.addWidget(base)
         vl.addWidget(frame)
-        vl.addWidget(pb_close, 0, Qt.AlignRight)
+        vl.addWidget(pb_close, 0, Qt.AlignmentFlag.AlignRight)
         return vl
 
     def _populate_locale_combo(self, select_code: str = None):

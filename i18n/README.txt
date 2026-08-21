@@ -7,7 +7,7 @@ O repositório inclui .vscode/settings.json para associar **/i18n/*.ts ao format
 Contexto Qt (obrigatório em todos os .ts): PositionalAccuracyPlugin
 
 No código Python:
-  - tr_ui("texto") ou self.tr("texto") no painel (Wd1) — strings visíveis em pt_BR por defeito
+  - tr_ui("texto") ou self.tr("texto") no painel (Wd1) — strings visíveis em pt_BR por padrão
   - self.tr("texto") na classe PositionalAccuracyPlugin (menu, etc.)
 
 O QTranslator carrega pos_accuracy_<locale>.qm a partir da pasta i18n/

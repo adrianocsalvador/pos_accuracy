@@ -54,10 +54,10 @@ Os resultados e as camadas intermediárias ficam no arquivo de projeto **`.pa.gp
 Para gerar o ZIP do repositório oficial (`plugins.qgis.org`):
 
 ```
-python package_plugin.py
+py -3 package_plugin.py
 ```
 
-O arquivo fica em `dist/pos_accuracy-<versão>.zip`. Inclui só o runtime do plugin (`mods`, `i18n/*.qm`, `icons`, `styles`). As pastas `scripts*` **permanecem no GitHub** para desenvolvimento e validação; **não entram** no ZIP enviado ao `plugins.qgis.org`.
+O arquivo fica em `dist/pos_accuracy-<versão>.zip`. Inclui só o runtime do plugin (`mods`, `i18n/*.qm`, `icons`, `styles`). As pastas `scripts*` **permanecem no GitHub** para desenvolvimento e validação; **não entram** no ZIP enviado ao `plugins.qgis.org`. Não use o gerador antigo em `scripts_aux/build_plugin_zip.py` (git-archive); se existir na máquina local, trate-o como atalho obsoleto — o único empacotador é `package_plugin.py`.
 
 ---
 
@@ -163,6 +163,8 @@ dm_{i} = \pi \cdot x \cdot \frac{A_{R} - A_{I}}{A_{T}}
 $$
 
 **Média $(A_{T} + A_{R})/2$**
+
+Trata discrepancias para mais ou para menos com o mesmo peso
 
 $$
 dm_{i} = \pi \cdot x \cdot \frac{(A_{T}+A_{R})/2 - A_{I}}{(A_{T}+A_{R})/2}

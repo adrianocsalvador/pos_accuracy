@@ -56,7 +56,6 @@ class Database:
         self.conn.rollback()
 
     def close_(self):
-        print('close_')
         if self.conn:
             self.cur.close()
             self.conn.close()
@@ -64,7 +63,6 @@ class Database:
 
     def is_connected(self):
         status_ = psycopg2.extensions.ConnectionInfo(self.conn).transaction_status
-        # print('is_connected-status=', status_ == 0)
         if status_ == 0:
             return True
         else:

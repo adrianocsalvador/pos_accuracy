@@ -251,7 +251,7 @@ def _norm_label(norm_type):
 
 
 def _norm_filename_slug(norm_type):
-    """Slug curto para nomes de ficheiro: linear | proximidade | sem_normalizacao."""
+    """Slug curto para nomes de arquivo: linear | proximidade | sem_normalizacao."""
     return {
         NORM_SCALE: 'linear',
         NORM_LESS_DIST: 'proximidade',

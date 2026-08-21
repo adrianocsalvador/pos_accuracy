@@ -30,6 +30,12 @@ Scripts nesta pasta (no git)
   _gen_audit_folder.py       lote H+V → Audit/
   run_pec_from_gpkg.bat      atalho para pec_from_gpkg.py
 
+Empacotamento do plugin (ZIP plugins.qgis.org)
+----------------------------------------------
+
+  Na raiz do repositório:  py -3 package_plugin.py
+  Saída: dist/pos_accuracy-<versão>.zip (só o runtime). Este é o único gerador oficial.
+
 Scripts em scripts_aux/ (local, gitignored)
 -------------------------------------------
 

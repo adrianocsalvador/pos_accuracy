@@ -273,7 +273,7 @@ def calc_dm_buffer_duplo(area_a1, area_a2, area_a3, x, formula=DM_FORMULA_ORIGIN
 
 def _profile_line_points(geom: QgsGeometry):
     wkbt = geom.wkbType()
-    if wkbt == QgsWkbTypes.LineString or wkbt == QgsWkbTypes.LineStringZ:
+    if wkbt == QgsWkbTypes.Type.LineString or wkbt == QgsWkbTypes.Type.LineStringZ:
         return geom.constGet().points()
     return geom.constGet()[0].points()
 
@@ -676,10 +676,8 @@ class PolygonThread(QThread):
             tool_ = "gdal:rastercalculator"
             result_calc = _run_processing(tool_, params)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
-            # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
-            # self.log.error(True, f'PolygonThread: {self.key_} {tool_}: {e}', pretty=True)
             return
 
         # 2 "gdal:polygonize"
@@ -695,12 +693,9 @@ class PolygonThread(QThread):
             }
             tool_ = "gdal:polygonize"
             result_poly = _run_processing(tool_, params)
-            # print('result_poly', result_poly)
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
-            # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
-            # self.log.error(True, f'PolygonThread: {self.key_} {tool_}: {e}', pretty=True)
             return
 
         # 3 "native:assignprojection" — output to GPKG (thread-safe)
@@ -716,10 +711,8 @@ class PolygonThread(QThread):
             result_setpro = _run_processing(tool_, params)
             result_setpro = {'OUTPUT': out_assignpro}
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
-            # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
-            # self.log.error(True, f'PolygonThread: {self.key_} {tool_}: {e}', pretty=True)
             return
 
         # 4 "native:reprojectlayer" — output to GPKG (thread-safe)
@@ -737,10 +730,8 @@ class PolygonThread(QThread):
                 result_repro = _run_processing(tool_, params)
                 result_repro = {'OUTPUT': out_repro}
                 self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
-                # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
             except Exception as e:
                 self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
-                # self.log.error(True, f'PolygonThread: {self.key_} {tool_}: {e}', pretty=True)
                 return
         else:
             result_repro = result_setpro
@@ -764,10 +755,8 @@ class PolygonThread(QThread):
             result_bff = _run_processing(tool_, params)
             result_bff = {'OUTPUT': out_buffer}
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
-            # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
-            # self.log.error(True, f'PolygonThread: {self.key_} {tool_}: {e}', pretty=True)
             return
 
         wkt_ = ''
@@ -784,11 +773,8 @@ class PolygonThread(QThread):
                     feat_out.setGeometry(geom_)
 
                 self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': f'{tool_} nr:{i + 1}', 'feat': feat_})
-                # self.log.info(True, f'PolygonThread: {self.key_} {tool_}', pretty=True)
-            # self.sig_status.emit({'key': self.key_, 'value': nr_, 'msg': tool_})
         except Exception as e:
             self.sig_status.emit({'key': self.key_, 'value': nr_, 'error': e})
-            # self.log.error(True, f'PolygonThread: {self.key_} {tool_}: {e}', pretty=True)
             return
 
         if self.nr_procs:
@@ -1468,7 +1454,6 @@ class BufferThread(QThread):
 
         geom_prof_br = geom_prof_r.buffer(pec_v, 20)
         geom_prof_bt = geom_prof_t.buffer(pec_v, 20)
-        # print('geom_prof_bt=', geom_prof_bt)
 
         geom_prof_i = geom_prof_bt.intersection(geom_prof_br)
         area_br_p = geom_prof_br.area()
@@ -2026,7 +2011,6 @@ class BufferThread(QThread):
                         {'logonly': f'---{tag_}---{layer_r.name()}---{layer_t.name()}---'}
                     )
                     for i, vet_ in enumerate(self.dic_match[tag_]):
-                        # print('vet_', vet_)
                         id_r = vet_[0]
                         feat_r = layer_r.getFeature(id_r)
                         geom_r = orient_line_high_to_low(QgsGeometry(feat_r.geometry()))
@@ -2037,11 +2021,9 @@ class BufferThread(QThread):
                         for scale_ in self.list_scale:
                             if scale_ not in self.dic_values:
                                 self.dic_values[scale_] = {}
-                            # print('scale_', scale_)
                             for class_ in self.dic_pec_mm['H']:
                                 if class_ not in self.dic_values[scale_]:
                                     self.dic_values[scale_][class_] = {}
-                                # print('class_', class_)
                                 count_ += 1
                                 self.dic_values[scale_][class_][count_] = {}
                                 pec_h = scale_ * self.dic_pec_mm['H'][class_]['pec']

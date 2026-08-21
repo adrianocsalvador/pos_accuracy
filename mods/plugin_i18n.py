@@ -6,7 +6,7 @@ import os
 
 from qgis.PyQt.QtCore import QCoreApplication, QLocale, QSettings, QTranslator
 
-# Deve coincidir com <name> no ficheiro .ts do Qt Linguist
+# Deve coincidir com <name> no arquivo .ts do Qt Linguist
 PLUGIN_I18N_CONTEXT = 'PositionalAccuracyPlugin'
 
 # Idioma de desenvolvimento (textos fonte no código Python)
@@ -72,6 +72,7 @@ def qgis_locale_tag() -> str:
             candidates.append(gs.value('locale/globalLocale', ''))
             candidates.append(gs.value('locale/userLocale', ''))
     except Exception:
+        # QGIS QgsSettings pode falhar fora do app
         pass
 
     try:
@@ -79,6 +80,7 @@ def qgis_locale_tag() -> str:
         candidates.append(qs.value('locale/userLocale'))
         candidates.append(qs.value('locale/globalLocale'))
     except Exception:
+        # QSettings de sistema opcional
         pass
 
     candidates.append(QLocale.system().name())
@@ -128,7 +130,7 @@ def _locale_install_plan(locale_code: str | None = None) -> tuple[str, bool]:
 
 
 def _qm_candidates(locale_tag: str, *, allow_en_fallback: bool = True) -> list[str]:
-    """Ficheiros .qm a tentar; pt_BR não faz fallback para pt genérico."""
+    """Arquivos .qm a tentar; pt_BR não faz fallback para pt genérico."""
     base = plugin_i18n_dir()
     tag = effective_locale_tag(locale_tag)
     tags = []
@@ -232,7 +234,7 @@ def expected_qm_basename(locale_code: str) -> str:
 
 def translation_qm_help_tooltip() -> str:
     return tr_ui(
-        'Para criar tradução num idioma ainda sem ficheiro .qm:\n'
+        'Para criar tradução num idioma ainda sem arquivo .qm:\n'
         '1. Copie i18n/pos_accuracy_en.ts para pos_accuracy_<locale>.ts '
         '(ex.: pos_accuracy_es_ES.ts).\n'
         '2. Traduza no Qt Linguist ou edite o .ts (contexto PositionalAccuracyPlugin).\n'

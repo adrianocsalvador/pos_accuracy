@@ -200,16 +200,16 @@ A₃ — área de la intersección de los buffers]]></translation>
         <translation><![CDATA[REGISTRO:]]></translation>
     </message>
     <message>
-        <source><![CDATA[Ficheiro GeoPackage do projeto (.pa.gpkg): camadas, parâmetros e resultados.]]></source>
+        <source><![CDATA[Arquivo GeoPackage do projeto (.pa.gpkg): camadas, parâmetros e resultados.]]></source>
         <translation><![CDATA[Archivo GeoPackage del proyecto (.pa.gpkg): capas, parámetros y resultados.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Estado do projeto: definido (ficheiro .pa.gpkg encontrado) ou não definido.]]></source>
+        <source><![CDATA[Estado do projeto: definido (arquivo .pa.gpkg encontrado) ou não definido.]]></source>
         <translation><![CDATA[Estado del proyecto: definido (archivo .pa.gpkg encontrado) o no definido.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Caminho do ficheiro de projeto .pa.gpkg.]]></source>
-        <translation><![CDATA[Ruta del archivo del proyecto .pa.gpkg.]]></translation>
+        <source><![CDATA[Caminho do arquivo de projeto .pa.gpkg.]]></source>
+        <translation><![CDATA[Ruta del archivo de proyecto .pa.gpkg.]]></translation>
     </message>
     <message>
         <source><![CDATA[Versão instalada do complemento.]]></source>
@@ -224,11 +224,11 @@ A₃ — área de la intersección de los buffers]]></translation>
         <translation><![CDATA[MDE a evaluar. La resolución (GSD) de este ráster define las distancias en píxeles.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Seleccione o raster de referência.]]></source>
+        <source><![CDATA[Selecione o raster de referência.]]></source>
         <translation><![CDATA[Seleccione el ráster de referencia.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Seleccione o raster de teste a avaliar.]]></source>
+        <source><![CDATA[Selecione o raster de teste a avaliar.]]></source>
         <translation><![CDATA[Seleccione el ráster de prueba para evaluar.]]></translation>
     </message>
     <message>
@@ -236,7 +236,7 @@ A₃ — área de la intersección de los buffers]]></translation>
         <translation><![CDATA[Delimita el área de análisis: intersección automática de los MDE, edición tras generar el polígono, o polígono de una capa existente.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Como obter a área de estudo: (i) interseção dos MDEs; (ii) editar após a interseção; (iii) seleccionar polígono de uma camada.]]></source>
+        <source><![CDATA[Como obter a área de estudo: (i) interseção dos MDEs; (ii) editar após a interseção; (iii) selecionar polígono de uma camada.]]></source>
         <translation><![CDATA[Cómo obtener el área de estudio: (i) intersección de los MDE; (ii) editar tras la intersección; (iii) seleccionar polígono de una capa.]]></translation>
     </message>
     <message>
@@ -264,7 +264,7 @@ A₃ — área de la intersección de los buffers]]></translation>
         <translation><![CDATA[Capa de polígono usada cuando el área de estudio proviene de una capa existente.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Seleccione a camada polígono que delimita a área de estudo.]]></source>
+        <source><![CDATA[Selecione a camada polígono que delimita a área de estudo.]]></source>
         <translation><![CDATA[Seleccione la capa polígono que delimita el área de estudio.]]></translation>
     </message>
     <message>
@@ -276,7 +276,7 @@ A₃ — área de la intersección de los buffers]]></translation>
         <translation><![CDATA[(i) Automática — usa solo los filtros de Config. (ii) Revisar — permite editar los pares en el mapa antes de los buffers.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Selecciona os pares só com os filtros de distância e envelopes.]]></source>
+        <source><![CDATA[Seleciona os pares só com os filtros de distância e envelopes.]]></source>
         <translation><![CDATA[Selecciona los pares solo con los filtros de distancia y envolventes.]]></translation>
     </message>
     <message>
@@ -396,6 +396,30 @@ Clic en el texto para abrir el último informe PDF.]]></translation>
         <translation><![CDATA[DEM asignados automáticamente por resolución espacial: referencia={0} (GSD≈{1:.3f}), prueba={2} (GSD≈{3:.3f}).]]></translation>
     </message>
     <message>
+        <source><![CDATA[Parada cancelada — a análise continua.]]></source>
+        <translation><![CDATA[Parada cancelada — el análisis continúa.]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Parada em 3 s — clique em «Cancelar parar» para continuar a análise.]]></source>
+        <translation><![CDATA[Parada en 3 s — haga clic en «Cancelar parada» para continuar el análisis.]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Cancelar parar ({0})]]></source>
+        <translation><![CDATA[Cancelar parada ({0})]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Clique para abortar a interrupção e continuar a análise.]]></source>
+        <translation><![CDATA[Haga clic para abortar la interrupción y continuar el análisis.]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Parar]]></source>
+        <translation><![CDATA[Parar]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Interromper a análise em andamento.]]></source>
+        <translation><![CDATA[Interrumpir el análisis en curso.]]></translation>
+    </message>
+    <message>
         <source><![CDATA[Continuar]]></source>
         <translation><![CDATA[Continuar]]></translation>
     </message>
@@ -409,7 +433,7 @@ Clic en el texto para abrir el último informe PDF.]]></translation>
     </message>
     <message>
         <source><![CDATA[Executar ou retomar a análise.]]></source>
-        <translation><![CDATA[Ejecute o reanude el análisis.]]></translation>
+        <translation><![CDATA[Ejecutar o reanudar el análisis.]]></translation>
     </message>
     <message>
         <source><![CDATA[ÁREA DE ESTUDO A PARTIR DA CAMADA]]></source>
@@ -576,6 +600,14 @@ Clic en el texto para abrir el último informe PDF.]]></translation>
         <translation><![CDATA[Tamaño de píxel Y: {0:.3f}]]></translation>
     </message>
     <message>
+        <source><![CDATA[Interrompendo a análise…]]></source>
+        <translation><![CDATA[Interrumpiendo el análisis…]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Análise interrompida pelo usuário.]]></source>
+        <translation><![CDATA[Análisis interrumpido por el usuario.]]></translation>
+    </message>
+    <message>
         <source><![CDATA[Defina o projeto (.pa.gpkg): menu ⋯ → Abrir ou Novo.]]></source>
         <translation><![CDATA[Definir el proyecto (.pa.gpkg): menú ⋯ → Abrir o Nuevo.]]></translation>
     </message>
@@ -590,10 +622,6 @@ Clic en el texto para abrir el último informe PDF.]]></translation>
     <message>
         <source><![CDATA[Selecione o MDE de teste (DEM válido).]]></source>
         <translation><![CDATA[Seleccione el DEM de prueba (DEM válido).]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Aguarde o fim da análise em curso antes de nova avaliação.]]></source>
-        <translation><![CDATA[Espere a que finalice el análisis actual antes de realizar una nueva evaluación.]]></translation>
     </message>
     <message>
         <source><![CDATA[Parâmetros e MDEs inalterados (última avaliação concluída).]]></source>
@@ -617,7 +645,7 @@ Clic en el texto para abrir el último informe PDF.]]></translation>
     </message>
     <message>
         <source><![CDATA[Retomando a partir da correspondência de linhas (morfologia mantida; parâmetros de pares/configuração).]]></source>
-        <translation><![CDATA[Resuming from line matching (morphology kept; pair/config parameters).]]></translation>
+        <translation><![CDATA[Regresando de la coincidencia de líneas (morfología mantenida; parámetros de par/configuración).]]></translation>
     </message>
     <message>
         <source><![CDATA[Retomando a partir dos buffers (parâmetros alterados).]]></source>
@@ -673,7 +701,7 @@ Clic en el texto para abrir el último informe PDF.]]></translation>
         <translation><![CDATA[RAM del sistema: {0} % en uso, {1} MB libres de {2} MB.]]></translation>
     </message>
     <message>
-        <source><![CDATA[RAM elevada antes da morfologia — o r.watershed (GRASS) pode falhar. Feche outras aplicações, reinicie o QGIS se necessário, ou reduza «Limite de Memória para Grass GIS» nas definições do plugin.]]></source>
+        <source><![CDATA[RAM elevada antes da morfologia — o r.watershed (GRASS) pode falhar. Feche outras aplicações, reinicie o QGIS se necessário, ou reduza «Limite de Memória para Grass GIS» nas configurações do plugin.]]></source>
         <translation><![CDATA[Alta RAM antes de la transformación: r.watershed (GRASS) puede fallar. Cierre otras aplicaciones, reinicie QGIS si es necesario o reduzca el “Límite de memoria para Grass GIS” en la configuración del complemento.]]></translation>
     </message>
     <message>
@@ -718,11 +746,11 @@ Sugerencias:
 Sugestões:
 • Diminuir a área máxima das bacias (morfologia) para gerar mais linhas e maior extensão acumulada.
 • Afrouxar a correspondência: aumentar a distância máxima entre centróides, os percentuais de diferença de área/comprimento dos envelopes mínimos, ou reduzir a extensão mínima da feição de teste.]]></source>
-        <translation><![CDATA[Total sample extent ({0} km) is smaller than the recommended minimum ({1} km). Processing stopped before buffers.
+        <translation><![CDATA[La longitud total de la muestra ({0} km) es menor que la longitud mínima recomendada ({1} km). El procesamiento se detuvo antes que los buffers.
 
-Suggestions:
-• Decrease maximum basin area (morphology) to generate more lines and greater accumulated extent.
-• Relax matching: increase maximum centroid distance, envelope area/length difference percentages, or reduce the minimum test-feature extent.]]></translation>
+Sugerencias:
+• Disminuir el área máxima de las cuencas (morfología) para generar más líneas y mayor extensión acumulada.
+• Aflojar la correspondencia: aumentar la distancia máxima entre centroides, los porcentajes de diferencia de área/longitud de las envolventes mínimas o reducir la longitud mínima de la característica de prueba.]]></translation>
     </message>
     <message>
         <source><![CDATA[MDE de teste inválido — não é possível aplicar a distância máxima em pixels.]]></source>
@@ -733,6 +761,10 @@ Suggestions:
         <translation><![CDATA[Prueba no válida DEM GSD: no se pueden convertir píxeles a distancia en el mapa.]]></translation>
     </message>
     <message>
+        <source><![CDATA[Nome de camada de morfologia inválido — correspondência de pares abortada.]]></source>
+        <translation><![CDATA[Nombre de capa de morfología inválido — correspondencia de pares abortada.]]></translation>
+    </message>
+    <message>
         <source><![CDATA[Seleção de pares: dist. máx.={0:g} px ({1:.2f} m); Δárea envelope<{2:g} %; Δcomprimento envelope<{3:g} %; extensão mín. teste={4:g} px ({5:.2f} m).]]></source>
         <translation><![CDATA[Selección de pareja: dist. máx={0:g} px ({1:.2f} m); Δárea de la envolvente<{2:g} %; Δlongitud del sobre<{3:g} %; prueba de extensión mínima={4:g} px ({5:.2f} m).]]></translation>
     </message>
@@ -741,8 +773,8 @@ Suggestions:
         <translation><![CDATA[Longitud total de la muestra: {0} m]]></translation>
     </message>
     <message>
-        <source><![CDATA[Camada __Linhas_de_Correspondencia__: {0} pares. Edite, remova ou adicione linhas (meio teste → meio referência); atributos: tipo, fid_r, fid_t. Prima Continuar.]]></source>
-        <translation><![CDATA[Capa __Linhas_de_Correspondencia__: {0} pares. Editar, eliminar o agregar líneas (mitad prueba → mitad referencia); atributos: tipo, fid_r, fid_t. Presione Continuar.]]></translation>
+        <source><![CDATA[Camada __Linhas_de_Correspondencia__: {0} pares. Edite, remova ou adicione linhas (meio teste → meio referência); atributos: tipo, fid_r, fid_t. Clique em Continuar.]]></source>
+        <translation><![CDATA[Capa __Linhas_de_Correspondencia__: {0} pares. Editar, eliminar o agregar líneas (mitad prueba → mitad referencia); atributos: tipo, fid_r, fid_t. Haga clic en Continuar.]]></translation>
     </message>
     <message>
         <source><![CDATA[[__Buffers__] Tipo de geometria da camada: {0}. Gravação em lote por par (sem repaint durante o processamento).]]></source>
@@ -876,7 +908,7 @@ Suggestions:
     </message>
     <message>
         <source><![CDATA[LE90={0} m — RODADA 1 — FALHOU (sem buffer/DM)]]></source>
-        <translation><![CDATA[LE90={0} m — RODADA 1 — FALHOU (sem buffer/DM)]]></translation>
+        <translation><![CDATA[LE90={0} m — RONDA 1 — FALLÓ (sin búfer/DM)]]></translation>
     </message>
     <message>
         <source><![CDATA[Extensão amostras válidas PEC: {0} km (correspondência total: {1} km).]]></source>
@@ -924,16 +956,16 @@ Suggestions:
         <translation><![CDATA[SUCEDIÓ]]></translation>
     </message>
     <message>
-        <source><![CDATA[{0}={1} m — quant {2}% <= {3} - {4}, ext {5}% <= {3} - {6},]]></source>
-        <translation><![CDATA[{0}={1} m — cuanto {2}% <= {3} - {4}, text {5}% <= {3} - {6},]]></translation>
+        <source><![CDATA[{0}={1} m — quant {2:.1f}% <= {3} - {4}, ext {5:.1f}% <= {3} - {6},]]></source>
+        <translation><![CDATA[{0}={1} m — cuanto {2:.1f}% <= {3} - {4}, text {5:.1f}% <= {3} - {6},]]></translation>
     </message>
     <message>
-        <source><![CDATA[EQ {0} — 1:{1}.000-{2}= quant {3}% <= {4} - {5}, ext {6}% <= {4} - {7},]]></source>
-        <translation><![CDATA[EQ {0} — 1:{1}.000-{2}= cuanto {3}% <= {4} - {5}, texto {6}% <= {4} - {7},]]></translation>
+        <source><![CDATA[EQ {0} — 1:{1}.000-{2}= quant {3:.1f}% <= {4} - {5}, ext {6:.1f}% <= {4} - {7},]]></source>
+        <translation><![CDATA[EQ {0} — 1:{1}.000-{2}= cuanto {3:.1f}% <= {4} - {5}, text {6:.1f}% <= {4} - {7},]]></translation>
     </message>
     <message>
-        <source><![CDATA[1:{0}.000-{1}= quant {2}% <= {3} - {4}, ext {5}% <= {3} - {6},]]></source>
-        <translation><![CDATA[1:{0}.000-{1}= cuanto {2}% <= {3} - {4}, texto {5}% <= {3} - {6},]]></translation>
+        <source><![CDATA[1:{0}.000-{1}= quant {2:.1f}% <= {3} - {4}, ext {5:.1f}% <= {3} - {6},]]></source>
+        <translation><![CDATA[1:{0}.000-{1}= cuanto {2:.1f}% <= {3} - {4}, text {5:.1f}% <= {3} - {6},]]></translation>
     </message>
     <message>
         <source><![CDATA[ {0} <= {1} EP - PASSOU, {2}]]></source>
@@ -1048,6 +1080,10 @@ Suggestions:
         <translation><![CDATA[no generar]]></translation>
     </message>
     <message>
+        <source><![CDATA[(nenhum)]]></source>
+        <translation><![CDATA[(ninguno)]]></translation>
+    </message>
+    <message>
         <source><![CDATA[Estado]]></source>
         <translation><![CDATA[Estado]]></translation>
     </message>
@@ -1072,7 +1108,7 @@ Suggestions:
         <translation><![CDATA[(transformación no disponible)]]></translation>
     </message>
     <message>
-        <source><![CDATA[(ainda não há resultados de PEC nesta sessão — execute a análise até ao fim.)]]></source>
+        <source><![CDATA[(ainda não há resultados de PEC nesta sessão — execute a análise até o fim.)]]></source>
         <translation><![CDATA[(Aún no hay resultados de PEC para esta sesión; ejecute el análisis hasta completarlo).]]></translation>
     </message>
     <message>
@@ -1100,7 +1136,7 @@ Suggestions:
         <translation><![CDATA[Total de pares]]></translation>
     </message>
     <message>
-        <source><![CDATA[Ficheiro WKT dos perfis]]></source>
+        <source><![CDATA[Arquivo WKT dos perfis]]></source>
         <translation><![CDATA[Archivo WKT de perfiles]]></translation>
     </message>
     <message>
@@ -1144,7 +1180,7 @@ Suggestions:
         <translation><![CDATA[Fecha/hora]]></translation>
     </message>
     <message>
-        <source><![CDATA[Ficheiro de projeto]]></source>
+        <source><![CDATA[Arquivo de projeto]]></source>
         <translation><![CDATA[Archivo de proyecto]]></translation>
     </message>
     <message>
@@ -1186,6 +1222,22 @@ Suggestions:
     <message>
         <source><![CDATA[(nenhuma)]]></source>
         <translation><![CDATA[(ninguno)]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Definição da área de estudos]]></source>
+        <translation><![CDATA[Definición del área de estudio.]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Camada polígono (se aplicável)]]></source>
+        <translation><![CDATA[Capa de polígono (si corresponde)]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Pares homólogos]]></source>
+        <translation><![CDATA[Pares homólogos]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Tratamento de outliers]]></source>
+        <translation><![CDATA[Tratamiento de valores atípicos]]></translation>
     </message>
     <message>
         <source><![CDATA[(não selecionado)]]></source>
@@ -1242,22 +1294,6 @@ Suggestions:
     <message>
         <source><![CDATA[2. Fluxo de trabalho]]></source>
         <translation><![CDATA[2. Flujo de trabajo]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Definição da área de estudos]]></source>
-        <translation><![CDATA[Definición del área de estudio.]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Pares homólogos]]></source>
-        <translation><![CDATA[Pares homólogos]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Tratamento de outliers]]></source>
-        <translation><![CDATA[Tratamiento de valores atípicos]]></translation>
-    </message>
-    <message>
-        <source><![CDATA[Camada polígono (se aplicável)]]></source>
-        <translation><![CDATA[Capa de polígono (si corresponde)]]></translation>
     </message>
     <message>
         <source><![CDATA[3. Modelos digitais de elevação (MDE)]]></source>
@@ -1376,8 +1412,8 @@ Suggestions:
         <translation><![CDATA[Defina un proyecto (.pa.gpkg) para exportar el informe.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Falha ao gerar ficheiro WKT dos perfis: {0} ({1})]]></source>
-        <translation><![CDATA[No se pudo generar el archivo WKT para los perfiles: {0} ({1})]]></translation>
+        <source><![CDATA[Falha ao gerar arquivo WKT dos perfis: {0} ({1})]]></source>
+        <translation><![CDATA[No se pudo generar el archivo WKT desde los perfiles: {0} ({1})]]></translation>
     </message>
     <message>
         <source><![CDATA[Falha ao gerar PDF: {0}]]></source>
@@ -1400,7 +1436,7 @@ Suggestions:
         <translation><![CDATA[Informe TXT v1 exportado (analizable → PDF): {0}]]></translation>
     </message>
     <message>
-        <source><![CDATA[Ficheiro WKT dos perfis exportado: {0}]]></source>
+        <source><![CDATA[Arquivo WKT dos perfis exportado: {0}]]></source>
         <translation><![CDATA[Archivo WKT de perfiles exportados: {0}]]></translation>
     </message>
     <message>
@@ -1428,8 +1464,8 @@ Suggestions:
         <translation><![CDATA[La confirmación de cambios falló el {0}: {1}]]></translation>
     </message>
     <message>
-        <source><![CDATA[Foram identificados {0} valores atípicos (excluídos do cálculo PEC). Prima OK para continuar.]]></source>
-        <translation><![CDATA[Se identificaron {0} valores atípicos (excluidos del cálculo de PEC). Presione Aceptar para continuar.]]></translation>
+        <source><![CDATA[Foram identificados {0} valores atípicos (excluídos do cálculo PEC). Clique em OK para continuar.]]></source>
+        <translation><![CDATA[Se identificaron {0} valores atípicos (excluidos del cálculo de PEC). Haga clic en Aceptar para continuar.]]></translation>
     </message>
     <message>
         <source><![CDATA[Falha ao exportar relatórios.]]></source>
@@ -1444,12 +1480,12 @@ Suggestions:
         <translation><![CDATA[Parámetros]]></translation>
     </message>
     <message>
-        <source><![CDATA[Definições para Geração de Morfologia]]></source>
-        <translation><![CDATA[Configuración para la generación de morfología]]></translation>
+        <source><![CDATA[Configurações para Geração de Morfologia]]></source>
+        <translation><![CDATA[Ajustes para generación de morfología]]></translation>
     </message>
     <message>
         <source><![CDATA[Extração das feições lineares (cumeadas e hidrografia) por watershed (GRASS).]]></source>
-        <translation><![CDATA[Extraction of linear features (ridges and hydrography) by GRASS watershed.]]></translation>
+        <translation><![CDATA[Extracción de características lineales (cordones e hidrografía) por cuenca (GRASS).]]></translation>
     </message>
     <message>
         <source><![CDATA[Máxima Área das Bacias (m²)]]></source>
@@ -1468,8 +1504,8 @@ Suggestions:
         <translation><![CDATA[Memoria máxima de GRASS en r.watershed. Disminuya si falla. Predeterminado: 4 GB.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Definições para Seleção dos Pares]]></source>
-        <translation><![CDATA[Configuración para la selección de pares]]></translation>
+        <source><![CDATA[Configurações para Seleção dos Pares]]></source>
+        <translation><![CDATA[Ajustes para selección de pares]]></translation>
     </message>
     <message>
         <source><![CDATA[Filtros para formar pares homólogos entre linhas de referência e de teste.]]></source>
@@ -1497,7 +1533,7 @@ Suggestions:
     </message>
     <message>
         <source><![CDATA[Filtro pelo lado maior dos envelopes orientados. Pares homólogos devem ter comprimentos de envelope semelhantes. Padrão: 5 %.]]></source>
-        <translation><![CDATA[Filter on the longest side of oriented envelopes. Homologous pairs should have similar envelope lengths. Default: 5 %.]]></translation>
+        <translation><![CDATA[Filtrar por el lado largo de los sobres orientados. Los pares homólogos deben tener longitudes de envoltura similares. Predeterminado: 5%.]]></translation>
     </message>
     <message>
         <source><![CDATA[Extensão mínima da feição de teste (pixels do MDE de teste)]]></source>
@@ -1508,16 +1544,16 @@ Suggestions:
         <translation><![CDATA[Descarta las líneas de prueba más cortas que esta longitud (píxeles × GSD de prueba), evitando muestras no representativas. Predeterminado: 10 píxeles.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Definições para Geração Buffers]]></source>
-        <translation><![CDATA[Definiciones para la generación de búfer]]></translation>
+        <source><![CDATA[Configurações para Geração Buffers]]></source>
+        <translation><![CDATA[Ajustes para generación de buffers]]></translation>
     </message>
     <message>
         <source><![CDATA[Raios de buffer e padrão de acurácia (PEC-PCD ou CE90/LE90).]]></source>
         <translation><![CDATA[Radios de buffer y estándar de precisión (PEC-PCD o CE90/LE90).]]></translation>
     </message>
     <message>
-        <source><![CDATA[PEC-PCD classifica nas escalas e classes A–D. CE90/LE90 busca o menor limiar (m) que cumpre os testes de 90 % e RMS.]]></source>
-        <translation><![CDATA[PEC-PCD se clasifica en escalas y clases A–D. CE90/LE90 busca el umbral más bajo (m) que cumpla con las pruebas de 90% y RMS.]]></translation>
+        <source><![CDATA[PEC-PCD classifica nas escalas e classes A–D. CE90/LE90 busca o menor limiar (m) que cumpre os critérios de aprovação marcados.]]></source>
+        <translation><![CDATA[PEC-PCD clasifica en escalas y clases A–D. CE90/LE90 busca el menor umbral (m) que cumple los criterios de aprobación marcados.]]></translation>
     </message>
     <message>
         <source><![CDATA[Máxima Escala]]></source>
@@ -1541,7 +1577,7 @@ Suggestions:
     </message>
     <message>
         <source><![CDATA[Teto da busca do CE90, em pixels do MDE de teste (× GSD = metros). Padrão: 5 px.]]></source>
-        <translation><![CDATA[Upper bound of the CE90 search, in test-DEM pixels (× GSD = metres). Default: 5 px.]]></translation>
+        <translation><![CDATA[Techo de búsqueda CE90, en píxeles DEM de prueba (× GSD = metros). Predeterminado: 5 píxeles.]]></translation>
     </message>
     <message>
         <source><![CDATA[Máximo Vertical (pixels do MDE de teste)]]></source>
@@ -1552,6 +1588,18 @@ Suggestions:
         <translation><![CDATA[Techo de búsqueda LE90, en píxeles DEM de prueba (× GSD = metros). Predeterminado: 2 píxeles.]]></translation>
     </message>
     <message>
+        <source><![CDATA[Critérios para aprovação]]></source>
+        <translation><![CDATA[Criterios de aprobación]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Critérios da busca recursiva do limiar CE90/LE90. Só os marcados contam para a aprovação (a normalidade continua sempre obrigatória). Padrão: Quantitativo, Extensão e RMS (EP).]]></source>
+        <translation><![CDATA[Criterios de la búsqueda recursiva del umbral CE90/LE90. Solo los marcados cuentan para la aprobación (la normalidad sigue siendo siempre obligatoria). Predeterminado: Cuantitativo, Extensión y RMS (EP).]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[RMS (EP)]]></source>
+        <translation><![CDATA[RMS (EP)]]></translation>
+    </message>
+    <message>
         <source><![CDATA[Mostrar buffers no mapa durante o processamento]]></source>
         <translation><![CDATA[Mostrar zonas de influencia en el mapa durante el procesamiento]]></translation>
     </message>
@@ -1560,7 +1608,7 @@ Suggestions:
         <translation><![CDATA[Si está marcado, la capa de buffers aparece en el mapa mientras se genera (puede ralentizar el procesamiento). Predeterminado: desmarcado.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Definições para Compatibilização de Progressivas]]></source>
+        <source><![CDATA[Configurações para Compatibilização de Progressivas]]></source>
         <translation><![CDATA[Definiciones para la compatibilización de progresivas]]></translation>
     </message>
     <message>
@@ -1588,7 +1636,7 @@ Suggestions:
         <translation><![CDATA[Informe de Auditoría]]></translation>
     </message>
     <message>
-        <source><![CDATA[Gera PDF de auditoria (e sempre o CSV correspondente) para conferir buffers e DM. Pode activar só o planimétrico, só o altimétrico, ou ambos.]]></source>
+        <source><![CDATA[Gera PDF de auditoria (e sempre o CSV correspondente) para conferir buffers e DM. Pode ativar só o planimétrico, só o altimétrico, ou ambos.]]></source>
         <translation><![CDATA[Genera PDF de auditoría (y siempre el CSV correspondiente) para comprobar buffers y DM. Puede activar solo el planimétrico, solo el altimétrico, o ambos.]]></translation>
     </message>
     <message>
@@ -1613,7 +1661,7 @@ Suggestions:
     </message>
     <message>
         <source><![CDATA[Descarta linhas de teste mais curtas que este comprimento (pixels × GSD do teste). Padrão: 10 px.]]></source>
-        <translation><![CDATA[Drops test lines shorter than this length (pixels × test GSD). Default: 10 px.]]></translation>
+        <translation><![CDATA[Descarta las líneas de prueba más cortas que esta longitud (píxeles × GSD de prueba). Predeterminado: 10 píxeles.]]></translation>
     </message>
     <message>
         <source><![CDATA[Menor escala (menor detalhe) da avaliação PEC-PCD.]]></source>
@@ -1656,7 +1704,7 @@ Suggestions:
         <translation><![CDATA[Idioma de QGIS ({0})]]></translation>
     </message>
     <message>
-        <source><![CDATA[Para criar tradução num idioma ainda sem ficheiro .qm:
+        <source><![CDATA[Para criar tradução num idioma ainda sem arquivo .qm:
 1. Copie i18n/pos_accuracy_en.ts para pos_accuracy_<locale>.ts (ex.: pos_accuracy_es_ES.ts).
 2. Traduza no Qt Linguist ou edite o .ts (contexto PositionalAccuracyPlugin).
 3. Compile: execute i18n/build_translations.bat qm-only (requer pyside6-lrelease ou lrelease do OSGeo4W).

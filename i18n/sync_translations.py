@@ -49,12 +49,12 @@ EXTRA_EN: dict[str, str] = {
     'Cancelar parar ({0})': 'Cancel stop ({0})',
     'Clique para abortar a interrupção e continuar a análise.': (
         'Click to abort the interruption and continue the analysis.'),
-    'Paragem em 3 s — clique em «Cancelar parar» para continuar a análise.': (
+    'Parada em 3 s — clique em «Cancelar parar» para continuar a análise.': (
         'Stopping in 3 s — click «Cancel stop» to continue the analysis.'),
-    'Paragem cancelada — a análise continua.': 'Stop cancelled — analysis continues.',
-    'Interromper a análise em curso.': 'Stop the analysis in progress.',
+    'Parada cancelada — a análise continua.': 'Stop cancelled — analysis continues.',
+    'Interromper a análise em andamento.': 'Stop the analysis in progress.',
     'Interrompendo a análise…': 'Stopping analysis…',
-    'Análise interrompida pelo utilizador.': 'Analysis interrupted by the user.',
+    'Análise interrompida pelo usuário.': 'Analysis interrupted by the user.',
     'Executar ou retomar a análise.': 'Run or resume the analysis.',
     'Retomando a partir da correspondência de linhas (parâmetros alterados).': (
         'Resuming from line matching (parameters changed).'),
@@ -75,6 +75,8 @@ EXTRA_EN: dict[str, str] = {
     'Sem Compatibilização': 'No compatibilization',
     'Definições para Normalização de Progressivas': 'Chainage compatibilization settings',
     'Definições para Compatibilização de Progressivas': 'Chainage compatibilization settings',
+    'Configurações para Normalização de Progressivas': 'Chainage compatibilization settings',
+    'Configurações para Compatibilização de Progressivas': 'Chainage compatibilization settings',
     'Método para Normalização': 'Compatibilization method',
     'Método para Compatibilização': 'Compatibilization method',
     'Escalar k (linear)': 'Scalar k (linear)',
@@ -91,13 +93,13 @@ EXTRA_EN: dict[str, str] = {
     'Escalar k — desvio padrão: {0}': 'Scalar k — standard deviation: {0}',
     '(sem pares homólogos definidos — execute a correspondência de linhas.)': (
         '(no homologous pairs defined — run line matching.)'),
-    'Ficheiro WKT dos perfis': 'Profiles WKT file',
-    'Ficheiro WKT dos perfis exportado: {0}': 'Profiles WKT file exported: {0}',
-    'Falha ao gerar ficheiro WKT dos perfis: {0} ({1})': (
+    'Arquivo WKT dos perfis': 'Profiles WKT file',
+    'Arquivo WKT dos perfis exportado: {0}': 'Profiles WKT file exported: {0}',
+    'Falha ao gerar arquivo WKT dos perfis: {0} ({1})': (
         'Could not generate profiles WKT file: {0} ({1})'),
     'Título': 'Title',
     'Data/hora': 'Date/time',
-    'Ficheiro de projeto': 'Project file',
+    'Arquivo de projeto': 'Project file',
     'CRS de referência (análise)': 'Reference CRS (analysis)',
     'Par': 'Pair',
     'ref_id': 'ref_id',
@@ -115,7 +117,7 @@ EXTRA_EN: dict[str, str] = {
     'Alterar idioma da interface': 'Change interface language',
     '{0} não encontrado': '{0} not found',
     'Fechar': 'Close',
-    'Para criar tradução num idioma ainda sem ficheiro .qm:\n'
+    'Para criar tradução num idioma ainda sem arquivo .qm:\n'
     '1. Copie i18n/pos_accuracy_en.ts para pos_accuracy_<locale>.ts '
     '(ex.: pos_accuracy_es_ES.ts).\n'
     '2. Traduza no Qt Linguist ou edite o .ts (contexto PositionalAccuracyPlugin).\n'
@@ -156,7 +158,7 @@ EXTRA_EN: dict[str, str] = {
     '(camada de interseção indisponível)': '(intersection layer unavailable)',
     '(extensão vazia — execute a interseção dos MDEs)': (
         '(empty extent — run DEM intersection)'),
-    '(ainda não há resultados de PEC nesta sessão — execute a análise até ao fim.)': (
+    '(ainda não há resultados de PEC nesta sessão — execute a análise até o fim.)': (
         '(no PEC results in this session yet — run the analysis to completion.)'),
     'Envelope ({0}): Xmin={1}, Ymin={2}, Xmax={3}, Ymax={4}': (
         'Envelope ({0}): Xmin={1}, Ymin={2}, Xmax={3}, Ymax={4}'),
@@ -251,7 +253,7 @@ EXTRA_EN: dict[str, str] = {
         'Morphology cancelled: GRASS unavailable or disabled. Fix before continuing (see messages above).'),
     'RAM do sistema: {0}% em uso, {1} MB livres de {2} MB.': (
         'System RAM: {0}% in use, {1} MB free of {2} MB.'),
-    'RAM elevada antes da morfologia — o r.watershed (GRASS) pode falhar. Feche outras aplicações, reinicie o QGIS se necessário, ou reduza «Limite de Memória para Grass GIS» nas definições do plugin.': (
+    'RAM elevada antes da morfologia — o r.watershed (GRASS) pode falhar. Feche outras aplicações, reinicie o QGIS se necessário, ou reduza «Limite de Memória para Grass GIS» nas configurações do plugin.': (
         'High RAM before morphology — r.watershed (GRASS) may fail. Close other applications, restart QGIS if needed, or reduce «Grass GIS memory limit» in plugin settings.'),
     '[__Linhas_de_Correspondencia__] Camadas de morfologia indisponíveis para tipo {0}.': (
         '[__Linhas_de_Correspondencia__] Morphology layers unavailable for type {0}.'),
@@ -263,7 +265,7 @@ EXTRA_EN: dict[str, str] = {
         '[__Linhas_de_Correspondencia__] {0} links saved (edit before Continue if under review).'),
     '[__Linhas_de_Correspondencia__] {0} feição(ões) ignoradas.': (
         '[__Linhas_de_Correspondencia__] {0} feature(s) ignored.'),
-    'Camada __Linhas_de_Correspondencia__: {0} pares. Edite, remova ou adicione linhas (meio teste → meio referência); atributos: tipo, fid_r, fid_t. Prima Continuar.': (
+    'Camada __Linhas_de_Correspondencia__: {0} pares. Edite, remova ou adicione linhas (meio teste → meio referência); atributos: tipo, fid_r, fid_t. Clique em Continuar.': (
         '__Linhas_de_Correspondencia__ layer: {0} pairs. Edit, remove or add lines (test midpoint → reference midpoint); attributes: tipo, fid_r, fid_t. Click Continue.'),
     '[__Buffers__] Tipo de geometria da camada: {0}. Gravação em lote por par (sem repaint durante o processamento).': (
         '[__Buffers__] Layer geometry type: {0}. Batch write per pair (no repaint during processing).'),
@@ -395,19 +397,19 @@ EXTRA_EN: dict[str, str] = {
         'Methodology parameters: morphology, pairs, buffers, chainage compatibilization, MD formula and audit.'),
     'Informações do MDE selecionado': 'Information about the selected DEM',
     'Abrir o relatório': 'Open the report',
-    'Ficheiro GeoPackage do projeto (.pa.gpkg): camadas, parâmetros e resultados.': (
+    'Arquivo GeoPackage do projeto (.pa.gpkg): camadas, parâmetros e resultados.': (
         'Project GeoPackage file (.pa.gpkg): layers, parameters and results.'),
-    'Estado do projeto: definido (ficheiro .pa.gpkg encontrado) ou não definido.': (
+    'Estado do projeto: definido (arquivo .pa.gpkg encontrado) ou não definido.': (
         'Project status: defined (.pa.gpkg file found) or not defined.'),
     'Versão instalada do complemento.': 'Installed plugin version.',
     'MDE de referência (maior rigor posicional), usado como verdade de campo.': (
         'Reference DEM (higher positional accuracy), used as ground truth.'),
     'MDE a avaliar. A resolução (GSD) deste raster define as distâncias em pixels.': (
         'DEM to evaluate. This raster’s GSD defines distances in pixels.'),
-    'Seleccione o raster de referência.': 'Select the reference raster.',
+    'Selecione o raster de referência.': 'Select the reference raster.',
     'Delimita a área da análise: interseção automática dos MDEs, edição após gerar o polígono, ou polígono de uma camada existente.': (
         'Defines the analysis area: automatic DEM intersection, edit after generating the polygon, or a polygon from an existing layer.'),
-    'Como obter a área de estudo: (i) interseção dos MDEs; (ii) editar após a interseção; (iii) seleccionar polígono de uma camada.': (
+    'Como obter a área de estudo: (i) interseção dos MDEs; (ii) editar após a interseção; (iii) selecionar polígono de uma camada.': (
         'How to obtain the study area: (i) DEM intersection; (ii) edit after intersection; (iii) select a polygon from a layer.'),
     'Calcula automaticamente o polígono pela interseção dos dois MDEs.': (
         'Automatically computes the polygon from the intersection of both DEMs.'),
@@ -420,13 +422,13 @@ EXTRA_EN: dict[str, str] = {
         'Recommended minimum linear sample extent, proportional to the study area.'),
     'Camada de polígono usada quando a área de estudo vem de uma camada existente.': (
         'Polygon layer used when the study area comes from an existing layer.'),
-    'Seleccione a camada polígono que delimita a área de estudo.': (
+    'Selecione a camada polígono que delimita a área de estudo.': (
         'Select the polygon layer that bounds the study area.'),
     'Definição dos pares homólogos: seleção automática ou revisão após a seleção.': (
         'Homologous-pair definition: automatic selection or review after selection.'),
     '(i) Automática — usa só os filtros de Config. (ii) Revisar — permite editar os pares no mapa antes dos buffers.': (
         '(i) Automatic — uses Config filters only. (ii) Review — lets you edit pairs on the map before buffers.'),
-    'Selecciona os pares só com os filtros de distância e envelopes.': (
+    'Seleciona os pares só com os filtros de distância e envelopes.': (
         'Selects pairs using distance and envelope filters only.'),
     'Pausa após a seleção para rever, remover ou acrescentar pares no mapa.': (
         'Pauses after selection so you can review, remove or add pairs on the map.'),
@@ -587,7 +589,7 @@ EXTRA_EN: dict[str, str] = {
         'Mean-discrepancy (MD) equation from double-buffer areas.'),
     'PDFs/CSV par a par para conferir buffers e DM. Pode gerar só o planimétrico, só o altimétrico, ou ambos.': (
         'Pair-by-pair PDFs/CSV to check buffers and MD. You may generate planimetric, altimetric, or both.'),
-    'Gera PDF de auditoria (e sempre o CSV correspondente) para conferir buffers e DM. Pode activar só o planimétrico, só o altimétrico, ou ambos.': (
+    'Gera PDF de auditoria (e sempre o CSV correspondente) para conferir buffers e DM. Pode ativar só o planimétrico, só o altimétrico, ou ambos.': (
         'Generates an audit PDF (and always the matching CSV) to check buffers and MD. '
         'You may enable planimetric only, altimetric only, or both.'),
     'Horizontal (PDF)': 'Horizontal (PDF)',
@@ -628,6 +630,13 @@ EXTRA_EN: dict[str, str] = {
     'Recalcula DM a partir do projeto e grava só os CSV (Horizontal/Vertical conforme as opções acima). Sem PDF.': (
         'Recalculates MD from the project and writes only the CSVs (Horizontal/Vertical as checked above). No PDF.'),
     'Falha ao gerar CSV de auditoria: {0}': 'Failed to generate audit CSV: {0}',
+    'Nome de camada de morfologia inválido — correspondência de pares abortada.': (
+        'Invalid morphology layer name — pair matching aborted.'),
+    'Selecione o raster de teste a avaliar.': 'Select the test raster to evaluate.',
+    'Caminho do arquivo de projeto .pa.gpkg.': 'Path of the .pa.gpkg project file.',
+    'Configurações para Geração de Morfologia': 'Morphology generation settings',
+    'Configurações para Seleção dos Pares': 'Pair selection settings',
+    'Configurações para Geração Buffers': 'Buffer generation settings',
 }
 
 # Renomeações de fonte (antigo -> novo PT alinhado ao código)
@@ -654,7 +663,7 @@ SOURCE_RENAMES: dict[str, str] = {
     'Método de normalização de progressivas': 'Método de compatibilização de progressivas',
     'Sem Normalização': 'Sem Compatibilização',
     'Definições para Normalização de Progressivas': (
-        'Definições para Compatibilização de Progressivas'),
+        'Configurações para Compatibilização de Progressivas'),
     'Método para Normalização': 'Método para Compatibilização',
     'Parâmetros da metodologia: morfologia, pares, buffers, normalização, fórmula da DM e auditoria.': (
         'Parâmetros da metodologia: morfologia, pares, buffers, compatibilização, fórmula da DM e auditoria.'),
@@ -672,6 +681,64 @@ SOURCE_RENAMES: dict[str, str] = {
         'Memória máxima do GRASS no r.watershed. Diminua se falhar. Padrão: 4 GB.'),
     'Extensão mínima da feição de teste (Pixels do MDE de teste)': (
         'Extensão mínima da feição de teste (pixels do MDE de teste)'),
+    'Ficheiro WKT dos perfis': 'Arquivo WKT dos perfis',
+    'Ficheiro WKT dos perfis exportado: {0}': 'Arquivo WKT dos perfis exportado: {0}',
+    'Falha ao gerar ficheiro WKT dos perfis: {0} ({1})': (
+        'Falha ao gerar arquivo WKT dos perfis: {0} ({1})'),
+    'Ficheiro de projeto': 'Arquivo de projeto',
+    'Ficheiro GeoPackage do projeto (.pa.gpkg): camadas, parâmetros e resultados.': (
+        'Arquivo GeoPackage do projeto (.pa.gpkg): camadas, parâmetros e resultados.'),
+    'Estado do projeto: definido (ficheiro .pa.gpkg encontrado) ou não definido.': (
+        'Estado do projeto: definido (arquivo .pa.gpkg encontrado) ou não definido.'),
+    'Seleccione o raster de referência.': 'Selecione o raster de referência.',
+    'Seleccione o raster de teste a avaliar.': 'Selecione o raster de teste a avaliar.',
+    'Seleccione a camada polígono que delimita a área de estudo.': (
+        'Selecione a camada polígono que delimita a área de estudo.'),
+    'Selecciona os pares só com os filtros de distância e envelopes.': (
+        'Seleciona os pares só com os filtros de distância e envelopes.'),
+    'Caminho do ficheiro de projeto .pa.gpkg.': 'Caminho do arquivo de projeto .pa.gpkg.',
+    'Definições para Geração de Morfologia': 'Configurações para Geração de Morfologia',
+    'Definições para Seleção dos Pares': 'Configurações para Seleção dos Pares',
+    'Definições para Geração Buffers': 'Configurações para Geração Buffers',
+    'Definições para Compatibilização de Progressivas': (
+        'Configurações para Compatibilização de Progressivas'),
+    'Paragem em 3 s — clique em «Cancelar parar» para continuar a análise.': (
+        'Parada em 3 s — clique em «Cancelar parar» para continuar a análise.'),
+    'Paragem cancelada — a análise continua.': 'Parada cancelada — a análise continua.',
+    'Interromper a análise em curso.': 'Interromper a análise em andamento.',
+    'Análise interrompida pelo utilizador.': 'Análise interrompida pelo usuário.',
+    '(ainda não há resultados de PEC nesta sessão — execute a análise até ao fim.)': (
+        '(ainda não há resultados de PEC nesta sessão — execute a análise até o fim.)'),
+    'Camada __Linhas_de_Correspondencia__: {0} pares. Edite, remova ou adicione linhas (meio teste → meio referência); atributos: tipo, fid_r, fid_t. Prima Continuar.': (
+        'Camada __Linhas_de_Correspondencia__: {0} pares. Edite, remova ou adicione linhas (meio teste → meio referência); atributos: tipo, fid_r, fid_t. Clique em Continuar.'),
+    'Foram identificados {0} valores atípicos (excluídos do cálculo PEC). Prima OK para continuar.': (
+        'Foram identificados {0} valores atípicos (excluídos do cálculo PEC). Clique em OK para continuar.'),
+    'Gera PDF de auditoria (e sempre o CSV correspondente) para conferir buffers e DM. Pode activar só o planimétrico, só o altimétrico, ou ambos.': (
+        'Gera PDF de auditoria (e sempre o CSV correspondente) para conferir buffers e DM. Pode ativar só o planimétrico, só o altimétrico, ou ambos.'),
+    'Como obter a área de estudo: (i) interseção dos MDEs; (ii) editar após a interseção; (iii) seleccionar polígono de uma camada.': (
+        'Como obter a área de estudo: (i) interseção dos MDEs; (ii) editar após a interseção; (iii) selecionar polígono de uma camada.'),
+    'RAM elevada antes da morfologia — o r.watershed (GRASS) pode falhar. Feche outras aplicações, reinicie o QGIS se necessário, ou reduza «Limite de Memória para Grass GIS» nas definições do plugin.': (
+        'RAM elevada antes da morfologia — o r.watershed (GRASS) pode falhar. Feche outras aplicações, reinicie o QGIS se necessário, ou reduza «Limite de Memória para Grass GIS» nas configurações do plugin.'),
+    'Para criar tradução num idioma ainda sem ficheiro .qm:\n'
+    '1. Copie i18n/pos_accuracy_en.ts para pos_accuracy_<locale>.ts '
+    '(ex.: pos_accuracy_es_ES.ts).\n'
+    '2. Traduza no Qt Linguist ou edite o .ts (contexto PositionalAccuracyPlugin).\n'
+    '3. Compile: execute i18n/build_translations.bat qm-only '
+    '(requer pyside6-lrelease ou lrelease do OSGeo4W).\n'
+    '4. Confirme que pos_accuracy_<locale>.qm ficou na pasta i18n/ '
+    'e recarregue o plugin.\n'
+    'Use pos_accuracy_en.ts como modelo — é a tradução completa de referência.\n'
+    'Idioma de desenvolvimento (textos fonte): pt_BR.': (
+        'Para criar tradução num idioma ainda sem arquivo .qm:\n'
+        '1. Copie i18n/pos_accuracy_en.ts para pos_accuracy_<locale>.ts '
+        '(ex.: pos_accuracy_es_ES.ts).\n'
+        '2. Traduza no Qt Linguist ou edite o .ts (contexto PositionalAccuracyPlugin).\n'
+        '3. Compile: execute i18n/build_translations.bat qm-only '
+        '(requer pyside6-lrelease ou lrelease do OSGeo4W).\n'
+        '4. Confirme que pos_accuracy_<locale>.qm ficou na pasta i18n/ '
+        'e recarregue o plugin.\n'
+        'Use pos_accuracy_en.ts como modelo — é a tradução completa de referência.\n'
+        'Idioma de desenvolvimento (textos fonte): pt_BR.'),
 }
 
 
@@ -835,12 +902,12 @@ EXTRA_ES: dict[str, str] = {
     'Cancelar parar ({0})': 'Cancelar parada ({0})',
     'Clique para abortar a interrupção e continuar a análise.': (
         'Haga clic para abortar la interrupción y continuar el análisis.'),
-    'Paragem em 3 s — clique em «Cancelar parar» para continuar a análise.': (
+    'Parada em 3 s — clique em «Cancelar parar» para continuar a análise.': (
         'Parada en 3 s — haga clic en «Cancelar parada» para continuar el análisis.'),
-    'Paragem cancelada — a análise continua.': 'Parada cancelada — el análisis continúa.',
-    'Interromper a análise em curso.': 'Interrumpir el análisis en curso.',
+    'Parada cancelada — a análise continua.': 'Parada cancelada — el análisis continúa.',
+    'Interromper a análise em andamento.': 'Interrumpir el análisis en curso.',
     'Interrompendo a análise…': 'Interrumpiendo el análisis…',
-    'Análise interrompida pelo utilizador.': 'Análisis interrumpido por el usuario.',
+    'Análise interrompida pelo usuário.': 'Análisis interrumpido por el usuario.',
     'Executar ou retomar a análise.': 'Ejecutar o reanudar el análisis.',
     'Tratamento de outliers:': 'Tratamiento de valores atípicos:',
     'Tratamento de outliers': 'Tratamiento de valores atípicos',
@@ -863,7 +930,7 @@ EXTRA_ES: dict[str, str] = {
     'Mínima': 'Mínima',
     'Máxima': 'Máxima',
     'Desvio Padrão': 'Desviación estándar',
-    'Ficheiro WKT dos perfis': 'Archivo WKT de perfiles',
+    'Arquivo WKT dos perfis': 'Archivo WKT de perfiles',
     'Perfil ref. (WKT compatibilizado)': 'Perfil ref. (WKT compatibilizado)',
     'Perfil teste (WKT compatibilizado)': 'Perfil prueba (WKT compatibilizado)',
     'Parâmetros da metodologia: morfologia, pares, buffers, normalização, fórmula da DM e auditoria.': (
@@ -877,6 +944,10 @@ EXTRA_ES: dict[str, str] = {
     'Definições para Normalização de Progressivas': (
         'Definiciones para la compatibilización de progresivas'),
     'Definições para Compatibilização de Progressivas': (
+        'Definiciones para la compatibilización de progresivas'),
+    'Configurações para Normalização de Progressivas': (
+        'Definiciones para la compatibilización de progresivas'),
+    'Configurações para Compatibilização de Progressivas': (
         'Definiciones para la compatibilización de progresivas'),
     'Método para Normalização': 'Método de compatibilización',
     'Método para Compatibilização': 'Método de compatibilización',
@@ -904,19 +975,19 @@ EXTRA_ES: dict[str, str] = {
         'RECALCULANDO DM (COMPATIBILIZACIÓN / ALTIMETRÍA)'),
     'Informações do MDE selecionado': 'Información del MDE seleccionado',
     'Abrir o relatório': 'Abrir el informe',
-    'Ficheiro GeoPackage do projeto (.pa.gpkg): camadas, parâmetros e resultados.': (
+    'Arquivo GeoPackage do projeto (.pa.gpkg): camadas, parâmetros e resultados.': (
         'Archivo GeoPackage del proyecto (.pa.gpkg): capas, parámetros y resultados.'),
-    'Estado do projeto: definido (ficheiro .pa.gpkg encontrado) ou não definido.': (
+    'Estado do projeto: definido (arquivo .pa.gpkg encontrado) ou não definido.': (
         'Estado del proyecto: definido (archivo .pa.gpkg encontrado) o no definido.'),
     'Versão instalada do complemento.': 'Versión instalada del complemento.',
     'MDE de referência (maior rigor posicional), usado como verdade de campo.': (
         'MDE de referencia (mayor rigor posicional), usado como verdad de campo.'),
     'MDE a avaliar. A resolução (GSD) deste raster define as distâncias em pixels.': (
         'MDE a evaluar. La resolución (GSD) de este ráster define las distancias en píxeles.'),
-    'Seleccione o raster de referência.': 'Seleccione el ráster de referencia.',
+    'Selecione o raster de referência.': 'Seleccione el ráster de referencia.',
     'Delimita a área da análise: interseção automática dos MDEs, edição após gerar o polígono, ou polígono de uma camada existente.': (
         'Delimita el área de análisis: intersección automática de los MDE, edición tras generar el polígono, o polígono de una capa existente.'),
-    'Como obter a área de estudo: (i) interseção dos MDEs; (ii) editar após a interseção; (iii) seleccionar polígono de uma camada.': (
+    'Como obter a área de estudo: (i) interseção dos MDEs; (ii) editar após a interseção; (iii) selecionar polígono de uma camada.': (
         'Cómo obtener el área de estudio: (i) intersección de los MDE; (ii) editar tras la intersección; (iii) seleccionar polígono de una capa.'),
     'Calcula automaticamente o polígono pela interseção dos dois MDEs.': (
         'Calcula automáticamente el polígono por la intersección de ambos MDE.'),
@@ -929,13 +1000,13 @@ EXTRA_ES: dict[str, str] = {
         'Extensión lineal mínima recomendada de la muestra, proporcional al área de estudio.'),
     'Camada de polígono usada quando a área de estudo vem de uma camada existente.': (
         'Capa de polígono usada cuando el área de estudio proviene de una capa existente.'),
-    'Seleccione a camada polígono que delimita a área de estudo.': (
+    'Selecione a camada polígono que delimita a área de estudo.': (
         'Seleccione la capa polígono que delimita el área de estudio.'),
     'Definição dos pares homólogos: seleção automática ou revisão após a seleção.': (
         'Definición de los pares homólogos: selección automática o revisión tras la selección.'),
     '(i) Automática — usa só os filtros de Config. (ii) Revisar — permite editar os pares no mapa antes dos buffers.': (
         '(i) Automática — usa solo los filtros de Config. (ii) Revisar — permite editar los pares en el mapa antes de los buffers.'),
-    'Selecciona os pares só com os filtros de distância e envelopes.': (
+    'Seleciona os pares só com os filtros de distância e envelopes.': (
         'Selecciona los pares solo con los filtros de distancia y envolventes.'),
     'Pausa após a seleção para rever, remover ou acrescentar pares no mapa.': (
         'Pausa tras la selección para revisar, quitar o añadir pares en el mapa.'),
@@ -985,7 +1056,7 @@ EXTRA_ES: dict[str, str] = {
     'Horizontal (PDF)': 'Horizontal (PDF)',
     'Vertical': 'Vertical',
     'Vertical (PDF)': 'Vertical (PDF)',
-    'Gera PDF de auditoria (e sempre o CSV correspondente) para conferir buffers e DM. Pode activar só o planimétrico, só o altimétrico, ou ambos.': (
+    'Gera PDF de auditoria (e sempre o CSV correspondente) para conferir buffers e DM. Pode ativar só o planimétrico, só o altimétrico, ou ambos.': (
         'Genera PDF de auditoría (y siempre el CSV correspondiente) para comprobar buffers y DM. '
         'Puede activar solo el planimétrico, solo el altimétrico, o ambos.'),
     'Gera o PDF de auditoria planimétrica (buffers no plano XY). O CSV correspondente é sempre gravado.': (
@@ -1007,6 +1078,13 @@ EXTRA_ES: dict[str, str] = {
         'Restablece todos los parámetros de esta ventana a los valores predeterminados.'),
     'Grava os parâmetros no projeto (.pa.gpkg) e fecha a janela.': (
         'Guarda los parámetros en el proyecto (.pa.gpkg) y cierra la ventana.'),
+    'Nome de camada de morfologia inválido — correspondência de pares abortada.': (
+        'Nombre de capa de morfología inválido — correspondencia de pares abortada.'),
+    'Selecione o raster de teste a avaliar.': 'Seleccione el ráster de prueba para evaluar.',
+    'Caminho do arquivo de projeto .pa.gpkg.': 'Ruta del archivo de proyecto .pa.gpkg.',
+    'Configurações para Geração de Morfologia': 'Ajustes para generación de morfología',
+    'Configurações para Seleção dos Pares': 'Ajustes para selección de pares',
+    'Configurações para Geração Buffers': 'Ajustes para generación de buffers',
 }
 
 

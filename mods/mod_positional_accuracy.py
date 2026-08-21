@@ -6,6 +6,7 @@ import html
 import json
 import math
 import os
+import re
 import sqlite3
 import statistics
 from queue import Queue, Empty
@@ -22,18 +23,19 @@ from qgis.PyQt.QtGui import (
     QTextDocument, QPainter, QDesktopServices, QCursor, QImage, qAlpha,
 )
 from qgis.PyQt.QtPrintSupport import QPrinter
-from qgis.PyQt.QtWidgets import (QAction, QScrollArea, QGridLayout, QHBoxLayout, QPushButton, QLabel, QWidget, QSizePolicy,
-                                 QSpacerItem, QDockWidget, QSplitter, QComboBox, QLineEdit, QDialog, QFrame, QCheckBox,
-                                 QHBoxLayout, QVBoxLayout, QFileDialog, QTableWidget, QStyle, QStyleOptionButton,
-                                 QProgressBar, QDateEdit, QWidget, QVBoxLayout, QPushButton, QPlainTextEdit,
-                                 QMessageBox, QApplication)
+from qgis.PyQt.QtWidgets import (
+    QAction, QScrollArea, QGridLayout, QHBoxLayout, QVBoxLayout, QPushButton,
+    QLabel, QWidget, QSizePolicy, QSpacerItem, QDockWidget, QSplitter,
+    QComboBox, QLineEdit, QDialog, QFrame, QCheckBox, QFileDialog, QTableWidget,
+    QStyle, QStyleOptionButton, QProgressBar, QDateEdit, QPlainTextEdit,
+    QMessageBox, QApplication,
+)
 from qgis.core import (QgsVectorFileWriter, QgsWkbTypes, QgsCoordinateTransformContext, QgsCoordinateReferenceSystem,
                        QgsCoordinateTransform, QgsGeometry, QgsPointXY,
                        QgsFeature, QgsVectorLayer, QgsRasterLayer, QgsFields, QgsField, QgsProject,
                        QgsMapLayerProxyModel, QgsLayerTreeLayer, QgsDistanceArea)
 from qgis.gui import QgsMapLayerComboBox
 from .mod_aux_tools import AuxTools#, Obs2, Logger
-from .mod_login import Database
 from .mod_worker_threads import (
     DM_ABS_MAX_SANE, Worker, inspect_grass_processing, _windows_memory_status,
     _grass_memory_advice, _recommend_grass_memory_gb,
@@ -85,6 +87,9 @@ PLUGIN_DISPLAY_NAME = 'MDE AP - Acurácia Posicional'
 _UI_VALIDATION_HL = (
     'background-color: #fff3cd; border: 2px solid #e6a800; border-radius: 3px;')
 
+# Camadas internas do GPKG: __Nome__
+_GPKG_LAYER_NAME_RE = re.compile(r'^__[A-Za-z0-9_]+__$')
+
 # Mesmo limite que BufferThread (|dm_h|/|dm_v| acima → NaN + WARNING no log).
 _MAX_PEC_MEASUREMENT_ABS = DM_ABS_MAX_SANE
 
@@ -113,6 +118,14 @@ def _coerce_finite_extent_m(x):
     if not math.isfinite(v) or v <= 0:
         return None
     return v
+
+
+def _sql_quote_gpkg_layer(name: str) -> str:
+    """Identificador de camada GPKG (só nomes internos __X__); rejeita o resto."""
+    s = str(name or '')
+    if not _GPKG_LAYER_NAME_RE.fullmatch(s):
+        raise ValueError(s)
+    return '"' + s.replace('"', '') + '"'
 
 
 def pec_test_limit(pec_, decimals=None):
@@ -192,13 +205,13 @@ def _ui_device_pixel_ratio() -> float:
         app = QApplication.instance()
         if app:
             return float(app.devicePixelRatio() or 1.0)
-    except Exception:
+    except (ImportError, AttributeError, TypeError, ValueError):
         pass
     return 1.0
 
 
 def _first_existing_icon_path(*names: str) -> str:
-    """Primeiro ficheiro existente em icons/; SVG tem prioridade se for passado primeiro."""
+    """Primeiro arquivo existente em icons/; SVG tem prioridade se for passado primeiro."""
     for name in names:
         path_ = os.path.normpath(os.path.join(plugin_path, 'icons', name))
         if os.path.isfile(path_):
@@ -228,12 +241,12 @@ def _open_web_url(url: str) -> bool:
 
 def _bind_clickable_url_label(label: QLabel, url: str) -> None:
     """Torna um QLabel clicável: abre `url` no browser."""
-    label.setCursor(QCursor(Qt.PointingHandCursor))
-    label.setFocusPolicy(Qt.StrongFocus)
+    label.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+    label.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
     label.setProperty('open_url', url)
 
     def _on_release(event, lb=label):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             _open_web_url(str(lb.property('open_url') or ''))
         QLabel.mouseReleaseEvent(lb, event)
 
@@ -244,7 +257,7 @@ class ScaledPixmapLabel(QLabel):
     """QLabel que desenha o PNG/SVG original a caber no widget (KeepAspectRatio).
 
     Não recorta a arte nem usa ``setScaledContents`` (este distorce e pixeliza).
-    O scale é feito no ``paintEvent`` a partir do ficheiro original, com
+    O scale é feito no ``paintEvent`` a partir do arquivo original, com
     ``SmoothPixmapTransform``.
     """
 
@@ -253,7 +266,7 @@ class ScaledPixmapLabel(QLabel):
         self._src = QPixmap()
         self._slot = QSize(slot)
         self.setFixedSize(slot)
-        self.setAlignment(Qt.AlignCenter)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setScaledContents(False)
 
     def set_source(self, path_: str):
@@ -275,13 +288,13 @@ class ScaledPixmapLabel(QLabel):
         if self._src.isNull():
             return
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
-        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         target = QRectF(self.contentsRect())
         src_rect = QRectF(self._src.rect())
         dpr = float(self._src.devicePixelRatio() or 1.0)
         logical = QSizeF(src_rect.width() / dpr, src_rect.height() / dpr)
-        fitted = logical.scaled(target.size(), Qt.KeepAspectRatio)
+        fitted = logical.scaled(target.size(), Qt.AspectRatioMode.KeepAspectRatio)
         dest = QRectF(0, 0, fitted.width(), fitted.height())
         dest.moveCenter(target.center())
         painter.drawPixmap(dest, self._src, src_rect)
@@ -320,8 +333,8 @@ def _make_dem_info_button(parent: QWidget = None) -> QPushButton:
     btn.setIconSize(icon_size)
     btn.setFixedSize(icon_size)
     btn.setFlat(True)
-    btn.setCursor(Qt.PointingHandCursor)
-    btn.setFocusPolicy(Qt.StrongFocus)
+    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
     btn.setStyleSheet(
         'QPushButton { border: none; background: transparent; padding: 0; margin: 0; }'
         'QPushButton:hover { background: rgba(0, 0, 0, 0.06); border-radius: 11px; }'
@@ -404,7 +417,7 @@ def _pixmap_from_icon_path(
             renderer = QSvgRenderer(path_)
             if renderer.isValid():
                 pm = QPixmap(phys)
-                pm.fill(Qt.transparent)
+                pm.fill(Qt.GlobalColor.transparent)
                 pm.setDevicePixelRatio(dpr)
                 painter = QPainter(pm)
                 try:
@@ -423,17 +436,18 @@ def _pixmap_from_icon_path(
                     painter.end()
                 return pm
         except Exception:
+            # QSvgRenderer/QtSvg indisponível — cai no pixmap raster
             pass
 
     pm = _load_pixmap_maybe_trim(path_, trim_alpha)
     if pm.isNull():
         return QPixmap()
-    mode = Qt.SmoothTransformation if smooth else Qt.FastTransformation
+    mode = Qt.TransformationMode.SmoothTransformation if smooth else Qt.TransformationMode.FastTransformation
     inner_w = max(1, int(phys.width() * (1.0 - 2.0 * inset)))
     inner_h = max(1, int(phys.height() * (1.0 - 2.0 * inset)))
-    scaled = pm.scaled(QSize(inner_w, inner_h), Qt.KeepAspectRatio, mode)
+    scaled = pm.scaled(QSize(inner_w, inner_h), Qt.AspectRatioMode.KeepAspectRatio, mode)
     canvas = QPixmap(phys)
-    canvas.fill(Qt.transparent)
+    canvas.fill(Qt.GlobalColor.transparent)
     canvas.setDevicePixelRatio(dpr)
     painter = QPainter(canvas)
     try:
@@ -561,41 +575,43 @@ def _configure_report_pdf_printer(printer, margin_mm: float = REPORT_PDF_MARGIN_
     try:
         from qgis.PyQt.QtGui import QPageLayout, QPageSize
         layout = QPageLayout(
-            QPageSize(QPageSize.A4),
-            QPageLayout.Portrait,
+            QPageSize(QPageSize.PageSizeId.A4),
+            QPageLayout.Orientation.Portrait,
             QMarginsF(margin_mm, margin_mm, margin_mm, margin_mm),
-            QPageLayout.Millimeter,
+            QPageLayout.Unit.Millimeter,
         )
         printer.setPageLayout(layout)
         return
     except Exception:
+        # Qt5: QPageLayout pode não existir neste QPrinter
         pass
     try:
-        printer.setPageSize(QPrinter.A4)
+        printer.setPageSize(QPrinter.PageSize.A4)
     except Exception:
+        # Qt5: PageSize.A4 vs A4
         pass
     try:
         printer.setPageMargins(
             QMarginsF(margin_mm, margin_mm, margin_mm, margin_mm),
-            QPrinter.Millimeter,
+            QPrinter.Unit.Millimeter,
         )
     except (ImportError, TypeError):
         printer.setPageMargins(
-            margin_mm, margin_mm, margin_mm, margin_mm, QPrinter.Millimeter,
+            margin_mm, margin_mm, margin_mm, margin_mm, QPrinter.Unit.Millimeter,
         )
 
 
 def _printer_page_rect_points(printer) -> QRectF:
     """Área imprimível em pontos (1 pt = 1/72 pol)."""
-    rect = printer.pageRect(QPrinter.Point)
+    rect = printer.pageRect(QPrinter.Unit.Point)
     if rect.isEmpty() or rect.width() < 10 or rect.height() < 10:
-        rect = printer.paperRect(QPrinter.Point)
+        rect = printer.paperRect(QPrinter.Unit.Point)
     return rect
 
 
 def _apply_painter_page_point_scale(painter, printer, page_rect_pt: QRectF) -> None:
     """HighResolution usa pixels de dispositivo; o documento está em pontos."""
-    dev = printer.pageRect(QPrinter.DevicePixel)
+    dev = printer.pageRect(QPrinter.Unit.DevicePixel)
     if dev.isEmpty() or page_rect_pt.isEmpty():
         return
     sx = dev.width() / page_rect_pt.width()
@@ -671,8 +687,8 @@ def write_pdf_from_html_doc(
         font_size = REPORT_PDF_FONTS_DEFAULT['doc_default']
     pdf_path = os.path.normpath(os.path.abspath(pdf_path))
     os.makedirs(os.path.dirname(pdf_path) or '.', exist_ok=True)
-    printer = QPrinter(QPrinter.HighResolution)
-    printer.setOutputFormat(QPrinter.PdfFormat)
+    printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+    printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
     printer.setOutputFileName(pdf_path)
     # 72 dpi → coordenadas do QTextDocument em pontos coincidem com o QPrinter.
     try:
@@ -690,7 +706,7 @@ def export_pdf_from_html_file(
     *,
     margin_mm: float = None,
 ) -> str:
-    """Gera PDF a partir de ficheiro HTML exportado pelo plugin."""
+    """Gera PDF a partir de arquivo HTML exportado pelo plugin."""
     html_path = os.path.normpath(os.path.abspath(html_path))
     if not os.path.isfile(html_path):
         raise FileNotFoundError(html_path)
@@ -705,8 +721,9 @@ def export_pdf_from_html_file(
 
 
 def _parse_project_path_from_report_txt(txt: str) -> str:
-    """Extrai caminho .pa.gpkg da linha «Ficheiro de projeto:» do relatório TXT."""
+    """Extrai caminho .pa.gpkg da linha «Arquivo de projeto:» do relatório TXT."""
     prefixes = (
+        'Arquivo de projeto:',
         'Ficheiro de projeto:',
         'Project file:',
     )
@@ -841,7 +858,7 @@ def _pairs_section_rows(pairs_sec: dict) -> list[dict]:
     wkt = (pairs_sec.get('wkt_file') or '').strip()
     if wkt:
         out.append({
-            'label': pairs_sec.get('wkt_file_caption') or 'Ficheiro WKT dos perfis',
+            'label': pairs_sec.get('wkt_file_caption') or 'Arquivo WKT dos perfis',
             'value': wkt,
         })
     for ln in pairs_sec.get('stat_lines') or []:
@@ -927,7 +944,7 @@ def format_full_report_txt(snapshot: dict) -> str:
     labels = meta.get('labels') or {}
     title_key = labels.get('title', 'Título')
     dt_key = labels.get('datetime', 'Data/hora')
-    proj_key = labels.get('project_file', 'Ficheiro de projeto')
+    proj_key = labels.get('project_file', 'Arquivo de projeto')
     crs_key = labels.get('crs', 'CRS de referência (análise)')
     lines.append('[META]')
     lines.append(f'{title_key}:\t{_report_txt_escape_cell(meta.get("title", ""))}')
@@ -1242,7 +1259,7 @@ def format_profiles_wkt_txt(
     if not pairs:
         return ''
     lbl_dt = labels.get('datetime', 'Data/hora')
-    lbl_proj = labels.get('project_file', 'Ficheiro de projeto')
+    lbl_proj = labels.get('project_file', 'Arquivo de projeto')
     lbl_norm = labels.get('norm_caption', 'Método de compatibilização de progressivas')
     lbl_pair = labels.get('pair', 'Par')
     lbl_ref_id = labels.get('ref_id', 'ref_id')
@@ -1289,7 +1306,7 @@ def format_profiles_wkt_txt(
 
 
 def _render_pairs_section_html(pairs_sec: dict) -> str:
-    """HTML das estatísticas de pares (WKT num ficheiro .txt separado)."""
+    """HTML das estatísticas de pares (WKT num arquivo .txt separado)."""
     if not pairs_sec:
         return ''
     rows = _pairs_section_rows(pairs_sec)
@@ -1315,6 +1332,7 @@ def _normalize_report_meta_key(key: str) -> str:
         'data/hora': 'datetime',
         'date/time': 'datetime',
         'ficheiro de projeto': 'project_file',
+        'arquivo de projeto': 'project_file',
         'project file': 'project_file',
         'crs de referência (análise)': 'crs',
         'reference crs (analysis)': 'crs',
@@ -1458,7 +1476,7 @@ def parse_full_report_txt(txt: str) -> dict:
                 sec.setdefault('stat_lines', []).append(
                     _report_txt_unescape_cell(line.split('\t', 1)[1]))
             elif line.startswith('PAIR\t'):
-                pass  # legado: WKT agora num ficheiro separado
+                pass  # legado: WKT agora num arquivo separado
             elif line.startswith('REF\t') or line.startswith('TEST\t') or line.startswith('SCALAR\t'):
                 pass
             elif line.startswith('EMPTY\t'):
@@ -1591,7 +1609,7 @@ def render_pdf_report_html(
     proj_esc = meta.get('project_file', '')
     crs_ = meta.get('crs', '')
     lbl_dt = labels.get('datetime', 'Data/hora')
-    lbl_proj = labels.get('project_file', 'Ficheiro de projeto')
+    lbl_proj = labels.get('project_file', 'Arquivo de projeto')
     lbl_crs = labels.get('crs', 'CRS de referência (análise)')
 
     meta_hdr_option = labels.get('option', 'Opção')
@@ -1777,7 +1795,7 @@ def export_pdf_from_txt_report(
     pa_gpkg = _parse_project_path_from_report_txt(txt_body)
     if not pa_gpkg or not os.path.isfile(pa_gpkg):
         raise FileNotFoundError(
-            f'Projeto .pa.gpkg não encontrado (linha «Ficheiro de projeto:» no TXT): {pa_gpkg!r}')
+            f'Projeto .pa.gpkg não encontrado (linha «Arquivo de projeto:» no TXT): {pa_gpkg!r}')
 
     iface = _ReportExportIfaceStub()
     main = _ReportExportMainStub()
@@ -1867,7 +1885,7 @@ def _plugin_icon_png_data_uri(size_px: int = 64) -> str:
         return ''
     ba = QByteArray()
     buf = QBuffer(ba)
-    if not buf.open(QIODevice.WriteOnly):
+    if not buf.open(QIODevice.OpenModeFlag.WriteOnly):
         return ''
     if not pm.save(buf, 'PNG'):
         return ''
@@ -1875,7 +1893,7 @@ def _plugin_icon_png_data_uri(size_px: int = 64) -> str:
 
 
 def _strip_project_ext(path: str) -> str:
-    """Caminho sem o sufixo PROJECT_EXT (nome base lógico e ficheiro .gpkg paralelo do OGR)."""
+    """Caminho sem o sufixo PROJECT_EXT (nome base lógico e arquivo .gpkg paralelo do OGR)."""
     if not path:
         return path
     pl = path.lower()
@@ -1886,7 +1904,7 @@ def _strip_project_ext(path: str) -> str:
 
 
 def resolve_saved_project_file_on_disk(saved_path: str) -> str:
-    """Resolve caminho do ficheiro de projeto (.pa.gpkg) no disco."""
+    """Resolve caminho do arquivo de projeto (.pa.gpkg) no disco."""
     if not saved_path:
         return ''
     p = os.path.normpath(os.path.abspath(saved_path))
@@ -1900,7 +1918,7 @@ def project_file_filter_i18n() -> str:
         f'{tr_ui("Projeto MDE-AP (*.pa.gpkg)")};;{tr_ui("Todos (*.*)")}'
     )
 
-# Tabela sem geometria no ficheiro de projeto: inicio/fim = data e hora local (SQLite 'YYYY-MM-DD HH:MM:SS') ou NULL
+# Tabela sem geometria no arquivo de projeto: inicio/fim = data e hora local (SQLite 'YYYY-MM-DD HH:MM:SS') ou NULL
 PIPELINE_ETAPAS_TABLE = 'pa_pipeline_etapas'
 PIPELINE_DATETIME_FMT = '%Y-%m-%d %H:%M:%S'
 PIPELINE_ETAPAS_DEF = (
@@ -1939,7 +1957,7 @@ STEP_FIELDS_IGNORED_FOR_RESTART = frozenset({
     'step_buffers.show_buffers_on_map',
 })
 
-# Ordem de prioridade (índice menor = mais básico → refazer daí até ao fim)
+# Ordem de prioridade (índice menor = mais básico → refazer daí até o fim)
 RESTART_ETAPA_PRIORITY = (
     'morfologia_referencia',
     'correspondencia_linhas',
@@ -2221,7 +2239,7 @@ PLUGIN_LAYER_TREE_ROOT_GROUP_LEGACY = ('__DEM_PA__',)
 
 
 def plugin_layer_tree_group_name(project_file: str = '') -> str:
-    """Nome do grupo na árvore: __MDE_AP__ + stem do ficheiro de projeto (ex.: __MDE_AP__v6z)."""
+    """Nome do grupo na árvore: __MDE_AP__ + stem do arquivo de projeto (ex.: __MDE_AP__v6z)."""
     if not project_file:
         return PLUGIN_LAYER_TREE_ROOT_GROUP
     stem = os.path.basename(_strip_project_ext(os.path.normpath(project_file)))
@@ -2375,7 +2393,7 @@ def save_plugin_settings_to_mdepa_path(mdepa_path: str, dic_param: dict) -> bool
 
 
 def _normalize_layer_source_compare(source: str) -> str:
-    """Comparação aproximada de caminhos de ficheiro (ex.: Windows)."""
+    """Comparação aproximada de caminhos de arquivo (ex.: Windows)."""
     if not source:
         return ''
     s = source.strip()
@@ -2637,7 +2655,7 @@ def project_data_dir(project_file: str) -> str:
 
 
 def normalize_project_pa_file(project_path: str) -> None:
-    """Se o OGR criar `stem.gpkg` paralelo ao ficheiro pedido, consolidar no .pa.gpkg."""
+    """Se o OGR criar `stem.gpkg` paralelo ao arquivo pedido, consolidar no .pa.gpkg."""
     if not project_path or not project_path.lower().endswith(PROJECT_EXT.lower()):
         return
     root = _strip_project_ext(project_path)
@@ -2779,12 +2797,12 @@ class PositionalAccuracyPlugin:
         self.dock1.setWindowTitle(self.title1)
 
         self.wd1 = Wd1(self.iface, parent=self.dock1, main=self)
-        self.wd1.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.wd1.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.dock1.setWidget(self.wd1)
         self.dock1.setObjectName(f"{self.title1} Panel")
         self.dock1.setMinimumHeight(60)
 
-        self.iface.addDockWidget(Qt.LeftDockWidgetArea, self.dock1)
+        self.iface.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock1)
         icon_path = _resolve_plugin_icon_path(prefer_svg=True)
 
         self.add_action(
@@ -2824,7 +2842,6 @@ class PositionalAccuracyPlugin:
     @classmethod
     def plugin_version(self):
         meta_file = plugin_path + "/metadata.txt"
-        # print(meta_file)
         with open(meta_file) as meta:
             mt = meta.readlines()
             for l_ in mt:
@@ -2885,7 +2902,7 @@ class Wd1(QWidget):
         self.task_queue = Queue()  # Task queue
         self.threads_running = 0  # Track active threads
         self.active_workers = {}  # Keep track of active workers
-        self._analysis_running = False  # sessão Avaliar em curso (inclui fases no thread principal)
+        self._analysis_running = False  # sessão Avaliar em andamento (inclui fases no thread principal)
         self._stop_requested = False
         self._stop_countdown_left = 0  # >0: confirmação animada «Cancelar parar»
         self._stop_pulse_on = False
@@ -2974,13 +2991,13 @@ class Wd1(QWidget):
 
         self.lb_session_logo = QLabel()
         self.lb_session_logo.setFixedSize(QSize(40, 40))
-        self.lb_session_logo.setAlignment(Qt.AlignCenter)
+        self.lb_session_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         logo_path = _resolve_plugin_icon_path(prefer_svg=True)
         self.lb_session_logo.setPixmap(
             _pixmap_from_icon_path(logo_path, self.lb_session_logo.size(), margin_ratio=0.15))
         self.lb_session_logo.setScaledContents(False)
         _bind_clickable_url_label(self.lb_session_logo, PLUGIN_GITHUB_URL)
-        row_hdr.addWidget(self.lb_session_logo, 0, c_, 2, 1, Qt.AlignLeft | Qt.AlignVCenter)
+        row_hdr.addWidget(self.lb_session_logo, 0, c_, 2, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         c_ += 1
 
         center_box = QWidget()
@@ -2996,7 +3013,7 @@ class Wd1(QWidget):
             self.lb_ufv_logo.set_source(ufv_path)
         self.lb_ufv_logo.setVisible(bool(ufv_path))
         _bind_clickable_url_label(self.lb_ufv_logo, UFV_WEBSITE_URL)
-        center_layout.addWidget(self.lb_ufv_logo, 0, Qt.AlignVCenter)
+        center_layout.addWidget(self.lb_ufv_logo, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.lb_ppgec_logo = ScaledPixmapLabel(logo_slot)
         ppgec_path = _resolve_ppgec_logo_path()
@@ -3004,7 +3021,7 @@ class Wd1(QWidget):
             self.lb_ppgec_logo.set_source(ppgec_path)
         self.lb_ppgec_logo.setVisible(bool(ppgec_path))
         _bind_clickable_url_label(self.lb_ppgec_logo, PPGEC_WEBSITE_URL)
-        center_layout.addWidget(self.lb_ppgec_logo, 0, Qt.AlignVCenter)
+        center_layout.addWidget(self.lb_ppgec_logo, 0, Qt.AlignmentFlag.AlignVCenter)
 
         center_layout.addStretch(1)
         row_hdr.addWidget(center_box, 0, c_, 2, 1)
@@ -3019,23 +3036,23 @@ class Wd1(QWidget):
         self.pb_config.setIcon(_icon_from_icons_file('icon_config.png'))
         self.pb_config.setIconSize(QSize(25, 25))
         self.pb_config.setFixedSize(32, 32)
-        self.pb_config.setCursor(Qt.PointingHandCursor)
-        self.pb_config.setFocusPolicy(Qt.StrongFocus)
+        self.pb_config.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.pb_config.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.pb_config.setStyleSheet(
             'QPushButton { border: 1px solid #9e9e9e; border-radius: 2px; padding: 0; margin: 0; background: palette(base); }'
             'QPushButton:hover { background: palette(alternate-base); }'
             'QPushButton:pressed { background: palette(mid); }')
-        row_hdr.addWidget(self.pb_config, 0, c_, 2, 1, Qt.AlignBottom)
+        row_hdr.addWidget(self.pb_config, 0, c_, 2, 1, Qt.AlignmentFlag.AlignBottom)
 
         c_ += 1
         self.lb_version = QLabel(f'v{self.main.plugin_version()}')
-        self.lb_version.setAlignment(Qt.AlignBottom | Qt.AlignHCenter)
-        row_hdr.addWidget(self.lb_version, 0, c_, 1, 1, Qt.AlignBottom | Qt.AlignHCenter)
+        self.lb_version.setAlignment(Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter)
+        row_hdr.addWidget(self.lb_version, 0, c_, 1, 1, Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter)
 
         self.pb_lang = QPushButton()
         self.pb_lang.setFlat(True)
-        self.pb_lang.setCursor(Qt.PointingHandCursor)
-        self.pb_lang.setFocusPolicy(Qt.StrongFocus)
+        self.pb_lang.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.pb_lang.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.pb_lang.setStyleSheet(
             'QPushButton { border: none; background: transparent; color: #00bcd4; '
             'font-weight: bold; padding: 2px 6px; min-width: 28px; }'
@@ -3044,19 +3061,19 @@ class Wd1(QWidget):
         self.pb_lang.setToolTip(self.tr('Alterar idioma da interface'))
         self.pb_lang.clicked.connect(self.open_language_dialog)
         self._refresh_ui_language_button()
-        row_hdr.addWidget(self.pb_lang, 1, c_, 1, 1, Qt.AlignVCenter)
+        row_hdr.addWidget(self.pb_lang, 1, c_, 1, 1, Qt.AlignmentFlag.AlignVCenter)
 
         gl_tool.addLayout(row_hdr, r_, 0, 1, 4)
 
         r_ += 1
         sep_line = QFrame()
-        sep_line.setFrameShape(QFrame.HLine)
+        sep_line.setFrameShape(QFrame.Shape.HLine)
         gl_tool.addWidget(sep_line, r_, 0, 1, 4)
 
         r_ += 1
         self.frm_project = QFrame(self)
         self.frm_project.setObjectName('frm_project')
-        self.frm_project.setFrameShape(QFrame.NoFrame)
+        self.frm_project.setFrameShape(QFrame.Shape.NoFrame)
         gl_frm_proj = QGridLayout(self.frm_project)
         gl_frm_proj.setContentsMargins(4, 4, 4, 4)
         gl_frm_proj.setSpacing(4)
@@ -3092,7 +3109,7 @@ class Wd1(QWidget):
             self.pb_project_new.setIconSize(QSize(24, 24))
         self.pb_project_new.setStyleSheet(_proj_btn_style)
         self.pb_project_new.setToolTip(self.tr('Novo projeto…'))
-        self.pb_project_new.setCursor(Qt.PointingHandCursor)
+        self.pb_project_new.setCursor(Qt.CursorShape.PointingHandCursor)
         self.pb_project_new.clicked.connect(self.new_project_dialog)
         lay_proj_btns.addWidget(self.pb_project_new)
         self.pb_project_open = QPushButton()
@@ -3104,17 +3121,17 @@ class Wd1(QWidget):
             self.pb_project_open.setIconSize(QSize(24, 24))
         self.pb_project_open.setStyleSheet(_proj_btn_style)
         self.pb_project_open.setToolTip(self.tr('Abrir projeto…'))
-        self.pb_project_open.setCursor(Qt.PointingHandCursor)
+        self.pb_project_open.setCursor(Qt.CursorShape.PointingHandCursor)
         self.pb_project_open.clicked.connect(self.open_project_dialog)
         lay_proj_btns.addWidget(self.pb_project_open)
         w_proj_btns = QWidget()
         w_proj_btns.setLayout(lay_proj_btns)
-        gl_frm_proj.addWidget(w_proj_btns, 1, 3, Qt.AlignRight | Qt.AlignTop)
+        gl_frm_proj.addWidget(w_proj_btns, 1, 3, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
         gl_tool.addWidget(self.frm_project, r_, 0, 1, 4)
 
         r_ += 1
         sep_line = QFrame(self)
-        sep_line.setFrameShape(QFrame.HLine)
+        sep_line.setFrameShape(QFrame.Shape.HLine)
         gl_tool.addWidget(sep_line, r_, 0, 1, 4)
         
         for key_ in self.dic_prj['dems']:
@@ -3130,13 +3147,13 @@ class Wd1(QWidget):
             gl_tool.addWidget(lb_title_, label_row, 0)
             r_ += 1
             obj_cbx = QgsMapLayerComboBox(self)
-            obj_cbx.setFilters(QgsMapLayerProxyModel.RasterLayer)
+            obj_cbx.setFilters(QgsMapLayerProxyModel.Filter.RasterLayer)
             obj_cbx.setAllowEmptyLayer(True)
             gl_tool.addWidget(obj_cbx, r_, 0, 1, 3)
             self.dic_prj['dems'][key_]['obj_cbx'] = obj_cbx
             obj_pb = _make_dem_info_button(self)
             obj_pb.setToolTip(self.tr('Informações do MDE selecionado'))
-            gl_tool.addWidget(obj_pb, label_row, 3, 2, 1, Qt.AlignRight | Qt.AlignVCenter)
+            gl_tool.addWidget(obj_pb, label_row, 3, 2, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             self.dic_prj['dems'][key_]['obj_pb'] = obj_pb
             r_ += 1
             obj_prog_bar = QProgressBar(self)
@@ -3145,7 +3162,7 @@ class Wd1(QWidget):
 
         r_ += 1
         sep_line = QFrame(self)
-        sep_line.setFrameShape(QFrame.HLine)
+        sep_line.setFrameShape(QFrame.Shape.HLine)
         gl_tool.addWidget(sep_line, r_, 0, 1, 4)  
 
         
@@ -3173,7 +3190,7 @@ class Wd1(QWidget):
         gl_tool.addWidget(self.lb_study_layer, r_, 0)
         r_ += 1
         self.cbx_study_area_layer = QgsMapLayerComboBox(self)
-        self.cbx_study_area_layer.setFilters(QgsMapLayerProxyModel.PolygonLayer)
+        self.cbx_study_area_layer.setFilters(QgsMapLayerProxyModel.Filter.PolygonLayer)
         self.cbx_study_area_layer.setAllowEmptyLayer(True)
         self.lb_study_layer.setVisible(False)
         self.cbx_study_area_layer.setVisible(False)
@@ -3181,7 +3198,7 @@ class Wd1(QWidget):
 
         r_ += 1
         sep_line_wf = QFrame(self)
-        sep_line_wf.setFrameShape(QFrame.HLine)
+        sep_line_wf.setFrameShape(QFrame.Shape.HLine)
         gl_tool.addWidget(sep_line_wf, r_, 0, 1, 2)
 
         r_ += 1
@@ -3205,7 +3222,7 @@ class Wd1(QWidget):
 
         r_ += 1
         sep_line_wf = QFrame(self)
-        sep_line_wf.setFrameShape(QFrame.HLine)
+        sep_line_wf.setFrameShape(QFrame.Shape.HLine)
         gl_tool.addWidget(sep_line_wf, r_, 0, 1, 2)
 
         r_ += 1
@@ -3226,18 +3243,18 @@ class Wd1(QWidget):
         self._refresh_open_report_checkbox_ui()
         self.cb_open_report.installEventFilter(self)
         gl_tool.addWidget(
-            self.cb_open_report, outliers_combo_row, 3, 1, 1, Qt.AlignRight | Qt.AlignVCenter)
+            self.cb_open_report, outliers_combo_row, 3, 1, 1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         r_ += 1
         # sep_line_wf = QFrame(self)
         # sep_line_wf.setFrameShape(QFrame.VLine)
-        # gl_tool.addWidget(sep_line_wf, r_start_run, 2, r_ - r_start_run, 1, Qt.AlignHCenter)
-        gl_tool.addItem(QSpacerItem(0, 0, QSizePolicy.Fixed, QSizePolicy.Expanding), r_, 0, 1, 4)
+        # gl_tool.addWidget(sep_line_wf, r_start_run, 2, r_ - r_start_run, 1, Qt.AlignmentFlag.AlignHCenter)
+        gl_tool.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding), r_, 0, 1, 4)
 
 
         self.pb_proc = QPushButton(self.tr('Avaliar'))
         gl_tool.addWidget(
-            self.pb_proc, r_start_run, 3, outliers_combo_row - r_start_run, 1, Qt.AlignHCenter)
+            self.pb_proc, r_start_run, 3, outliers_combo_row - r_start_run, 1, Qt.AlignmentFlag.AlignHCenter)
         self._refresh_proc_button()
 
         r_ += 1
@@ -3246,7 +3263,7 @@ class Wd1(QWidget):
         r_ += 1
         self.pte_log = QPlainTextEdit ()
         self.pte_log.setReadOnly(True)  # Logs are read-only
-        self.pte_log.setWordWrapMode(QTextOption.WordWrap)  # Prevents long lines from wrapping
+        self.pte_log.setWordWrapMode(QTextOption.WrapMode.WordWrap)  # Prevents long lines from wrapping
         self.pte_log.setBackgroundVisible(False)  # Optional, makes it look cleaner
         self.pte_log.setFont(QFont("Monospace", 8))  # Use a monospace font for better alignment
         gl_tool.addWidget(self.pte_log, r_, 0, 1, 4)
@@ -3262,15 +3279,15 @@ class Wd1(QWidget):
 
     def _apply_panel_tooltips(self):
         """Dicas de utilização nos rótulos e controlos do painel."""
-        QtTip = Qt.ToolTipRole
+        QtTip = Qt.ItemDataRole.ToolTipRole
         if getattr(self, 'lb_title_proj', None):
             self.lb_title_proj.setToolTip(self.tr(
-                'Ficheiro GeoPackage do projeto (.pa.gpkg): camadas, parâmetros e resultados.'))
+                'Arquivo GeoPackage do projeto (.pa.gpkg): camadas, parâmetros e resultados.'))
         if getattr(self, 'lb_status_proj', None):
             self.lb_status_proj.setToolTip(self.tr(
-                'Estado do projeto: definido (ficheiro .pa.gpkg encontrado) ou não definido.'))
+                'Estado do projeto: definido (arquivo .pa.gpkg encontrado) ou não definido.'))
         if getattr(self, 'lb_path_proj', None):
-            self.lb_path_proj.setToolTip(self.tr('Caminho do ficheiro de projeto .pa.gpkg.'))
+            self.lb_path_proj.setToolTip(self.tr('Caminho do arquivo de projeto .pa.gpkg.'))
         if getattr(self, 'lb_version', None):
             self.lb_version.setToolTip(self.tr('Versão instalada do complemento.'))
         if getattr(self, 'pb_config', None):
@@ -3289,9 +3306,9 @@ class Wd1(QWidget):
             if cbx is None:
                 continue
             if key_ == 0:
-                cbx.setToolTip(self.tr('Seleccione o raster de referência.'))
+                cbx.setToolTip(self.tr('Selecione o raster de referência.'))
             else:
-                cbx.setToolTip(self.tr('Seleccione o raster de teste a avaliar.'))
+                cbx.setToolTip(self.tr('Selecione o raster de teste a avaliar.'))
 
         if getattr(self, 'lb_wf_study', None):
             self.lb_wf_study.setToolTip(self.tr(
@@ -3300,7 +3317,7 @@ class Wd1(QWidget):
         if getattr(self, 'cbx_workflow_study', None):
             self.cbx_workflow_study.setToolTip(self.tr(
                 'Como obter a área de estudo: (i) interseção dos MDEs; '
-                '(ii) editar após a interseção; (iii) seleccionar polígono de uma camada.'))
+                '(ii) editar após a interseção; (iii) selecionar polígono de uma camada.'))
             tips_study = (
                 self.tr('Calcula automaticamente o polígono pela interseção dos dois MDEs.'),
                 self.tr('Gera a interseção e permite editar o polígono antes de continuar.'),
@@ -3318,7 +3335,7 @@ class Wd1(QWidget):
                 'Camada de polígono usada quando a área de estudo vem de uma camada existente.'))
         if getattr(self, 'cbx_study_area_layer', None):
             self.cbx_study_area_layer.setToolTip(self.tr(
-                'Seleccione a camada polígono que delimita a área de estudo.'))
+                'Selecione a camada polígono que delimita a área de estudo.'))
 
         if getattr(self, 'lb_wf_pairs', None):
             self.lb_wf_pairs.setToolTip(self.tr(
@@ -3328,7 +3345,7 @@ class Wd1(QWidget):
                 '(i) Automática — usa só os filtros de Config. '
                 '(ii) Revisar — permite editar os pares no mapa antes dos buffers.'))
             self.cbx_workflow_pairs.setItemData(
-                0, self.tr('Selecciona os pares só com os filtros de distância e envelopes.'), QtTip)
+                0, self.tr('Seleciona os pares só com os filtros de distância e envelopes.'), QtTip)
             self.cbx_workflow_pairs.setItemData(
                 1, self.tr('Pausa após a seleção para rever, remover ou acrescentar pares no mapa.'), QtTip)
         if getattr(self, 'lb_ext_match', None):
@@ -3377,7 +3394,7 @@ class Wd1(QWidget):
         self.cb_open_report.toggled.connect(self._save_open_report_pref)
 
     def _set_project_region_highlight(self, on: bool) -> None:
-        """Destaca a região de definição do projeto (sem ficheiro / ao Avaliar)."""
+        """Destaca a região de definição do projeto (sem arquivo / ao Avaliar)."""
         frm = getattr(self, 'frm_project', None)
         if frm is None:
             return
@@ -3425,22 +3442,22 @@ class Wd1(QWidget):
         opt = QStyleOptionButton()
         cb.initStyleOption(opt)
         style = cb.style()
-        indicator = style.subElementRect(QStyle.SE_CheckBoxIndicator, opt, cb)
+        indicator = style.subElementRect(QStyle.SubElement.SE_CheckBoxIndicator, opt, cb)
         if indicator.contains(pos):
             return False
-        contents = style.subElementRect(QStyle.SE_CheckBoxContents, opt, cb)
+        contents = style.subElementRect(QStyle.SubElement.SE_CheckBoxContents, opt, cb)
         return contents.contains(pos)
 
     def eventFilter(self, obj, event):
         cb = getattr(self, 'cb_open_report', None)
         if obj is cb and cb is not None:
             et = event.type()
-            if et == QEvent.MouseMove:
+            if et == QEvent.Type.MouseMove:
                 if self._checkbox_click_on_text(cb, event.pos()):
-                    cb.setCursor(QCursor(Qt.PointingHandCursor))
+                    cb.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
                 else:
                     cb.unsetCursor()
-            elif et == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            elif et == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
                 if self._checkbox_click_on_text(cb, event.pos()):
                     self._open_last_report()
                     return True
@@ -3861,7 +3878,7 @@ class Wd1(QWidget):
         return out
 
     def _begin_analysis_session(self) -> None:
-        """Marca análise em curso e muda o botão para Parar."""
+        """Marca análise em andamento e muda o botão para Parar."""
         self._clear_stop_countdown(silent=True)
         self._stop_requested = False
         self._analysis_running = True
@@ -3894,7 +3911,7 @@ class Wd1(QWidget):
             self.pb_proc.setStyleSheet('')
         if was_active and not silent:
             self.log_message(
-                self.tr('Paragem cancelada — a análise continua.'), 'INFO')
+                self.tr('Parada cancelada — a análise continua.'), 'INFO')
 
     def _start_stop_countdown(self) -> None:
         """3 s de confirmação animada; o botão passa a «Cancelar parar (N)»."""
@@ -3910,7 +3927,7 @@ class Wd1(QWidget):
         self._stop_pulse_timer.start()
         self.log_message(
             self.tr(
-                'Paragem em 3 s — clique em «Cancelar parar» para continuar a análise.'),
+                'Parada em 3 s — clique em «Cancelar parar» para continuar a análise.'),
             'WARNING',
         )
 
@@ -3945,13 +3962,13 @@ class Wd1(QWidget):
                 self.tr('Cancelar parar ({0})').format(self._stop_countdown_left))
             self.pb_proc.setToolTip(
                 self.tr('Clique para abortar a interrupção e continuar a análise.'))
-            ic = self.style().standardIcon(QStyle.SP_BrowserReload)
+            ic = self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
         elif self._is_analysis_running():
             self.pb_proc.setText(self.tr('Parar'))
-            self.pb_proc.setToolTip(self.tr('Interromper a análise em curso.'))
+            self.pb_proc.setToolTip(self.tr('Interromper a análise em andamento.'))
             ic = _icon_from_icons_file('icon_parar.png')
             if ic.isNull():
-                ic = self.style().standardIcon(QStyle.SP_MediaStop)
+                ic = self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop)
         elif self._workflow_pause == 'post_intersection':
             self.pb_proc.setText(self.tr('Continuar'))
             self.pb_proc.setToolTip(
@@ -4060,7 +4077,7 @@ class Wd1(QWidget):
         if not isinstance(ly, QgsVectorLayer) or not ly.isValid():
             self.log_message(self.tr('Selecione uma camada de polígonos válida.'), 'ERROR')
             return False
-        if ly.geometryType() != QgsWkbTypes.PolygonGeometry:
+        if ly.geometryType() != QgsWkbTypes.GeometryType.PolygonGeometry:
             self.log_message(self.tr('A camada de área de estudo tem de ser poligonal.'), 'ERROR')
             return False
         tgt_crs = QgsCoordinateReferenceSystem(self.crs_epsg)
@@ -4153,7 +4170,7 @@ class Wd1(QWidget):
             ds = None
 
     def _ensure_limit_vector_tables_in_mdepa(self, crs_authid: str) -> bool:
-        """Garante no ficheiro .pa.gpkg as três camadas de polígono vazias (sem as carregar no mapa)."""
+        """Garante no arquivo .pa.gpkg as três camadas de polígono vazias (sem as carregar no mapa)."""
         if not self.gpkg_path or not os.path.isfile(self.gpkg_path):
             return False
         r = f'__Limit_{self.dic_prj["dems"][0]["type"]}__'
@@ -4179,11 +4196,11 @@ class Wd1(QWidget):
                 writer_ = QgsVectorFileWriter.create(
                     self.gpkg_path,
                     QgsFields(),
-                    QgsWkbTypes.Polygon,
+                    QgsWkbTypes.Type.Polygon,
                     crs,
                     ctx,
                     opt)
-                if writer_.hasError() != QgsVectorFileWriter.NoError:
+                if writer_.hasError() != QgsVectorFileWriter.WriterError.NoError:
                     return False
                 del writer_
             else:
@@ -4193,7 +4210,7 @@ class Wd1(QWidget):
                 opt = QgsVectorFileWriter.SaveVectorOptions()
                 opt.driverName = 'GPKG'
                 opt.layerName = r
-                opt.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+                opt.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer
                 QgsVectorFileWriter.writeAsVectorFormat(
                     layer=mem, fileName=self.gpkg_path, options=opt)
             normalize_project_pa_file(self.gpkg_path)
@@ -4205,7 +4222,7 @@ class Wd1(QWidget):
             opt = QgsVectorFileWriter.SaveVectorOptions()
             opt.driverName = 'GPKG'
             opt.layerName = t
-            opt.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+            opt.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer
             QgsVectorFileWriter.writeAsVectorFormat(
                 layer=mem, fileName=self.gpkg_path, options=opt)
             normalize_project_pa_file(self.gpkg_path)
@@ -4221,7 +4238,7 @@ class Wd1(QWidget):
             opt = QgsVectorFileWriter.SaveVectorOptions()
             opt.driverName = 'GPKG'
             opt.layerName = i
-            opt.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+            opt.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer
             QgsVectorFileWriter.writeAsVectorFormat(
                 layer=mem, fileName=self.gpkg_path, options=opt)
             normalize_project_pa_file(self.gpkg_path)
@@ -4232,7 +4249,7 @@ class Wd1(QWidget):
             and self._gpkg_layer_valid(i))
 
     def _ensure_limit_layers_for_analysis(self) -> bool:
-        """Só entra no QGIS o que já existe no .pa.gpkg: cria tabelas vazias no ficheiro e depois carrega com OGR."""
+        """Só entra no QGIS o que já existe no .pa.gpkg: cria tabelas vazias no arquivo e depois carrega com OGR."""
         if not self._ensure_limit_vector_tables_in_mdepa(self.crs_epsg):
             return False
         for key_ in (0, 1):
@@ -4297,7 +4314,7 @@ class Wd1(QWidget):
         return names
 
     def _load_project_layers_into_map(self) -> int:
-        """Ao abrir .pa.gpkg: carrega no mapa as camadas vetoriais já existentes no ficheiro."""
+        """Ao abrir .pa.gpkg: carrega no mapa as camadas vetoriais já existentes no arquivo."""
         if not self.gpkg_path or not os.path.isfile(self.gpkg_path):
             return 0
         preferred = self._project_vector_layer_names_preferred()
@@ -4575,7 +4592,7 @@ class Wd1(QWidget):
         )
 
     def check_prj_folder(self, project_file):
-        """Atualiza rótulos conforme o ficheiro de projeto (.pa.gpkg) existe."""
+        """Atualiza rótulos conforme o arquivo de projeto (.pa.gpkg) existe."""
         project_file = project_file or self.dic_prj.get('project_file')
         if not project_file:
             return
@@ -4778,7 +4795,7 @@ class Wd1(QWidget):
         self._refresh_proc_button()
 
     def _stop_all_workers(self) -> None:
-        """Para workers activos e esvazia a fila (sem fechar diálogos)."""
+        """Para workers ativos e esvazia a fila (sem fechar diálogos)."""
         while True:
             try:
                 self.task_queue.get_nowait()
@@ -4830,7 +4847,7 @@ class Wd1(QWidget):
         except Exception:
             pass
         self._end_analysis_session()
-        self.log_message(self.tr('Análise interrompida pelo utilizador.'), 'WARNING')
+        self.log_message(self.tr('Análise interrompida pelo usuário.'), 'WARNING')
 
     def unload_cleanup(self):
         """Para workers, esvazia fila e fecha diálogos antes do unload / Plugin Reloader."""
@@ -5154,7 +5171,7 @@ class Wd1(QWidget):
         return True
 
     def create_gpkg(self):
-        """Garante ficheiro de projeto, tabelas auxiliares, tabelas de limite e carrega-as no mapa a partir do GPKG."""
+        """Garante arquivo de projeto, tabelas auxiliares, tabelas de limite e carrega-as no mapa a partir do GPKG."""
         if not self.gpkg_path:
             self.log_message(self.tr('Caminho do projeto (.pa.gpkg) indefinido.'), 'ERROR')
             return
@@ -5298,7 +5315,7 @@ class Wd1(QWidget):
                     self.tr(
                         'RAM elevada antes da morfologia — o r.watershed (GRASS) pode falhar. '
                         'Feche outras aplicações, reinicie o QGIS se necessário, '
-                        'ou reduza «Limite de Memória para Grass GIS» nas definições do plugin.'
+                        'ou reduza «Limite de Memória para Grass GIS» nas configurações do plugin.'
                     ),
                     'WARNING',
                 )
@@ -5344,7 +5361,7 @@ class Wd1(QWidget):
     @staticmethod
     def _line_midpoint_xy(geom: QgsGeometry):
         """Ponto ao longo da linha a meio do comprimento (2D)."""
-        if geom is None or geom.isEmpty() or geom.type() != QgsWkbTypes.LineGeometry:
+        if geom is None or geom.isEmpty() or geom.type() != QgsWkbTypes.GeometryType.LineGeometry:
             return None
         L = geom.length()
         if L <= 0:
@@ -5427,7 +5444,7 @@ class Wd1(QWidget):
         opt = QgsVectorFileWriter.SaveVectorOptions()
         opt.driverName = 'GPKG'
         opt.layerName = self.match_lines_layer_name
-        opt.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+        opt.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer
         try:
             QgsVectorFileWriter.writeAsVectorFormat(
                 layer=mem,
@@ -5598,7 +5615,7 @@ class Wd1(QWidget):
         """Extensão mínima (km) para o gate antes dos buffers.
 
         Prioriza o valor gravado no .pa.gpkg (`panel_stats.ext_min`), igual ao que o painel
-        mostra após abrir o projeto; o cache em memória só entra se o ficheiro ainda não
+        mostra após abrir o projeto; o cache em memória só entra se o arquivo ainda não
         tiver valor válido (ex.: interseção acabada de calcular na mesma sessão).
         Devolve None se não houver limite (fluxos antigos, sem interseção, ou ≤ 0).
         """
@@ -5708,7 +5725,20 @@ class Wd1(QWidget):
             'ST_PointN(ST_ExteriorRing(eogeom), 3)))'
         )
 
-        def _match_cte(alias, layer_name):
+        try:
+            layer_ct = _sql_quote_gpkg_layer(f'__{morph_0}_Z_{type_1}__')
+            layer_cr = _sql_quote_gpkg_layer(f'__{morph_0}_Z_{type_0}__')
+            layer_ht = _sql_quote_gpkg_layer(f'__{morph_1}_Z_{type_1}__')
+            layer_hr = _sql_quote_gpkg_layer(f'__{morph_1}_Z_{type_0}__')
+        except ValueError:
+            self.log_message(
+                self.tr('Nome de camada de morfologia inválido — correspondência de pares abortada.'),
+                'ERROR',
+            )
+            self._end_analysis_session()
+            return
+
+        def _match_cte(alias, quoted_layer):
             return (
                 f'{alias} as ('
                 f'select fid, eogeom, centroid, len, {elen_sql} as elen from ('
@@ -5716,7 +5746,7 @@ class Wd1(QWidget):
                 f'OrientedEnvelope(GeomFromGPB(geom)) as eogeom, '
                 f'ST_Line_Interpolate_Point(GeomFromGPB(geom), 0.5) as centroid, '
                 f'ST_LENGTH(GeomFromGPB(geom)) as len '
-                f'from {layer_name}))'
+                f'from {quoted_layer}))'
             )
 
         self.log_message(
@@ -5733,47 +5763,51 @@ class Wd1(QWidget):
         )
         sql_ = f"""
         WITH
-            {_match_cte('ct', f'__{morph_0}_Z_{type_1}__')},
-            {_match_cte('cr', f'__{morph_0}_Z_{type_0}__')},
-            {_match_cte('ht', f'__{morph_1}_Z_{type_1}__')},
-            {_match_cte('hr', f'__{morph_1}_Z_{type_0}__')}
-        SELECT 
-            '{morph_0}' TIPO, 
-            cr.fid fidr, 
-            ct.fid fidt, 
-            ROUND(ST_DISTANCE(ct.centroid, cr.centroid),2) as DIST,  
-            ROUND(ABS(ST_AREA(ct.eogeom) - ST_AREA(cr.eogeom))/ ST_AREA(ct.eogeom),2) PER, 
+            {_match_cte('ct', layer_ct)},
+            {_match_cte('cr', layer_cr)},
+            {_match_cte('ht', layer_ht)},
+            {_match_cte('hr', layer_hr)}
+        SELECT
+            ? TIPO,
+            cr.fid fidr,
+            ct.fid fidt,
+            ROUND(ST_DISTANCE(ct.centroid, cr.centroid),2) as DIST,
+            ROUND(ABS(ST_AREA(ct.eogeom) - ST_AREA(cr.eogeom))/ ST_AREA(ct.eogeom),2) PER,
             cr.len LEN
             FROM ct, cr
-            WHERE 
-                ST_DISTANCE(ct.centroid, cr.centroid) < {dist_max}
-                AND ct.len >= {min_len_m}
+            WHERE
+                ST_DISTANCE(ct.centroid, cr.centroid) < ?
+                AND ct.len >= ?
                 AND ct.elen > 0 AND cr.elen > 0
-                AND (ABS(ST_AREA(ct.eogeom) - ST_AREA(cr.eogeom))/ NULLIF(ST_AREA(ct.eogeom), 0)) < {area_percent}
-                AND (ABS(ct.elen - cr.elen)/ ct.elen) < {length_percent}
+                AND (ABS(ST_AREA(ct.eogeom) - ST_AREA(cr.eogeom))/ NULLIF(ST_AREA(ct.eogeom), 0)) < ?
+                AND (ABS(ct.elen - cr.elen)/ ct.elen) < ?
         UNION
-        SELECT 
-            '{morph_1}' TIPO, 
-            hr.fid fidr, 
-            ht.fid fidt, 
-            ROUND(ST_DISTANCE(ht.centroid, hr.centroid),2) as DIST, 
-            ROUND(ABS(ST_AREA(ht.eogeom) - ST_AREA(hr.eogeom))/ ST_AREA(ht.eogeom),2) PER, 
+        SELECT
+            ? TIPO,
+            hr.fid fidr,
+            ht.fid fidt,
+            ROUND(ST_DISTANCE(ht.centroid, hr.centroid),2) as DIST,
+            ROUND(ABS(ST_AREA(ht.eogeom) - ST_AREA(hr.eogeom))/ ST_AREA(ht.eogeom),2) PER,
             hr.len LEN
             FROM ht, hr
-            WHERE 
-                ST_DISTANCE(ht.centroid, hr.centroid) < {dist_max}
-                AND ht.len >= {min_len_m}
+            WHERE
+                ST_DISTANCE(ht.centroid, hr.centroid) < ?
+                AND ht.len >= ?
                 AND ht.elen > 0 AND hr.elen > 0
-                AND (ABS(ST_AREA(ht.eogeom) - ST_AREA(hr.eogeom))/ NULLIF(ST_AREA(ht.eogeom), 0)) < {area_percent}
-                AND (ABS(ht.elen - hr.elen)/ ht.elen) < {length_percent}
+                AND (ABS(ST_AREA(ht.eogeom) - ST_AREA(hr.eogeom))/ NULLIF(ST_AREA(ht.eogeom), 0)) < ?
+                AND (ABS(ht.elen - hr.elen)/ ht.elen) < ?
             ORDER BY 1,4 ASC;
         """
-        result_ = curs.execute(sql_)
+        match_params = (
+            morph_0, dist_max, min_len_m, area_percent, length_percent,
+            morph_1, dist_max, min_len_m, area_percent, length_percent,
+        )
+        result_ = curs.execute(sql_, match_params)
         result_fa = result_.fetchall()
         try:
             curs.close()
             conn.close()
-        except Exception:
+        except sqlite3.Error:
             pass
         self.dic_match = {}
         for row_ in result_fa:
@@ -5789,8 +5823,6 @@ class Wd1(QWidget):
                 else:
                     self.dic_match[tag_][k].append(col_)
 
-            #     print(col_,end='\t')
-            # print()
         ext_sum = self._total_sample_extent_m_from_dic_match(self.dic_match)
         self.log_message(
             self.tr('Extensão total da amostra: {0} m').format(int(round(ext_sum))), 'INFO')
@@ -5801,14 +5833,13 @@ class Wd1(QWidget):
         self._persist_panel_stats_to_mdepa()
         self._sync_match_lines_layer_from_dic_match()
         self.pipeline_set_etapa_fim('correspondencia_linhas')
-        # print('dic_match', self.dic_match)
         if self.cbx_workflow_pairs.currentIndex() == 1:
             self._workflow_pause = 'post_pairs_review'
             self._end_analysis_session()
             self.log_message(
                 self.tr(
                     'Camada __Linhas_de_Correspondencia__: {0} pares. Edite, remova ou adicione linhas '
-                    '(meio teste → meio referência); atributos: tipo, fid_r, fid_t. Prima Continuar.'
+                    '(meio teste → meio referência); atributos: tipo, fid_r, fid_t. Clique em Continuar.'
                 ).format(n_pairs),
                 'INFO')
             return
@@ -5831,7 +5862,7 @@ class Wd1(QWidget):
         layer_0.updateFields()
 
         options = QgsVectorFileWriter.SaveVectorOptions()
-        options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+        options.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer
         options.layerName = self.buffer_name
         QgsVectorFileWriter.writeAsVectorFormat(
             layer=layer_0,
@@ -6014,9 +6045,9 @@ class Wd1(QWidget):
             self._log_buffer_geom_diag_once(
                 self.tr('Geometria vazia após remover Z/M — feição ignorada.'))
             return None
-        if g.type() != QgsWkbTypes.PolygonGeometry:
+        if g.type() != QgsWkbTypes.GeometryType.PolygonGeometry:
             g_mv = g.makeValid()
-            if not g_mv.isEmpty() and g_mv.type() == QgsWkbTypes.PolygonGeometry:
+            if not g_mv.isEmpty() and g_mv.type() == QgsWkbTypes.GeometryType.PolygonGeometry:
                 g = g_mv
             else:
                 self._log_buffer_geom_diag_once(
@@ -6047,7 +6078,7 @@ class Wd1(QWidget):
                     return None
         if not g.isGeosValid():
             g = g.makeValid()
-            if g.isEmpty() or g.type() != QgsWkbTypes.PolygonGeometry:
+            if g.isEmpty() or g.type() != QgsWkbTypes.GeometryType.PolygonGeometry:
                 self._log_buffer_geom_diag_once(
                     self.tr('Geometria inválida após makeValid — ignorada.'))
                 return None
@@ -7087,7 +7118,7 @@ class Wd1(QWidget):
         empty_msg = ''
         if not plan_rows and not alt_rows:
             empty_msg = self.tr(
-                '(ainda não há resultados de PEC nesta sessão — execute a análise até ao fim.)')
+                '(ainda não há resultados de PEC nesta sessão — execute a análise até o fim.)')
         is_ce90 = self._accuracy_standard_index() == ACCURACY_STANDARD_CE90
         return _build_pec_results_tables_html_blocks(
             intro=intro,
@@ -7295,7 +7326,7 @@ class Wd1(QWidget):
                 'value': str(len(pairs)),
             })
             rows.append({
-                'label': self.tr('Ficheiro WKT dos perfis'),
+                'label': self.tr('Arquivo WKT dos perfis'),
                 'value': '',
             })
         if norm_idx == 0 and scalars:
@@ -7336,14 +7367,14 @@ class Wd1(QWidget):
             'rows': rows,
             'norm_caption': self.tr('Método de compatibilização de progressivas'),
             'norm_label': norm_label,
-            'wkt_file_caption': self.tr('Ficheiro WKT dos perfis'),
+            'wkt_file_caption': self.tr('Arquivo WKT dos perfis'),
             'empty_message': empty_msg,
         }
 
     def _profiles_wkt_export_labels(self) -> dict:
         return {
             'datetime': self.tr('Data/hora'),
-            'project_file': self.tr('Ficheiro de projeto'),
+            'project_file': self.tr('Arquivo de projeto'),
             'norm_caption': self.tr('Método de compatibilização de progressivas'),
             'pair': self.tr('Par'),
             'ref_id': self.tr('ref_id'),
@@ -7488,7 +7519,7 @@ class Wd1(QWidget):
         plan_rows = getattr(self, '_pec_report_plan_rows', None) or []
         alt_rows = getattr(self, '_pec_report_alt_rows', None) or []
         pec_empty = self.tr(
-            '(ainda não há resultados de PEC nesta sessão — execute a análise até ao fim.)')
+            '(ainda não há resultados de PEC nesta sessão — execute a análise até o fim.)')
 
         return {
             'meta': {
@@ -7499,7 +7530,7 @@ class Wd1(QWidget):
                 'labels': {
                     'title': self.tr('Título'),
                     'datetime': self.tr('Data/hora'),
-                    'project_file': self.tr('Ficheiro de projeto'),
+                    'project_file': self.tr('Arquivo de projeto'),
                     'crs': self.tr('CRS de referência (análise)'),
                     'option': self.tr('Opção'),
                     'value': self.tr('Valor'),
@@ -7601,7 +7632,7 @@ class Wd1(QWidget):
         return False
 
     def _audit_test_model_name(self) -> str:
-        """Nome curto do MDE de teste para ficheiros Audit_*.pdf (nunca path TEMP)."""
+        """Nome curto do MDE de teste para arquivos Audit_*.pdf (nunca path TEMP)."""
         dems = (self.dic_prj or {}).get('dems') or {}
         test = dems.get(1) or {}
 
@@ -8165,7 +8196,7 @@ class Wd1(QWidget):
                     f.write(wkt_body)
             except OSError as e:
                 self.log_message(
-                    self.tr('Falha ao gerar ficheiro WKT dos perfis: {0} ({1})').format(wkt_path, e),
+                    self.tr('Falha ao gerar arquivo WKT dos perfis: {0} ({1})').format(wkt_path, e),
                     'ERROR',
                 )
                 wkt_path = None
@@ -8173,7 +8204,7 @@ class Wd1(QWidget):
                 pairs_sec = snapshot.get('sections', {}).get('pairs') or {}
                 wkt_name = os.path.basename(wkt_path)
                 pairs_sec['wkt_file'] = wkt_name
-                wkt_caption = pairs_sec.get('wkt_file_caption') or self.tr('Ficheiro WKT dos perfis')
+                wkt_caption = pairs_sec.get('wkt_file_caption') or self.tr('Arquivo WKT dos perfis')
                 pair_rows = list(pairs_sec.get('rows') or [])
                 updated = False
                 for row in pair_rows:
@@ -8222,7 +8253,7 @@ class Wd1(QWidget):
             )
         if wkt_path:
             self.log_message(
-                self.tr('Ficheiro WKT dos perfis exportado: {0}').format(wkt_path), 'INFO')
+                self.tr('Arquivo WKT dos perfis exportado: {0}').format(wkt_path), 'INFO')
         if os.path.isfile(html_path):
             self.log_message(self.tr('Relatório HTML exportado: {0}').format(html_path), 'INFO')
         if pdf_path and txt_path:
@@ -8298,11 +8329,11 @@ class Wd1(QWidget):
             return
         prog_bar = self.dic_prj['dems'][key_]['obj_prog_bar']
         palette = QPalette()
-        palette.setColor(QPalette.Highlight, QColor(Qt.cyan))
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(Qt.GlobalColor.cyan))
         prog_bar.setPalette(palette)
         if 'error' in dic_:
             prog_bar.setFormat(str(dic_['error']))
-            palette.setColor(QPalette.Highlight, QColor(Qt.red))
+            palette.setColor(QPalette.ColorRole.Highlight, QColor(Qt.GlobalColor.red))
             prog_bar.setPalette(palette)
             if key_ in (0, 1):
                 self._end_buffers_map_canvas_freeze(refresh=False)
@@ -8318,15 +8349,14 @@ class Wd1(QWidget):
                     level='ERROR')
         elif 'warn' in dic_:
             prog_bar.setFormat(str(dic_['warn']))
-            palette.setColor(QPalette.Highlight, QColor(Qt.lightGray))
+            palette.setColor(QPalette.ColorRole.Highlight, QColor(Qt.GlobalColor.lightGray))
             prog_bar.setPalette(palette)
             if dic_.get('log_warning'):
                 self.log_message(str(dic_['log_warning']), 'WARNING')
         elif 'quant' in dic_:
             prog_bar.setRange(0, dic_['quant'])
             prog_bar.setValue(0)
-            # self.log.info(True, f"set range {key_} 0 - {dic_['quant']}", pretty=True)
-            palette.setColor(QPalette.Highlight, QColor(Qt.yellow))
+            palette.setColor(QPalette.ColorRole.Highlight, QColor(Qt.GlobalColor.yellow))
             prog_bar.setPalette(palette)
         elif 'value' in dic_:
             prog_bar.setValue(dic_['value'])
@@ -8340,7 +8370,6 @@ class Wd1(QWidget):
             type_ = self.dic_prj['dems'][dic_['key']]['type']
             self.log_message(
                 self.tr('{0} {1} - {2}').format(type_, dic_['value'], dic_['msg']))
-            # print('dic_:', dic_)
             if 'feat' in dic_:
                 if dic_['value'] == 6:
                     layer_name = f'__Limit_{self.dic_prj["dems"][key_]["type"]}__'
@@ -8353,7 +8382,6 @@ class Wd1(QWidget):
                     count = layer.featureCount()
                     feat_ = dic_['feat']
                     feat_.setAttributes([count + 1])
-                    # print(feat_, feat_.geometry())
 
                     layer.startEditing()
                     layer.addFeature(feat_)
@@ -8391,7 +8419,7 @@ class Wd1(QWidget):
                     layer = dic_['layer']['gpkg']
                 layer_name = f'__{dic_["layer"]["type"]}_{self.dic_prj["dems"][key_]["type"]}__'
                 options = QgsVectorFileWriter.SaveVectorOptions()
-                options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteLayer
+                options.actionOnExistingFile = QgsVectorFileWriter.ActionOnExistingFile.CreateOrOverwriteLayer
                 output_fields = QgsFields()
                 for field in layer.fields():
                     # Check if the field name is 'fid' (case-insensitive check for robustness)
@@ -8433,7 +8461,7 @@ class Wd1(QWidget):
                     self.tr('Tratamento de outliers'),
                     self.tr(
                         'Foram identificados {0} valores atípicos (excluídos do cálculo PEC). '
-                        'Prima OK para continuar.').format(n_out),
+                        'Clique em OK para continuar.').format(n_out),
                 )
             self.calc_pec(dv)
             if self.gpkg_path:
@@ -8455,9 +8483,8 @@ class Wd1(QWidget):
                     'ERROR',
                 )
             self._end_analysis_session()
-            # print(dic_['dic_values'])
         elif 'end' in dic_:
-            palette.setColor(QPalette.Highlight, QColor(Qt.darkGreen))
+            palette.setColor(QPalette.ColorRole.Highlight, QColor(Qt.GlobalColor.darkGreen))
             prog_bar.setValue(dic_['end'])
             prog_bar.setFormat(dic_['msg'])
             prog_bar.setPalette(palette)
@@ -8469,7 +8496,7 @@ class Wd1(QWidget):
         refresh_open_settings: bool = False,
         refresh_open_language: bool = False,
     ):
-        """Recarrega traduções e actualiza textos visíveis após mudança de idioma."""
+        """Recarrega traduções e atualiza textos visíveis após mudança de idioma."""
         plugin = self.main
         locale_code = saved_ui_locale() or LOCALE_AUTO
         if plugin:

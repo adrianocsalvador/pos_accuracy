@@ -60,6 +60,7 @@ SKIP_FILE_GLOBS = (
     'i18n/*.ts',
     'icons/UFV_v2.png',
     'icons/icon_ufv.png',
+    'mods/mod_login.py',
 )
 
 INCLUDE_ROOT_FILES = {

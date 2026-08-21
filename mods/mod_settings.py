@@ -1,22 +1,12 @@
 import os
-import sqlite3
-from queue import Queue
-import sys
-from concurrent.futures import ThreadPoolExecutor
-from functools import partial
-from sys import prefix
 
-from osgeo import ogr
-from qgis.PyQt.QtCore import QSettings, Qt, QSize, QTranslator, QCoreApplication, QEvent, QThreadPool, QDateTime
-from qgis.PyQt.QtGui import QPixmap, QIcon, QFont, QPalette, QColor, QTextCharFormat, QBrush, QTextOption
-from qgis.PyQt.QtWidgets import (QAction, QScrollArea, QGridLayout, QPushButton, QLabel, QWidget, QSizePolicy,
-                                 QSpacerItem, QDockWidget, QSplitter, QComboBox, QLineEdit, QDialog, QFrame, QCheckBox,
-                                 QHBoxLayout, QVBoxLayout, QFileDialog, QTableWidget,
-                                 QProgressBar, QDateEdit, QWidget, QVBoxLayout, QPushButton, QPlainTextEdit,
-                                 QRadioButton, QButtonGroup, QDoubleSpinBox, QSpinBox)
-from qgis.core import QgsVectorFileWriter, QgsWkbTypes, QgsCoordinateTransformContext, QgsCoordinateReferenceSystem, \
-    QgsFeature, QgsVectorLayer, QgsFields, QgsField, QgsProject, QgsMapLayerProxyModel, QgsLayerTreeLayer
-from qgis.gui import QgsMapLayerComboBox
+from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtGui import QIcon, QFont
+from qgis.PyQt.QtWidgets import (
+    QScrollArea, QGridLayout, QPushButton, QLabel, QWidget, QSizePolicy,
+    QSpacerItem, QComboBox, QLineEdit, QDialog, QFrame, QCheckBox,
+    QHBoxLayout, QVBoxLayout, QRadioButton, QButtonGroup, QDoubleSpinBox, QSpinBox,
+)
 from .mod_aux_tools import AuxTools
 from .plugin_i18n import tr_ui
 
@@ -31,7 +21,7 @@ def _narrow_value_widget(widget, *, fraction: float = 1.0 / 3.0, floor: int = 56
     width = max(floor, int(hint * fraction))
     widget.setMinimumWidth(width)
     widget.setMaximumWidth(width)
-    widget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+    widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
 
 # Combos expansíveis ocupam 80 % da 2.ª coluna (20 % livres à direita)
@@ -45,7 +35,7 @@ def _expanding_value_host(widget, *, fill: float = COMBO_EXPAND_FILL, floor: int
     hint = max(widget.minimumSizeHint().width(), widget.sizeHint().width(), 1)
     widget.setMinimumWidth(max(floor, min(hint, 120)))
     widget.setMaximumWidth(16777215)
-    widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
     fill = min(1.0, max(0.1, float(fill)))
     host = QWidget()
     hl = QHBoxLayout(host)
@@ -69,14 +59,14 @@ class SettingsDlg(QDialog):
         self.parent = parent
         # self.parent_dlg = parent
         self.setWindowTitle(tr_ui('Parâmetros'))
-        self.setWindowIcon(QIcon(":/plugins/mod_cut_pan/icons/icon_cut.png")) ##
+        self.setWindowIcon(QIcon(os.path.join(plugin_path, 'icons', 'icon_config.png')))
         self.dic_param = None
         self.aux_tools = AuxTools(parent=self)
         self.list_scale = list(self.parent.dic_pec_v)
         self.dic_param = \
             {
                 'step_morfologia': {
-                    'label': tr_ui('Definições para Geração de Morfologia'),
+                    'label': tr_ui('Configurações para Geração de Morfologia'),
                     'tooltip': tr_ui(
                         'Extração das feições lineares (cumeadas e hidrografia) por watershed (GRASS).'),
                     'fields': {
@@ -108,7 +98,7 @@ class SettingsDlg(QDialog):
                     },
                 },
                 'step_match': {
-                    'label': tr_ui('Definições para Seleção dos Pares'),
+                    'label': tr_ui('Configurações para Seleção dos Pares'),
                     'tooltip': tr_ui(
                         'Filtros para formar pares homólogos entre linhas de referência e de teste.'),
                     'fields': {
@@ -171,7 +161,7 @@ class SettingsDlg(QDialog):
                     },
                 },
                 'step_buffers': {
-                    'label': tr_ui('Definições para Geração Buffers'),
+                    'label': tr_ui('Configurações para Geração Buffers'),
                     'tooltip': tr_ui(
                         'Raios de buffer e padrão de acurácia (PEC-PCD ou CE90/LE90).'),
                     'fields': {
@@ -263,7 +253,7 @@ class SettingsDlg(QDialog):
                     },
                 },
                 'step_normalize_prog': {
-                    'label': tr_ui('Definições para Compatibilização de Progressivas'),
+                    'label': tr_ui('Configurações para Compatibilização de Progressivas'),
                     'tooltip': tr_ui(
                         'Compatibilização das progressivas dos perfis altimétricos (referência vs teste).'),
                     'fields': {
@@ -299,7 +289,7 @@ class SettingsDlg(QDialog):
                     'label': tr_ui('Relatório de Auditoria'),
                     'tooltip': tr_ui(
                         'Gera PDF de auditoria (e sempre o CSV correspondente) '
-                        'para conferir buffers e DM. Pode activar só o planimétrico, '
+                        'para conferir buffers e DM. Pode ativar só o planimétrico, '
                         'só o altimétrico, ou ambos.'),
                     'fields': {
                         'audit_horizontal': {
@@ -344,7 +334,7 @@ class SettingsDlg(QDialog):
     def _retranslate_dic_param(self):
         """Actualiza rótulos traduzíveis em dic_param (valores dos widgets mantêm-se)."""
         dp = self.dic_param
-        dp['step_morfologia']['label'] = tr_ui('Definições para Geração de Morfologia')
+        dp['step_morfologia']['label'] = tr_ui('Configurações para Geração de Morfologia')
         dp['step_morfologia']['tooltip'] = tr_ui(
             'Extração das feições lineares (cumeadas e hidrografia) por watershed (GRASS).')
         dp['step_morfologia']['fields']['max_basin_area']['label'] = tr_ui(
@@ -357,7 +347,7 @@ class SettingsDlg(QDialog):
         dp['step_morfologia']['fields']['max_memo_grass']['tooltip'] = tr_ui(
             'Memória máxima do GRASS no r.watershed. Diminua se falhar. '
             'Padrão: 4 GB.')
-        dp['step_match']['label'] = tr_ui('Definições para Seleção dos Pares')
+        dp['step_match']['label'] = tr_ui('Configurações para Seleção dos Pares')
         dp['step_match']['tooltip'] = tr_ui(
             'Filtros para formar pares homólogos entre linhas de referência e de teste.')
         dp['step_match']['fields']['dist_max']['label'] = tr_ui(
@@ -383,7 +373,7 @@ class SettingsDlg(QDialog):
             dp['step_match']['fields']['min_extent_px']['tooltip'] = tr_ui(
                 'Descarta linhas de teste mais curtas que este comprimento (pixels × GSD do teste). '
                 'Padrão: 10 px.')
-        dp['step_buffers']['label'] = tr_ui('Definições para Geração Buffers')
+        dp['step_buffers']['label'] = tr_ui('Configurações para Geração Buffers')
         dp['step_buffers']['tooltip'] = tr_ui(
             'Raios de buffer e padrão de acurácia (PEC-PCD ou CE90/LE90).')
         if 'accuracy_standard' in dp['step_buffers']['fields']:
@@ -427,7 +417,7 @@ class SettingsDlg(QDialog):
             'Se marcado, a camada de buffers aparece no mapa enquanto é gerada '
             '(pode tornar o processamento mais lento). Padrão: desmarcado.')
         dp['step_normalize_prog']['label'] = tr_ui(
-            'Definições para Compatibilização de Progressivas')
+            'Configurações para Compatibilização de Progressivas')
         dp['step_normalize_prog']['tooltip'] = tr_ui(
             'Compatibilização das progressivas dos perfis altimétricos (referência vs teste).')
         dp['step_normalize_prog']['fields']['norm_type']['label'] = tr_ui(
@@ -450,7 +440,7 @@ class SettingsDlg(QDialog):
             dp['step_audit_report']['label'] = tr_ui('Relatório de Auditoria')
             dp['step_audit_report']['tooltip'] = tr_ui(
                 'Gera PDF de auditoria (e sempre o CSV correspondente) '
-                'para conferir buffers e DM. Pode activar só o planimétrico, '
+                'para conferir buffers e DM. Pode ativar só o planimétrico, '
                 'só o altimétrico, ou ambos.')
             dp['step_audit_report']['fields']['audit_horizontal']['label'] = tr_ui(
                 'Horizontal (PDF)')
@@ -795,7 +785,7 @@ class SettingsDlg(QDialog):
 
         r_ += 1
         frame2 = QFrame(self)
-        frame2.setFrameShape(QFrame.HLine)
+        frame2.setFrameShape(QFrame.Shape.HLine)
         gl_.addWidget(frame2, r_, 0, 1, 3)
 
         r_ += 1
@@ -825,8 +815,8 @@ class SettingsDlg(QDialog):
         # gl_.addWidget(sla_)
         # sla_.setLayout(gl_)
         sla_.setWidgetResizable(True)
-        sla_.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        sla_.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        sla_.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        sla_.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         sla_.setWidget(base_widget)
 
         vl_ = QVBoxLayout(self)
@@ -1108,7 +1098,6 @@ class SettingsDlg(QDialog):
                             self.dic_param[item_i][item_j].pop(item_k)
             self.dic_param = dic_parent
         for tag_1 in self.dic_param['conn']:
-            # print('le_name=', le_name)
             if tag_1 == 'plugin_version':
                 continue
             le_name = f'le_{tag_1}'
@@ -1138,8 +1127,6 @@ class SettingsDlg(QDialog):
             cbx_sch.clear()
             self.update_cbx(cbx_=cbx_sch, alias=self.dic_param[tag_0]['alias'])
             if 'chk' in self.dic_param[tag_0]:
-                # chk_ = QCheckBox(self.dic_param[tag_0]['chk']['label'])
-                # print('chk', self.dic_param[tag_0]['chk']['status'])
                 chk_name = 'chk_' + tag_0.lower()
                 chk_obj = self.findChild(QCheckBox, chk_name)
                 chk_obj.setCheckState(self.dic_param[tag_0]['chk']['status'])
