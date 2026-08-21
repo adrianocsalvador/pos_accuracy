@@ -5,7 +5,7 @@ name=MDE AP - Acurácia Posicional
 qgisMinimumVersion=3.30
 qgisMaximumVersion=3.99
 description=Evaluates three-dimensional positional accuracy of Digital Elevation Models (DEM) using homologous linear features (PEC-PCD and CE90/LE90).
-version=1.3.4
+version=1.3.5
 author=Adriano Caliman Salvador
 email=adriano.caliman@ufv.br
 
@@ -20,7 +20,8 @@ repository=https://github.com/adrianocsalvador/pos_accuracy
 homepage=https://github.com/adrianocsalvador/pos_accuracy
 
 hasProcessingProvider=False
-changelog=1.3.4: selective pipeline resume (morphology/pairs/buffers/compatibilization/DM); CE90/LE90 with audit CSV; new pair criteria; UFV/PPGEC logos; README
+changelog=1.3.5: README — PEC-PCD/CE90 criteria, scale and EQ tables, planimetric ×10⁻³, DM equations with A_T/A_R/A_I
+    1.3.4: selective pipeline resume (morphology/pairs/buffers/compatibilization/DM); CE90/LE90 with audit CSV; new pair criteria; UFV/PPGEC logos; README
     1.3.3.2: automatic ref/test assignment by resolution when DEMs are not in the .pa.gpkg
     1.3.3.1: DM formula option (original / mean A1+A2); i18n fix for the parameters window
     1.3.3: vertical audit layout — smaller left margin and more space between 2D view and Elevation (m) label
