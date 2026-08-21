@@ -3318,16 +3318,19 @@ class Wd1(QWidget):
 
         if getattr(self, 'lb_wf_study', None):
             self.lb_wf_study.setToolTip(self.tr(
-                'Delimita a área da análise: interseção automática dos MDEs, '
-                'edição após gerar o polígono, ou polígono de uma camada existente.'))
+                'Delimita a área da análise. Nesta versão só está disponível a '
+                'interseção automática dos MDEs.'))
         if getattr(self, 'cbx_workflow_study', None):
             self.cbx_workflow_study.setToolTip(self.tr(
-                'Como obter a área de estudo: (i) interseção dos MDEs; '
-                '(ii) editar após a interseção; (iii) selecionar polígono de uma camada.'))
+                'Como obter a área de estudo. Disponível: interseção dos MDEs. '
+                'Editar após a interseção e selecionar de uma camada estão indisponíveis '
+                '(ainda não implementados nem testados).'))
             tips_study = (
                 self.tr('Calcula automaticamente o polígono pela interseção dos dois MDEs.'),
-                self.tr('Gera a interseção e permite editar o polígono antes de continuar.'),
-                self.tr('Usa um polígono já existente numa camada do projeto.'),
+                self.tr('Editar a área após a interseção ainda não está disponível nesta versão.'),
+                self.tr(
+                    'Selecionar a área de estudo a partir de uma camada ainda não está '
+                    'disponível nesta versão.'),
             )
             for i, tip in enumerate(tips_study):
                 self.cbx_workflow_study.setItemData(i, tip, QtTip)
@@ -3345,15 +3348,16 @@ class Wd1(QWidget):
 
         if getattr(self, 'lb_wf_pairs', None):
             self.lb_wf_pairs.setToolTip(self.tr(
-                'Definição dos pares homólogos: seleção automática ou revisão após a seleção.'))
+                'Definição dos pares homólogos. Nesta versão só está disponível a seleção automática.'))
         if getattr(self, 'cbx_workflow_pairs', None):
             self.cbx_workflow_pairs.setToolTip(self.tr(
-                '(i) Automática — usa só os filtros de Config. '
-                '(ii) Revisar — permite editar os pares no mapa antes dos buffers.'))
+                'Disponível: automática (filtros de Config). '
+                'Revisar no mapa está indisponível (ainda não implementado nem testado).'))
             self.cbx_workflow_pairs.setItemData(
                 0, self.tr('Seleciona os pares só com os filtros de distância e envelopes.'), QtTip)
             self.cbx_workflow_pairs.setItemData(
-                1, self.tr('Pausa após a seleção para rever, remover ou acrescentar pares no mapa.'), QtTip)
+                1, self.tr(
+                    'Revisão manual dos pares homólogos ainda não está disponível nesta versão.'), QtTip)
         if getattr(self, 'lb_ext_match', None):
             self.lb_ext_match.setToolTip(self.tr(
                 'Soma dos comprimentos das linhas de referência nos pares aceites.'))
@@ -3362,18 +3366,21 @@ class Wd1(QWidget):
 
         if getattr(self, 'lb_wf_outliers', None):
             self.lb_wf_outliers.setToolTip(self.tr(
-                'Outliers pelo método do boxplot (IQR). Pode remover todos, avaliar os indicados, '
+                'Outliers pelo método do boxplot (IQR). Disponível: remover automaticamente '
                 'ou usar todas as amostras.'))
         if getattr(self, 'cbx_workflow_outliers', None):
             self.cbx_workflow_outliers.setToolTip(self.tr(
-                '(i) Remover automaticamente os outliers; (ii) avaliar os indicados; '
-                '(iii) usar todos, ignorando a indicação do boxplot.'))
+                'Disponível: (i) remover automaticamente; (iii) usar todos. '
+                'Avaliar individualmente está indisponível (ainda não implementado nem testado).'))
             self.cbx_workflow_outliers.setItemData(
                 0, self.tr('Exclui automaticamente as amostras fora do critério IQR (boxplot).'), QtTip)
             self.cbx_workflow_outliers.setItemData(
-                1, self.tr('Mostra os outliers para decisão caso a caso antes do PEC.'), QtTip)
+                1, self.tr(
+                    'Avaliação individual de outliers ainda não está disponível nesta versão.'), QtTip)
             self.cbx_workflow_outliers.setItemData(
                 2, self.tr('Mantém todas as amostras, sem excluir outliers.'), QtTip)
+
+        self._apply_unavailable_workflow_options()
 
         if getattr(self, 'lb_log', None):
             self.lb_log.setToolTip(self.tr('Mensagens do processamento e avisos da análise.'))
@@ -4000,6 +4007,64 @@ class Wd1(QWidget):
         self.lb_study_layer.setVisible(show)
         self.cbx_study_area_layer.setVisible(show)
 
+    def _unavailable_workflow_suffix(self) -> str:
+        return ' — ' + self.tr('indisponível')
+
+    def _mark_combo_items_unavailable(self, combo, indices, tips_by_index):
+        """Desativa itens da lista e acrescenta «indisponível» ao texto."""
+        if combo is None:
+            return
+        suffix = self._unavailable_workflow_suffix()
+        QtTip = Qt.ItemDataRole.ToolTipRole
+        model = combo.model()
+        for i in indices:
+            if i < 0 or i >= combo.count():
+                continue
+            item = model.item(i) if hasattr(model, 'item') else None
+            tip = tips_by_index.get(i) or self.tr(
+                'Ainda não implementado nem testado nesta versão.')
+            combo.setItemData(i, tip, QtTip)
+            if item is None:
+                continue
+            item.setEnabled(False)
+            text = item.text()
+            if not text.endswith(suffix):
+                item.setText(text + suffix)
+            item.setToolTip(tip)
+        if combo.currentIndex() in indices:
+            combo.blockSignals(True)
+            combo.setCurrentIndex(0)
+            combo.blockSignals(False)
+
+    def _apply_unavailable_workflow_options(self):
+        """Opções da janela principal ainda não implementadas/testadas ficam desativadas."""
+        tip_study_edit = self.tr(
+            'Editar a área após a interseção ainda não está disponível nesta versão.')
+        tip_study_layer = self.tr(
+            'Selecionar a área de estudo a partir de uma camada ainda não está '
+            'disponível nesta versão.')
+        tip_pairs = self.tr(
+            'Revisão manual dos pares homólogos ainda não está disponível nesta versão.')
+        tip_outliers = self.tr(
+            'Avaliação individual de outliers ainda não está disponível nesta versão.')
+        self._mark_combo_items_unavailable(
+            getattr(self, 'cbx_workflow_study', None),
+            (1, 2),
+            {1: tip_study_edit, 2: tip_study_layer},
+        )
+        self._mark_combo_items_unavailable(
+            getattr(self, 'cbx_workflow_pairs', None),
+            (1,),
+            {1: tip_pairs},
+        )
+        self._mark_combo_items_unavailable(
+            getattr(self, 'cbx_workflow_outliers', None),
+            (1,),
+            {1: tip_outliers},
+        )
+        if getattr(self, 'cbx_workflow_study', None) is not None:
+            self._on_workflow_study_changed(self.cbx_workflow_study.currentIndex())
+
     def _persist_workflow_ui_if_project(self, clear_workflow_pause: bool = True):
         if clear_workflow_pause and self._workflow_pause is not None:
             self._workflow_pause = None
@@ -4031,12 +4096,15 @@ class Wd1(QWidget):
         for w in widgets:
             w.blockSignals(True)
         try:
-            self.cbx_workflow_study.setCurrentIndex(
-                max(0, min(int(data.get('study_mode', 0)), 2)))
-            self.cbx_workflow_pairs.setCurrentIndex(
-                max(0, min(int(data.get('pairs_mode', 0)), 1)))
-            self.cbx_workflow_outliers.setCurrentIndex(
-                max(0, min(int(data.get('outliers_mode', 0)), 2)))
+            study_idx = max(0, min(int(data.get('study_mode', 0)), 2))
+            # Editar após interseção (1) e selecionar de camada (2) indisponíveis.
+            self.cbx_workflow_study.setCurrentIndex(0 if study_idx in (1, 2) else study_idx)
+            pairs_idx = max(0, min(int(data.get('pairs_mode', 0)), 1))
+            # Revisar pares (1) indisponível.
+            self.cbx_workflow_pairs.setCurrentIndex(0 if pairs_idx == 1 else pairs_idx)
+            outliers_idx = max(0, min(int(data.get('outliers_mode', 0)), 2))
+            # Avaliar individualmente (1) indisponível.
+            self.cbx_workflow_outliers.setCurrentIndex(0 if outliers_idx == 1 else outliers_idx)
             src = (data.get('study_layer_source') or '').strip()
             if src:
                 vl = find_vector_layer_in_project(src)
@@ -4046,7 +4114,7 @@ class Wd1(QWidget):
         finally:
             for w in widgets:
                 w.blockSignals(False)
-        self._on_workflow_study_changed(self.cbx_workflow_study.currentIndex())
+        self._apply_unavailable_workflow_options()
 
     def _count_outliers_flagged(self, dic_values):
         n = 0
@@ -4072,10 +4140,10 @@ class Wd1(QWidget):
     def _apply_outlier_workflow(self, dic_values):
         """Aplica modo de outliers do fluxo (IQR ou usar todos)."""
         om = self.cbx_workflow_outliers.currentIndex()
-        if om in (0, 1):
-            self.check_outliers(dic_values)
-        else:
+        if om == 2:
             self._reset_outlier_flags(dic_values)
+        else:
+            self.check_outliers(dic_values)
 
     def apply_study_area_from_map_layer(self) -> bool:
         self.log_message(self.tr('ÁREA DE ESTUDO A PARTIR DA CAMADA'), 'INFO')

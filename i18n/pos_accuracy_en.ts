@@ -232,24 +232,24 @@ A₃ — buffer intersection area]]></translation>
         <translation><![CDATA[Select the test raster to evaluate.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Delimita a área da análise: interseção automática dos MDEs, edição após gerar o polígono, ou polígono de uma camada existente.]]></source>
-        <translation><![CDATA[Defines the analysis area: automatic DEM intersection, edit after generating the polygon, or a polygon from an existing layer.]]></translation>
+        <source><![CDATA[Delimita a área da análise. Nesta versão só está disponível a interseção automática dos MDEs.]]></source>
+        <translation><![CDATA[Defines the analysis area. In this version only automatic DEM intersection is available.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Como obter a área de estudo: (i) interseção dos MDEs; (ii) editar após a interseção; (iii) selecionar polígono de uma camada.]]></source>
-        <translation><![CDATA[How to obtain the study area: (i) DEM intersection; (ii) edit after intersection; (iii) select a polygon from a layer.]]></translation>
+        <source><![CDATA[Como obter a área de estudo. Disponível: interseção dos MDEs. Editar após a interseção e selecionar de uma camada estão indisponíveis (ainda não implementados nem testados).]]></source>
+        <translation><![CDATA[How to obtain the study area. Available: DEM intersection. Edit after intersection and select from a layer are unavailable (not yet implemented or tested).]]></translation>
     </message>
     <message>
         <source><![CDATA[Calcula automaticamente o polígono pela interseção dos dois MDEs.]]></source>
         <translation><![CDATA[Automatically computes the polygon from the intersection of both DEMs.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Gera a interseção e permite editar o polígono antes de continuar.]]></source>
-        <translation><![CDATA[Generates the intersection and lets you edit the polygon before continuing.]]></translation>
+        <source><![CDATA[Editar a área após a interseção ainda não está disponível nesta versão.]]></source>
+        <translation><![CDATA[Editing the area after intersection is not available in this version.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Usa um polígono já existente numa camada do projeto.]]></source>
-        <translation><![CDATA[Uses an existing polygon from a project layer.]]></translation>
+        <source><![CDATA[Selecionar a área de estudo a partir de uma camada ainda não está disponível nesta versão.]]></source>
+        <translation><![CDATA[Selecting the study area from a layer is not available in this version.]]></translation>
     </message>
     <message>
         <source><![CDATA[Área do polígono de estudo (km²).]]></source>
@@ -268,20 +268,20 @@ A₃ — buffer intersection area]]></translation>
         <translation><![CDATA[Select the polygon layer that bounds the study area.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Definição dos pares homólogos: seleção automática ou revisão após a seleção.]]></source>
-        <translation><![CDATA[Homologous-pair definition: automatic selection or review after selection.]]></translation>
+        <source><![CDATA[Definição dos pares homólogos. Nesta versão só está disponível a seleção automática.]]></source>
+        <translation><![CDATA[Homologous-pair definition. In this version only automatic selection is available.]]></translation>
     </message>
     <message>
-        <source><![CDATA[(i) Automática — usa só os filtros de Config. (ii) Revisar — permite editar os pares no mapa antes dos buffers.]]></source>
-        <translation><![CDATA[(i) Automatic — uses Config filters only. (ii) Review — lets you edit pairs on the map before buffers.]]></translation>
+        <source><![CDATA[Disponível: automática (filtros de Config). Revisar no mapa está indisponível (ainda não implementado nem testado).]]></source>
+        <translation><![CDATA[Available: automatic (Config filters). Review on the map is unavailable (not yet implemented or tested).]]></translation>
     </message>
     <message>
         <source><![CDATA[Seleciona os pares só com os filtros de distância e envelopes.]]></source>
         <translation><![CDATA[Selects pairs using distance and envelope filters only.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Pausa após a seleção para rever, remover ou acrescentar pares no mapa.]]></source>
-        <translation><![CDATA[Pauses after selection so you can review, remove or add pairs on the map.]]></translation>
+        <source><![CDATA[Revisão manual dos pares homólogos ainda não está disponível nesta versão.]]></source>
+        <translation><![CDATA[Manual review of homologous pairs is not available in this version.]]></translation>
     </message>
     <message>
         <source><![CDATA[Soma dos comprimentos das linhas de referência nos pares aceites.]]></source>
@@ -292,20 +292,20 @@ A₃ — buffer intersection area]]></translation>
         <translation><![CDATA[Number of valid homologous pairs.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Outliers pelo método do boxplot (IQR). Pode remover todos, avaliar os indicados, ou usar todas as amostras.]]></source>
-        <translation><![CDATA[Outliers by the boxplot (IQR) method. You may remove all, inspect those flagged, or keep all samples.]]></translation>
+        <source><![CDATA[Outliers pelo método do boxplot (IQR). Disponível: remover automaticamente ou usar todas as amostras.]]></source>
+        <translation><![CDATA[Outliers by the boxplot (IQR) method. Available: remove automatically or keep all samples.]]></translation>
     </message>
     <message>
-        <source><![CDATA[(i) Remover automaticamente os outliers; (ii) avaliar os indicados; (iii) usar todos, ignorando a indicação do boxplot.]]></source>
-        <translation><![CDATA[(i) Automatically remove outliers; (ii) inspect those flagged; (iii) keep all, ignoring the boxplot flags.]]></translation>
+        <source><![CDATA[Disponível: (i) remover automaticamente; (iii) usar todos. Avaliar individualmente está indisponível (ainda não implementado nem testado).]]></source>
+        <translation><![CDATA[Available: (i) remove automatically; (iii) keep all. Inspect individually is unavailable (not yet implemented or tested).]]></translation>
     </message>
     <message>
         <source><![CDATA[Exclui automaticamente as amostras fora do critério IQR (boxplot).]]></source>
         <translation><![CDATA[Automatically excludes samples outside the IQR (boxplot) criterion.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Mostra os outliers para decisão caso a caso antes do PEC.]]></source>
-        <translation><![CDATA[Shows outliers for a case-by-case decision before PEC.]]></translation>
+        <source><![CDATA[Avaliação individual de outliers ainda não está disponível nesta versão.]]></source>
+        <translation><![CDATA[Individual outlier review is not available in this version.]]></translation>
     </message>
     <message>
         <source><![CDATA[Mantém todas as amostras, sem excluir outliers.]]></source>
@@ -434,6 +434,14 @@ Click the text to open the last PDF report.]]></translation>
     <message>
         <source><![CDATA[Executar ou retomar a análise.]]></source>
         <translation><![CDATA[Run or resume the analysis.]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[indisponível]]></source>
+        <translation><![CDATA[unavailable]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Ainda não implementado nem testado nesta versão.]]></source>
+        <translation><![CDATA[Not yet implemented or tested in this version.]]></translation>
     </message>
     <message>
         <source><![CDATA[ÁREA DE ESTUDO A PARTIR DA CAMADA]]></source>

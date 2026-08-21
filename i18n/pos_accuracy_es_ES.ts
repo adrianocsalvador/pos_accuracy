@@ -232,24 +232,24 @@ A₃ — área de la intersección de los buffers]]></translation>
         <translation><![CDATA[Seleccione el ráster de prueba para evaluar.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Delimita a área da análise: interseção automática dos MDEs, edição após gerar o polígono, ou polígono de uma camada existente.]]></source>
-        <translation><![CDATA[Delimita el área de análisis: intersección automática de los MDE, edición tras generar el polígono, o polígono de una capa existente.]]></translation>
+        <source><![CDATA[Delimita a área da análise. Nesta versão só está disponível a interseção automática dos MDEs.]]></source>
+        <translation><![CDATA[Delimita el área de análisis. En esta versión solo está disponible la intersección automática de los MDE.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Como obter a área de estudo: (i) interseção dos MDEs; (ii) editar após a interseção; (iii) selecionar polígono de uma camada.]]></source>
-        <translation><![CDATA[Cómo obtener el área de estudio: (i) intersección de los MDE; (ii) editar tras la intersección; (iii) seleccionar polígono de una capa.]]></translation>
+        <source><![CDATA[Como obter a área de estudo. Disponível: interseção dos MDEs. Editar após a interseção e selecionar de uma camada estão indisponíveis (ainda não implementados nem testados).]]></source>
+        <translation><![CDATA[Cómo obtener el área de estudio. Disponible: intersección de los MDE. Editar tras la intersección y seleccionar de una capa no están disponibles (aún no implementados ni comprobados).]]></translation>
     </message>
     <message>
         <source><![CDATA[Calcula automaticamente o polígono pela interseção dos dois MDEs.]]></source>
         <translation><![CDATA[Calcula automáticamente el polígono por la intersección de ambos MDE.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Gera a interseção e permite editar o polígono antes de continuar.]]></source>
-        <translation><![CDATA[Genera la intersección y permite editar el polígono antes de continuar.]]></translation>
+        <source><![CDATA[Editar a área após a interseção ainda não está disponível nesta versão.]]></source>
+        <translation><![CDATA[Editar el área tras la intersección aún no está disponible en esta versión.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Usa um polígono já existente numa camada do projeto.]]></source>
-        <translation><![CDATA[Usa un polígono ya existente en una capa del proyecto.]]></translation>
+        <source><![CDATA[Selecionar a área de estudo a partir de uma camada ainda não está disponível nesta versão.]]></source>
+        <translation><![CDATA[Seleccionar el área de estudio a partir de una capa aún no está disponible en esta versión.]]></translation>
     </message>
     <message>
         <source><![CDATA[Área do polígono de estudo (km²).]]></source>
@@ -268,20 +268,20 @@ A₃ — área de la intersección de los buffers]]></translation>
         <translation><![CDATA[Seleccione la capa polígono que delimita el área de estudio.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Definição dos pares homólogos: seleção automática ou revisão após a seleção.]]></source>
-        <translation><![CDATA[Definición de los pares homólogos: selección automática o revisión tras la selección.]]></translation>
+        <source><![CDATA[Definição dos pares homólogos. Nesta versão só está disponível a seleção automática.]]></source>
+        <translation><![CDATA[Definición de los pares homólogos. En esta versión solo está disponible la selección automática.]]></translation>
     </message>
     <message>
-        <source><![CDATA[(i) Automática — usa só os filtros de Config. (ii) Revisar — permite editar os pares no mapa antes dos buffers.]]></source>
-        <translation><![CDATA[(i) Automática — usa solo los filtros de Config. (ii) Revisar — permite editar los pares en el mapa antes de los buffers.]]></translation>
+        <source><![CDATA[Disponível: automática (filtros de Config). Revisar no mapa está indisponível (ainda não implementado nem testado).]]></source>
+        <translation><![CDATA[Disponible: automática (filtros de Config). Revisar en el mapa no está disponible (aún no implementado ni comprobado).]]></translation>
     </message>
     <message>
         <source><![CDATA[Seleciona os pares só com os filtros de distância e envelopes.]]></source>
         <translation><![CDATA[Selecciona los pares solo con los filtros de distancia y envolventes.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Pausa após a seleção para rever, remover ou acrescentar pares no mapa.]]></source>
-        <translation><![CDATA[Pausa tras la selección para revisar, quitar o añadir pares en el mapa.]]></translation>
+        <source><![CDATA[Revisão manual dos pares homólogos ainda não está disponível nesta versão.]]></source>
+        <translation><![CDATA[La revisión manual de los pares homólogos aún no está disponible en esta versión.]]></translation>
     </message>
     <message>
         <source><![CDATA[Soma dos comprimentos das linhas de referência nos pares aceites.]]></source>
@@ -292,20 +292,20 @@ A₃ — área de la intersección de los buffers]]></translation>
         <translation><![CDATA[Número de pares homólogos válidos.]]></translation>
     </message>
     <message>
-        <source><![CDATA[Outliers pelo método do boxplot (IQR). Pode remover todos, avaliar os indicados, ou usar todas as amostras.]]></source>
-        <translation><![CDATA[Valores atípicos por el método boxplot (RIC). Puede quitar todos, evaluar los indicados o usar todas las muestras.]]></translation>
+        <source><![CDATA[Outliers pelo método do boxplot (IQR). Disponível: remover automaticamente ou usar todas as amostras.]]></source>
+        <translation><![CDATA[Valores atípicos por el método boxplot (RIC). Disponible: quitar automáticamente o usar todas las muestras.]]></translation>
     </message>
     <message>
-        <source><![CDATA[(i) Remover automaticamente os outliers; (ii) avaliar os indicados; (iii) usar todos, ignorando a indicação do boxplot.]]></source>
-        <translation><![CDATA[(i) Quitar automáticamente los valores atípicos; (ii) evaluar los indicados; (iii) usar todos, ignorando la indicación del boxplot.]]></translation>
+        <source><![CDATA[Disponível: (i) remover automaticamente; (iii) usar todos. Avaliar individualmente está indisponível (ainda não implementado nem testado).]]></source>
+        <translation><![CDATA[Disponible: (i) quitar automáticamente; (iii) usar todos. Evaluar individualmente no está disponible (aún no implementado ni comprobado).]]></translation>
     </message>
     <message>
         <source><![CDATA[Exclui automaticamente as amostras fora do critério IQR (boxplot).]]></source>
         <translation><![CDATA[Excluye automáticamente las muestras fuera del criterio RIC (boxplot).]]></translation>
     </message>
     <message>
-        <source><![CDATA[Mostra os outliers para decisão caso a caso antes do PEC.]]></source>
-        <translation><![CDATA[Muestra los valores atípicos para decidir caso por caso antes del PEC.]]></translation>
+        <source><![CDATA[Avaliação individual de outliers ainda não está disponível nesta versão.]]></source>
+        <translation><![CDATA[La evaluación individual de valores atípicos aún no está disponible en esta versión.]]></translation>
     </message>
     <message>
         <source><![CDATA[Mantém todas as amostras, sem excluir outliers.]]></source>
@@ -434,6 +434,14 @@ Clic en el texto para abrir el último informe PDF.]]></translation>
     <message>
         <source><![CDATA[Executar ou retomar a análise.]]></source>
         <translation><![CDATA[Ejecutar o reanudar el análisis.]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[indisponível]]></source>
+        <translation><![CDATA[no disponible]]></translation>
+    </message>
+    <message>
+        <source><![CDATA[Ainda não implementado nem testado nesta versão.]]></source>
+        <translation><![CDATA[Aún no implementado ni comprobado en esta versión.]]></translation>
     </message>
     <message>
         <source><![CDATA[ÁREA DE ESTUDO A PARTIR DA CAMADA]]></source>

@@ -75,17 +75,11 @@ Se o projeto já estiver calculado e só alguns parâmetros mudarem, o plugin **
 ## Funcionalidades
 
 - Persistência no projeto (`.pa.gpkg`) com MDEs, morfologia, pares, buffers e configuração.
-- Determinação da área de estudo:
-  - interseção dos MDEs (automática)
-  - revisão após interseção
-  - camada polígono
-- Seleção de pares:
-  - automática usando parâmetros definidos
-  - com **revisão** no mapa
+- Determinação da área de estudo: **interseção automática dos MDEs**.
+- Seleção de pares: **automática**, com os filtros definidos em Config.
 - Tratamento de *outliers*:
-  - remoção automática
-  - revisão
-  - usar tudo
+  - remoção automática (boxplot / IQR)
+  - usar todos (ignorar a indicação do boxplot)
 - Compatibilização de progressivas para o perfil altimétrico:
   - linear
   - por proximidade
@@ -97,6 +91,17 @@ Se o projeto já estiver calculado e só alguns parâmetros mudarem, o plugin **
 - Auditoria horizontal e/ou vertical (PDF e/ou CSV).
 - Interface em português, inglês e espanhol.
 - Retoma inteligente: morfologia → pares → buffers → compatibilização (só altimetria) → fórmula DM.
+
+### Indisponíveis nesta versão
+
+As opções abaixo **aparecem na janela principal**, mas estão **desativadas** (ainda não implementadas nem testadas). O texto da lista inclui a indicação «indisponível»:
+
+| Controlo | Opção | Estado |
+|----------|--------|--------|
+| Área de estudo | Editar após interseção | Indisponível |
+| Área de estudo | Selecionar de uma camada | Indisponível |
+| Seleção de pares homólogos | Revisar | Indisponível |
+| Tratamento de outliers | Avaliar individualmente | Indisponível |
 
 ---
 

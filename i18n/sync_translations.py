@@ -407,6 +407,29 @@ EXTRA_EN: dict[str, str] = {
     'MDE a avaliar. A resolução (GSD) deste raster define as distâncias em pixels.': (
         'DEM to evaluate. This raster’s GSD defines distances in pixels.'),
     'Selecione o raster de referência.': 'Select the reference raster.',
+    'indisponível': 'unavailable',
+    'Ainda não implementado nem testado nesta versão.': (
+        'Not yet implemented or tested in this version.'),
+    'Delimita a área da análise. Nesta versão só está disponível a interseção automática dos MDEs.': (
+        'Defines the analysis area. In this version only automatic DEM intersection is available.'),
+    'Como obter a área de estudo. Disponível: interseção dos MDEs. Editar após a interseção e selecionar de uma camada estão indisponíveis (ainda não implementados nem testados).': (
+        'How to obtain the study area. Available: DEM intersection. Edit after intersection and select from a layer are unavailable (not yet implemented or tested).'),
+    'Editar a área após a interseção ainda não está disponível nesta versão.': (
+        'Editing the area after intersection is not available in this version.'),
+    'Selecionar a área de estudo a partir de uma camada ainda não está disponível nesta versão.': (
+        'Selecting the study area from a layer is not available in this version.'),
+    'Definição dos pares homólogos. Nesta versão só está disponível a seleção automática.': (
+        'Homologous-pair definition. In this version only automatic selection is available.'),
+    'Disponível: automática (filtros de Config). Revisar no mapa está indisponível (ainda não implementado nem testado).': (
+        'Available: automatic (Config filters). Review on the map is unavailable (not yet implemented or tested).'),
+    'Revisão manual dos pares homólogos ainda não está disponível nesta versão.': (
+        'Manual review of homologous pairs is not available in this version.'),
+    'Outliers pelo método do boxplot (IQR). Disponível: remover automaticamente ou usar todas as amostras.': (
+        'Outliers by the boxplot (IQR) method. Available: remove automatically or keep all samples.'),
+    'Disponível: (i) remover automaticamente; (iii) usar todos. Avaliar individualmente está indisponível (ainda não implementado nem testado).': (
+        'Available: (i) remove automatically; (iii) keep all. Inspect individually is unavailable (not yet implemented or tested).'),
+    'Avaliação individual de outliers ainda não está disponível nesta versão.': (
+        'Individual outlier review is not available in this version.'),
     'Delimita a área da análise: interseção automática dos MDEs, edição após gerar o polígono, ou polígono de uma camada existente.': (
         'Defines the analysis area: automatic DEM intersection, edit after generating the polygon, or a polygon from an existing layer.'),
     'Como obter a área de estudo: (i) interseção dos MDEs; (ii) editar após a interseção; (iii) selecionar polígono de uma camada.': (
@@ -985,6 +1008,29 @@ EXTRA_ES: dict[str, str] = {
     'MDE a avaliar. A resolução (GSD) deste raster define as distâncias em pixels.': (
         'MDE a evaluar. La resolución (GSD) de este ráster define las distancias en píxeles.'),
     'Selecione o raster de referência.': 'Seleccione el ráster de referencia.',
+    'indisponível': 'no disponible',
+    'Ainda não implementado nem testado nesta versão.': (
+        'Aún no implementado ni comprobado en esta versión.'),
+    'Delimita a área da análise. Nesta versão só está disponível a interseção automática dos MDEs.': (
+        'Delimita el área de análisis. En esta versión solo está disponible la intersección automática de los MDE.'),
+    'Como obter a área de estudo. Disponível: interseção dos MDEs. Editar após a interseção e selecionar de uma camada estão indisponíveis (ainda não implementados nem testados).': (
+        'Cómo obtener el área de estudio. Disponible: intersección de los MDE. Editar tras la intersección y seleccionar de una capa no están disponibles (aún no implementados ni comprobados).'),
+    'Editar a área após a interseção ainda não está disponível nesta versão.': (
+        'Editar el área tras la intersección aún no está disponible en esta versión.'),
+    'Selecionar a área de estudo a partir de uma camada ainda não está disponível nesta versão.': (
+        'Seleccionar el área de estudio a partir de una capa aún no está disponible en esta versión.'),
+    'Definição dos pares homólogos. Nesta versão só está disponível a seleção automática.': (
+        'Definición de los pares homólogos. En esta versión solo está disponible la selección automática.'),
+    'Disponível: automática (filtros de Config). Revisar no mapa está indisponível (ainda não implementado nem testado).': (
+        'Disponible: automática (filtros de Config). Revisar en el mapa no está disponible (aún no implementado ni comprobado).'),
+    'Revisão manual dos pares homólogos ainda não está disponível nesta versão.': (
+        'La revisión manual de los pares homólogos aún no está disponible en esta versión.'),
+    'Outliers pelo método do boxplot (IQR). Disponível: remover automaticamente ou usar todas as amostras.': (
+        'Valores atípicos por el método boxplot (RIC). Disponible: quitar automáticamente o usar todas las muestras.'),
+    'Disponível: (i) remover automaticamente; (iii) usar todos. Avaliar individualmente está indisponível (ainda não implementado nem testado).': (
+        'Disponible: (i) quitar automáticamente; (iii) usar todos. Evaluar individualmente no está disponible (aún no implementado ni comprobado).'),
+    'Avaliação individual de outliers ainda não está disponível nesta versão.': (
+        'La evaluación individual de valores atípicos aún no está disponible en esta versión.'),
     'Delimita a área da análise: interseção automática dos MDEs, edição após gerar o polígono, ou polígono de uma camada existente.': (
         'Delimita el área de análisis: intersección automática de los MDE, edición tras generar el polígono, o polígono de una capa existente.'),
     'Como obter a área de estudo: (i) interseção dos MDEs; (ii) editar após a interseção; (iii) selecionar polígono de uma camada.': (
