@@ -182,13 +182,14 @@ Por omissão **desligado**. Ao activar **Horizontal (PDF)** e/ou **Vertical (PDF
 ---
 
 ## Padrões de acurácia
-- ≥ 90 % das amostras com \(d_i \le\) limiar  
-- ≥ 90 % da extensão com \(d_i \le\) limiar  
-- RMS \(\le\) EP (razões da classe A do PEC-PCD) 
+- Quantitativo: 90 % do conjunto amostral com $dm_{i} \le$ ao limiar
+- Extensão: 90 % da extensão do conjunto amostral com $dm_{i} \le$ ao limiar
+- Dispersão: RMS do conjunto amostral $\le$ EP 
 
 ### PEC-PCD (Brasil) 
 
 Classes **A, B, C, D**.
+
 Escalas:
 
 - 1:1.000
@@ -207,12 +208,12 @@ Escalas:
 
 Decreto n.º 89.817/84 e ET-CQDG. $E$ é o denominador da escala, desta forma PEC-PCD para a classe A da escala 1/1.000 é 0,28 metros e EP 0,17 metros.
 
-| Classe | PEC-PCD | EP |
-|--------|---------|-----|
-| A | 0,28 × $E$ | 0,17 × $E$ |
-| B | 0,50 × $E$ | 0,30 × $E$ |
-| C | 0,80 × $E$ | 0,50 × $E$ |
-| D | 1,00 × $E$ | 0,60 × $E$ |
+| Classe | PEC-PCD (m) | EP (m) |
+|--------|-------------|--------|
+| A | 0,28 × $E$ × $10^{-3}$ | 0,17 × $E$ × $10^{-3}$ |
+| B | 0,50 × $E$ × $10^{-3}$ | 0,30 × $E$ × $10^{-3}$ |
+| C | 0,80 × $E$ × $10^{-3}$ | 0,50 × $E$ × $10^{-3}$ |
+| D | 1,00 × $E$ × $10^{-3}$ | 0,60 × $E$ × $10^{-3}$ |
 
 #### Atimetria
 
@@ -231,9 +232,9 @@ Para a altimetria utiliza-se a Equidistância vertical (EQ) usual para a escala:
 | 1:500.000 | 100 |
 | 1:1.000.000 | 100 |
 
-Os limites altimétricos são **EQ(Equidistância) × coeficiente**. Por exemplo, na classe A da escala 1:1.000 (EQ = 1 m) o PEC-PCD é 0,27 m e o EP 0,17 m.
+Os limites altimétricos são **EQ (Equidistância) × coeficiente**. Por exemplo, na classe A da escala 1:1.000 (EQ = 1 m) o PEC-PCD é 0,27 m e o EP 0,17 m.
 
-| Classe | PEC-PCD | EP |
+| Classe | PEC-PCD (m) | EP |
 |--------|---------|-----|
 | A | 0,27 × $EQ$ | 0,17 × $EQ$ |
 | B | 0,50 × $EQ$ | 0,33 × $EQ$ |
