@@ -9,6 +9,7 @@ from qgis.PyQt.QtWidgets import (
 )
 from .mod_aux_tools import AuxTools
 from .plugin_i18n import tr_ui
+from .mod_exc import ignore_exc
 
 plugin_path = os.path.dirname(os.path.dirname(__file__))
 
@@ -608,16 +609,16 @@ class SettingsDlg(QDialog):
                     except (TypeError, ValueError):
                         try:
                             obj.setValue(float(meta.get('default', 0)))
-                        except (TypeError, ValueError):
-                            pass
+                        except (TypeError, ValueError) as _exc:
+                            ignore_exc(_exc)
                 elif meta.get('type') == 'spin':
                     try:
                         obj.setValue(int(float(val)))
                     except (TypeError, ValueError):
                         try:
                             obj.setValue(int(meta.get('default', 0)))
-                        except (TypeError, ValueError):
-                            pass
+                        except (TypeError, ValueError) as _exc:
+                            ignore_exc(_exc)
                 elif 'list' in meta:
                     try:
                         idx = int(val)
@@ -849,25 +850,25 @@ class SettingsDlg(QDialog):
                 if meta.get('type') == 'checkbox':
                     try:
                         obj.toggled.disconnect(clear_hl)
-                    except (TypeError, RuntimeError):
-                        pass
+                    except (TypeError, RuntimeError) as _exc:
+                        ignore_exc(_exc)
                     obj.toggled.connect(clear_hl)
                 elif meta.get('type') == 'checkbox_group':
                     for cb in (obj or []):
                         try:
                             cb.toggled.disconnect(clear_hl)
-                        except (TypeError, RuntimeError):
-                            pass
+                        except (TypeError, RuntimeError) as _exc:
+                            ignore_exc(_exc)
                         cb.toggled.connect(clear_hl)
                 elif ftype == 'radio':
                     try:
                         obj.idClicked.disconnect(clear_hl)
-                    except (TypeError, RuntimeError):
-                        pass
+                    except (TypeError, RuntimeError) as _exc:
+                        ignore_exc(_exc)
                     try:
                         obj.buttonClicked.disconnect(clear_hl)
-                    except (TypeError, RuntimeError):
-                        pass
+                    except (TypeError, RuntimeError) as _exc:
+                        ignore_exc(_exc)
                     # Qt5: buttonClicked; Qt6: idClicked — ligar o que existir
                     if hasattr(obj, 'idClicked'):
                         obj.idClicked.connect(clear_hl)
@@ -876,20 +877,20 @@ class SettingsDlg(QDialog):
                 elif ftype in ('spin', 'doublespin'):
                     try:
                         obj.valueChanged.disconnect(clear_hl)
-                    except (TypeError, RuntimeError):
-                        pass
+                    except (TypeError, RuntimeError) as _exc:
+                        ignore_exc(_exc)
                     obj.valueChanged.connect(clear_hl)
                 elif 'list' in meta:
                     try:
                         obj.currentIndexChanged.disconnect(clear_hl)
-                    except (TypeError, RuntimeError):
-                        pass
+                    except (TypeError, RuntimeError) as _exc:
+                        ignore_exc(_exc)
                     obj.currentIndexChanged.connect(clear_hl)
                 else:
                     try:
                         obj.textChanged.disconnect(clear_hl)
-                    except (TypeError, RuntimeError):
-                        pass
+                    except (TypeError, RuntimeError) as _exc:
+                        ignore_exc(_exc)
                     obj.textChanged.connect(clear_hl)
 
     def _apply_param_tooltips(self):

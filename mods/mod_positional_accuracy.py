@@ -74,6 +74,7 @@ from .plugin_i18n import (
     saved_ui_locale,
     tr_ui,
 )
+from .mod_exc import ignore_exc
 
 SETTINGS_KEY_OPEN_REPORT = 'open_report_after_run'
 
@@ -205,8 +206,8 @@ def _ui_device_pixel_ratio() -> float:
         app = QApplication.instance()
         if app:
             return float(app.devicePixelRatio() or 1.0)
-    except (ImportError, AttributeError, TypeError, ValueError):
-        pass
+    except (ImportError, AttributeError, TypeError, ValueError) as _exc:
+        ignore_exc(_exc)
     return 1.0
 
 
@@ -435,9 +436,9 @@ def _pixmap_from_icon_path(
                 finally:
                     painter.end()
                 return pm
-        except Exception:
+        except Exception as _exc:
             # QSvgRenderer/QtSvg indisponível — cai no pixmap raster
-            pass
+            ignore_exc(_exc)
 
     pm = _load_pixmap_maybe_trim(path_, trim_alpha)
     if pm.isNull():
@@ -582,14 +583,14 @@ def _configure_report_pdf_printer(printer, margin_mm: float = REPORT_PDF_MARGIN_
         )
         printer.setPageLayout(layout)
         return
-    except Exception:
+    except Exception as _exc:
         # Qt5: QPageLayout pode não existir neste QPrinter
-        pass
+        ignore_exc(_exc)
     try:
         printer.setPageSize(QPrinter.PageSize.A4)
-    except Exception:
+    except Exception as _exc:
         # Qt5: PageSize.A4 vs A4
-        pass
+        ignore_exc(_exc)
     try:
         printer.setPageMargins(
             QMarginsF(margin_mm, margin_mm, margin_mm, margin_mm),
@@ -693,8 +694,8 @@ def write_pdf_from_html_doc(
     # 72 dpi → coordenadas do QTextDocument em pontos coincidem com o QPrinter.
     try:
         printer.setResolution(72)
-    except Exception:
-        pass
+    except Exception as _exc:
+        ignore_exc(_exc)
     _configure_report_pdf_printer(printer, margin_mm)
     _print_html_to_pdf(printer, html_doc, font_size=font_size)
     return pdf_path
@@ -1788,8 +1789,8 @@ def export_pdf_from_txt_report(
         try:
             with open(html_path, 'w', encoding='utf-8') as f:
                 f.write(html_doc)
-        except OSError:
-            pass
+        except OSError as _exc:
+            ignore_exc(_exc)
         return pdf_path
 
     pa_gpkg = _parse_project_path_from_report_txt(txt_body)
@@ -1815,8 +1816,8 @@ def export_pdf_from_txt_report(
     try:
         with open(html_path, 'w', encoding='utf-8') as f:
             f.write(html_doc)
-    except OSError:
-        pass
+    except OSError as _exc:
+        ignore_exc(_exc)
 
     return pdf_path
 
@@ -2566,12 +2567,12 @@ def load_workflow_ui_from_mdepa_path(mdepa_path: str) -> dict:
                 elif campo in ('study_mode', 'pairs_mode', 'outliers_mode'):
                     try:
                         out[campo] = int(valor)
-                    except (TypeError, ValueError):
-                        pass
+                    except (TypeError, ValueError) as _exc:
+                        ignore_exc(_exc)
         finally:
             conn.close()
-    except sqlite3.Error:
-        pass
+    except sqlite3.Error as _exc:
+        ignore_exc(_exc)
     return out
 
 
@@ -2632,8 +2633,8 @@ def load_panel_stats_from_mdepa_path(mdepa_path: str) -> dict:
                     out[campo] = '' if valor is None else str(valor)
         finally:
             conn.close()
-    except sqlite3.Error:
-        pass
+    except sqlite3.Error as _exc:
+        ignore_exc(_exc)
     return out
 
 
@@ -2673,8 +2674,8 @@ def normalize_project_pa_file(project_path: str) -> None:
                 os.replace(alt_gpkg, project_path)
             else:
                 os.remove(alt_gpkg)
-    except OSError:
-        pass
+    except OSError as _exc:
+        ignore_exc(_exc)
 
 
 class PositionalAccuracyPlugin:
@@ -3672,15 +3673,15 @@ class Wd1(QWidget):
             if os.path.isfile(path):
                 try:
                     os.remove(path)
-                except OSError:
-                    pass
+                except OSError as _exc:
+                    ignore_exc(_exc)
             root = _strip_project_ext(path)
             stray_gpkg = root + '.gpkg'
             if os.path.isfile(stray_gpkg):
                 try:
                     os.remove(stray_gpkg)
-                except OSError:
-                    pass
+                except OSError as _exc:
+                    ignore_exc(_exc)
             self.dic_prj['project_file'] = ''
             self.gpkg_path = ''
             self.dic_prj['path'] = ''
@@ -4306,8 +4307,8 @@ class Wd1(QWidget):
                 try:
                     if lyr.GetGeomType() == ogr.wkbNone:
                         continue
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    ignore_exc(_exc)
                 names.append(name)
         finally:
             ds = None
@@ -4440,8 +4441,8 @@ class Wd1(QWidget):
                     continue
                 try:
                     proj.removeMapLayer(lyr.id())
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    ignore_exc(_exc)
 
     def _pipeline_reset_timestamps_from_ordem(self, min_ordem: int) -> None:
         path = self.gpkg_path
@@ -4459,8 +4460,8 @@ class Wd1(QWidget):
                 conn.commit()
             finally:
                 conn.close()
-        except sqlite3.Error:
-            pass
+        except sqlite3.Error as _exc:
+            ignore_exc(_exc)
 
     def _clear_pec_report_cache(self) -> None:
         self._pec_report_pec_intro = ''
@@ -4812,15 +4813,15 @@ class Wd1(QWidget):
                 except TypeError:
                     try:
                         th.sig_status.disconnect()
-                    except TypeError:
-                        pass
+                    except TypeError as _exc:
+                        ignore_exc(_exc)
             try:
                 worker.finished.disconnect(self.task_done)
             except TypeError:
                 try:
                     worker.finished.disconnect()
-                except TypeError:
-                    pass
+                except TypeError as _exc:
+                    ignore_exc(_exc)
             worker.stop()
         self.threads_running = 0
 
@@ -4844,8 +4845,8 @@ class Wd1(QWidget):
         self._stop_all_workers()
         try:
             self._end_buffers_map_canvas_freeze(refresh=False)
-        except Exception:
-            pass
+        except Exception as _exc:
+            ignore_exc(_exc)
         self._end_analysis_session()
         self.log_message(self.tr('Análise interrompida pelo usuário.'), 'WARNING')
 
@@ -4857,8 +4858,8 @@ class Wd1(QWidget):
             except Exception:
                 try:
                     self.settings_dlg.close()
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    ignore_exc(_exc)
         self._clear_stop_countdown(silent=True)
         self._stop_requested = True
         self._stop_all_workers()
@@ -5462,14 +5463,14 @@ class Wd1(QWidget):
             if map_layer_gpkg_path(lyr) == gpkg_n:
                 try:
                     proj.removeMapLayer(lyr.id())
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    ignore_exc(_exc)
         for lyr in list(proj.mapLayersByName(self._layer_display_name(self.match_lines_layer_name))):
             if map_layer_gpkg_path(lyr) == gpkg_n:
                 try:
                     proj.removeMapLayer(lyr.id())
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    ignore_exc(_exc)
         self.get_gpkg_layer(prefix_=self.match_lines_layer_name, gpkg_path=self.gpkg_path)
         self.log_message(
             self.tr('[__Linhas_de_Correspondencia__] {0} ligações gravadas (edite antes de Continuar se estiver em revisão).').format(
@@ -5807,8 +5808,8 @@ class Wd1(QWidget):
         try:
             curs.close()
             conn.close()
-        except sqlite3.Error:
-            pass
+        except sqlite3.Error as _exc:
+            ignore_exc(_exc)
         self.dic_match = {}
         for row_ in result_fa:
             for j, col_ in enumerate(row_):
@@ -5878,12 +5879,12 @@ class Wd1(QWidget):
         bn = self.buffer_name
         try:
             self._clear_gpkg_vector_layer_features(bn)
-        except Exception:
-            pass
+        except Exception as _exc:
+            ignore_exc(_exc)
         try:
             self._remove_project_layers_named(bn)
-        except Exception:
-            pass
+        except Exception as _exc:
+            ignore_exc(_exc)
         self.layer_buffers = None
 
     def _show_buffers_on_map_setting(self) -> bool:
@@ -5994,8 +5995,8 @@ class Wd1(QWidget):
             c.setRenderFlag(getattr(self, '_buffers_canvas_render_saved', True))
             if refresh:
                 c.refresh()
-        except Exception:
-            pass
+        except Exception as _exc:
+            ignore_exc(_exc)
 
     def _finalize_buffers_map_display(self) -> None:
         """Um repaint no fim; adiciona __Buffers__ ao mapa se estava diferido."""
@@ -6034,13 +6035,13 @@ class Wd1(QWidget):
         if not want_z and hasattr(g, 'dropZValue'):
             try:
                 g.dropZValue()
-            except Exception:
-                pass
+            except Exception as _exc:
+                ignore_exc(_exc)
         if not want_m and hasattr(g, 'dropMValue'):
             try:
                 g.dropMValue()
-            except Exception:
-                pass
+            except Exception as _exc:
+                ignore_exc(_exc)
         if g.isEmpty():
             self._log_buffer_geom_diag_once(
                 self.tr('Geometria vazia após remover Z/M — feição ignorada.'))
@@ -6085,8 +6086,8 @@ class Wd1(QWidget):
         if not want_z and QgsWkbTypes.hasZ(g.wkbType()) and hasattr(g, 'dropZValue'):
             try:
                 g.dropZValue()
-            except Exception:
-                pass
+            except Exception as _exc:
+                ignore_exc(_exc)
         if g.isEmpty():
             return None
         return g
@@ -6585,8 +6586,8 @@ class Wd1(QWidget):
                 if fid_r is not None:
                     try:
                         outlier_ids.add(int(fid_r))
-                    except (TypeError, ValueError):
-                        pass
+                    except (TypeError, ValueError) as _exc:
+                        ignore_exc(_exc)
                 continue
             dm = _coerce_finite_measurement_scalar(rec.get(dm_key))
             if dm is None:
@@ -7205,8 +7206,8 @@ class Wd1(QWidget):
         if raw is not None:
             try:
                 return int(raw)
-            except (TypeError, ValueError):
-                pass
+            except (TypeError, ValueError) as _exc:
+                ignore_exc(_exc)
         gsd = self._test_dem_gsd()
         if gsd is None:
             try:
@@ -7867,8 +7868,8 @@ class Wd1(QWidget):
         """Gera Audit_horizontal_*.pdf e/ou CSV."""
         try:
             self.settings_dlg.flush_widgets_to_dic_param(log_values=False)
-        except Exception:
-            pass
+        except Exception as _exc:
+            ignore_exc(_exc)
         audit_h, _v = self._audit_report_flags()
         if not audit_h:
             return []
@@ -7971,8 +7972,8 @@ class Wd1(QWidget):
         """Gera Audit_vertical_*.pdf e/ou CSV."""
         try:
             self.settings_dlg.flush_widgets_to_dic_param(log_values=False)
-        except Exception:
-            pass
+        except Exception as _exc:
+            ignore_exc(_exc)
         _h, audit_v = self._audit_report_flags()
         if not audit_v:
             return []
@@ -8152,8 +8153,8 @@ class Wd1(QWidget):
         self.dic_prj['path'] = data_dir
         try:
             self.settings_dlg.flush_widgets_to_dic_param(log_values=False)
-        except Exception:
-            pass
+        except Exception as _exc:
+            ignore_exc(_exc)
         try:
             os.makedirs(data_dir, exist_ok=True)
         except OSError as e:
@@ -8302,8 +8303,8 @@ class Wd1(QWidget):
                     if gpkg_n and map_layer_gpkg_path(lyr) == gpkg_n:
                         try:
                             proj.removeMapLayer(lyr.id())
-                        except Exception:
-                            pass
+                        except Exception as _exc:
+                            ignore_exc(_exc)
                     continue
                 if gpkg_n and map_layer_gpkg_path(lyr) != gpkg_n:
                     continue
@@ -8621,8 +8622,8 @@ class Wd1(QWidget):
                 if old_dlg is not None:
                     try:
                         old_dlg._save_window_geometry()
-                    except Exception:
-                        pass
+                    except Exception as _exc:
+                        ignore_exc(_exc)
                     old_dlg.deleteLater()
                 self.settings_dlg = SettingsDlg(main=self.parent, parent=self)
                 self.reload_settings_from_project_file()
@@ -8634,8 +8635,8 @@ class Wd1(QWidget):
             if old_dlg is not None:
                 try:
                     old_dlg._save_window_geometry()
-                except Exception:
-                    pass
+                except Exception as _exc:
+                    ignore_exc(_exc)
                 old_dlg.deleteLater()
             self.settings_dlg = SettingsDlg(main=self.parent, parent=self)
             self.reload_settings_from_project_file()

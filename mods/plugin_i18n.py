@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from .mod_exc import ignore_exc
 
 from qgis.PyQt.QtCore import QCoreApplication, QLocale, QSettings, QTranslator
 
@@ -71,17 +72,17 @@ def qgis_locale_tag() -> str:
         else:
             candidates.append(gs.value('locale/globalLocale', ''))
             candidates.append(gs.value('locale/userLocale', ''))
-    except Exception:
+    except Exception as _exc:
         # QGIS QgsSettings pode falhar fora do app
-        pass
+        ignore_exc(_exc)
 
     try:
         qs = QSettings()
         candidates.append(qs.value('locale/userLocale'))
         candidates.append(qs.value('locale/globalLocale'))
-    except Exception:
+    except Exception as _exc:
         # QSettings de sistema opcional
-        pass
+        ignore_exc(_exc)
 
     candidates.append(QLocale.system().name())
 

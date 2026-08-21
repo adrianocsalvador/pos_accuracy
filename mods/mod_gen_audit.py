@@ -47,6 +47,7 @@ from .mod_worker_threads import (
     build_compatibilized_profile_geometries,
     orient_line_high_to_low,
 )
+from .mod_exc import ignore_exc
 
 NORM_SCALE = 0
 NORM_LESS_DIST = 1
@@ -348,8 +349,8 @@ def _float_or_none(val):
     try:
         if hasattr(val, 'isNull') and val.isNull():
             return None
-    except Exception:
-        pass
+    except Exception as _exc:
+        ignore_exc(_exc)
     try:
         v = float(val)
         return v if math.isfinite(v) else None
@@ -411,15 +412,15 @@ def _polygon_rings_xy(geom):
                 _append_poly(poly)
             if rings:
                 return rings
-    except Exception:
-        pass
+    except Exception as _exc:
+        ignore_exc(_exc)
     try:
         poly = g.asPolygon()
         _append_poly(poly)
         if rings:
             return rings
-    except Exception:
-        pass
+    except Exception as _exc:
+        ignore_exc(_exc)
     # Fallback: extrair anéis via WKT / constGet
     try:
         geom_out = g
@@ -430,8 +431,8 @@ def _polygon_rings_xy(geom):
             part_g = QgsGeometry(geom_out.constGet().geometryN(part).clone())
             poly = part_g.asPolygon()
             _append_poly(poly)
-    except Exception:
-        pass
+    except Exception as _exc:
+        ignore_exc(_exc)
     return rings
 
 

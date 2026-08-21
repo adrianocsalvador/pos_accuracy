@@ -4,6 +4,7 @@ import json
 from qgis.PyQt.QtCore import QSettings
 
 from .plugin_i18n import SETTINGS_APP, SETTINGS_ORG
+from .mod_exc import ignore_exc
 
 
 class AuxTools:
@@ -36,8 +37,8 @@ class AuxTools:
             if geom:
                 self.settings.setValue(key_new, geom)
                 return geom
-        except Exception:
-            pass
+        except Exception as _exc:
+            ignore_exc(_exc)
         return None
 
     def get_(self, key_=''):
@@ -82,8 +83,8 @@ class AuxTools:
             y0 = int(self.settings.value(f'{self.menu_}/y'))
             if y0:
                 return x0, y0, dw, dh
-        except Exception:
-            pass
+        except Exception as _exc:
+            ignore_exc(_exc)
         dw, dh, x0, y0 = 372, 265, 100, 100
         self.settings.setValue(f'{self.menu_}/width', dw)
         self.settings.setValue(f'{self.menu_}/height', dh)
